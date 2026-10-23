@@ -1,0 +1,58 @@
+# Every push to main: type-check + tests, then (only if they pass) copy the code to the Oracle
+# server, rebuild, restart and check the live site. Data (the Docker volume) and the server's HQ
+# code (deploy/.env on the server) are never touched by a deploy.
+#
+# Repo settings this uses: secrets DEPLOY_SSH_KEY (a key that only logs in to the server) and
+# DEPLOY_KNOWN_HOSTS (the server's SSH fingerprint); variables DEPLOY_HOST and DEPLOY_URL.
+name: Test and deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # "Run workflow" button: redeploy without a new commit
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false # never stop a deploy half-way; the next one waits
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: SSH key for the server
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+
+      - name: Copy the code
+        run: git archive HEAD | ssh ubuntu@${{ vars.DEPLOY_HOST }} "mkdir -p ~/field-desk && tar -x -C ~/field-desk"
+
+      - name: Rebuild and restart
+        # The old version keeps serving while the new image builds; the switch takes seconds.
+        run: ssh ubuntu@${{ vars.DEPLOY_HOST }} "cd ~/field-desk/deploy && sudo docker compose up -d --build --remove-orphans && sudo docker image prune -f >/dev/null"
+
+      - name: Check the live site
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS -o /dev/null "${{ vars.DEPLOY_URL }}/api/me"; then echo "Live: ${{ vars.DEPLOY_URL }}"; exit 0; fi
+            sleep 5
+          done
+          echo "The site didn't answer after the deploy — check: cd ~/field-desk/deploy && sudo docker compose logs app" >&2
+          exit 1
