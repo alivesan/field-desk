@@ -1,0 +1,7 @@
+# HTTPS for DOMAIN (a real domain, or the free <ip-with-dashes>.sslip.io name setup.sh picks).
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:8080 {
+		flush_interval -1 # live updates are a server-sent event stream: pass every message through at once
+	}
+}

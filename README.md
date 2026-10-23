@@ -122,6 +122,17 @@ docker run -p 8080:8080 -e SUPER_ADMIN_CODE=<long secret> -v field-desk-data:/da
 
 Sign-in rate limits: 10 wrong codes per address per 15 min (separately for admin codes and HQ), plus a global ceiling of 300 wrong admin codes per hour that never blocks HQ. 429 responses carry `Retry-After`.
 
+### Free server: Oracle Cloud Always Free (or any Ubuntu VPS)
+
+`deploy/` has everything: Docker Compose with the app and [Caddy](https://caddyserver.com) for automatic HTTPS. No domain is needed — it uses the free `<ip-with-dashes>.sslip.io` name for the server's IP (a real domain works too).
+
+1. **Oracle console:** create an Ubuntu instance (Ampere A1 or the AMD micro shape), keep the SSH key it gives you, and note the public IP. Then Networking → Virtual cloud networks → your VCN → Security List → **add ingress rules for TCP 80 and 443** from `0.0.0.0/0`.
+2. **Copy the code to the server** (the repo is private, so from your PC): `git archive HEAD | ssh -i <key> ubuntu@<ip> "mkdir -p field-desk && tar -x -C field-desk"`.
+3. **On the server:** `cd field-desk && sudo bash deploy/setup.sh` (or `sudo bash deploy/setup.sh your.domain`). It installs Docker, opens the machine's own firewall for 80/443, creates `deploy/.env` with a new HQ code (`sudo grep SUPER_ADMIN_CODE deploy/.env`), and starts everything.
+4. Open `https://<ip-with-dashes>.sslip.io/hq`.
+
+**Update:** copy the new code the same way, then `cd deploy && sudo docker compose up -d --build`. Data lives in the `field-desk-data` Docker volume and survives updates. **Move your PC data there:** home page → Export backup on the PC, then Import on the server.
+
 ## Backups and restore
 
 ```bash
