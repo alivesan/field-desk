@@ -1,9 +1,13 @@
-import { useApp } from '../lib/db.ts';
+import { usePendingWork, useApp } from '../lib/db.ts';
 import { assess, verdictLabel } from '../lib/assess.ts';
 import { storeDate } from '../lib/recce.ts';
-import { editedSince, isLegacy, latestSubmission, revLabel, submissionPolicy } from '../lib/submission.ts';
+import { submissionVersion } from '../lib/commands.ts';
+import { editedSince, isLegacy, latestSubmission, revLabel, submissionPolicy, submissionsOf, type AnySubmission } from '../lib/submission.ts';
+import type { Store } from '../lib/types.ts';
 import { ago, cx, todayLocal } from '../lib/util.ts';
-import { Chip, useNow } from './ui.tsx';
+import { askConfirm, Chip, notify, useNow } from './ui.tsx';
+import { useHqCommand } from './hqCommand.ts';
+import '../styles/hq-delete.css';
 
 /*
  * HQ's inbox: each store's latest submitted revision, newest first. "New" = that revision
@@ -30,6 +34,8 @@ export function markReportSeen(storeId: string, submissionId: string) {
 }
 
 export function ReportsInbox() {
+  const send = useHqCommand();
+  const removing = usePendingWork().filter((w) => w.cmd?.type === 'recce.delete' || w.cmd?.type === 'recce.reset');
   const stores = useApp((s) => s.stores);
   const events = useApp((s) => s.events);
   const now = useNow(30000);
@@ -44,6 +50,21 @@ export function ReportsInbox() {
   const waiting = all.filter((s) => !latestSubmission(s) && storeDate(s, events[s.eventId]) >= today).length;
   const isNew = (storeId: string, subId: string) => opened[storeId] !== subId;
   const fresh = submitted.filter((x) => isNew(x.s.id, x.sub.id)).length;
+
+  /** Delete the report listed here: the latest revision (the one before it, if any, becomes the listed one), or — for a report that predates revisions — reset the recce. */
+  const remove = async (s: Store, sub: AnySubmission) => {
+    const subs = submissionsOf(s);
+    const prev = subs.length > 1 ? subs[subs.length - 2] : undefined;
+    const legacy = isLegacy(sub);
+    const text = legacy
+      ? `Delete the report for ${s.name}? It predates revisions, so this resets the store’s recce: the admin will have to do it again. Photos already uploaded stay on the server but aren’t shown.`
+      : `Delete ${revLabel(sub)} of ${s.name}? It leaves the Recce reports for good${prev ? `; ${revLabel(prev)} becomes the one listed` : ''}. The admin’s working recce is not touched, and photos already uploaded stay on the server but aren’t shown.`;
+    if (!(await askConfirm(text, { ok: legacy ? 'Reset recce' : `Delete ${revLabel(sub)}`, danger: true }))) return;
+    const problem = send(s.id, (cur) => (legacy ? { type: 'recce.reset', base: submissionVersion(cur) } : { type: 'recce.delete', base: submissionVersion(cur), submissionId: sub.id }));
+    if (problem) return void notify(problem);
+    // Deleting a revision HQ had opened must not make the one before it "new" again.
+    if (prev && opened[s.id] === sub.id) markReportSeen(s.id, prev.id);
+  };
 
   return (
     <section className="inbox">
@@ -80,6 +101,9 @@ export function ReportsInbox() {
                 <a className="btn ghost inbox-pdf" href={`#/store/${s.id}/report/pdf`}>
                   PDF
                 </a>
+                <button className="link inbox-delete" title="Delete this report (test data)" disabled={removing.some((w) => w.storeId === s.id)} onClick={() => remove(s, sub)}>
+                  Delete
+                </button>
               </li>
             );
           })}

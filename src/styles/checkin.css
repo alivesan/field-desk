@@ -451,3 +451,132 @@
     width: 100%;
   }
 }
+
+/* ---------- check-in list: tap the name for the player card, the pill for check in / undo ---------- */
+
+.roster-row {
+  cursor: default;
+}
+.roster-row .pmain {
+  appearance: none;
+  align-self: stretch;
+  justify-content: center;
+  min-height: 60px;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.roster-row .pmain .pname::after {
+  content: ' ›';
+  color: var(--muted);
+}
+ul.roster .roster-row:not(.in):hover .pname {
+  color: var(--ink-2);
+}
+ul.roster .roster-row.in:hover .pname {
+  color: var(--ink);
+}
+ul.roster .roster-row .pmain:hover .pname,
+ul.roster .roster-row .pmain:focus-visible .pname {
+  color: var(--accent);
+}
+.roster-row .pmain:focus-visible,
+.roster-row .pstate:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.roster-row .pstate {
+  appearance: none;
+  min-height: 40px;
+  background: none;
+  color: var(--ink);
+  border-radius: 0;
+  cursor: pointer;
+}
+.roster-row .pstate:hover {
+  background: var(--paper-2);
+}
+.roster-row.in .pstate:hover {
+  background: var(--ok-soft);
+}
+
+/* the player card (PlayerSheet.tsx) */
+.sheet-title {
+  margin: 4px 0 0;
+  padding-right: 40px;
+  font: 400 36px/1.05 var(--serif);
+  letter-spacing: -0.022em;
+  overflow-wrap: anywhere;
+}
+.sheet-ign {
+  margin-top: 4px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.sheet-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: 14px 0 16px;
+}
+.sheet-here {
+  padding: 5px 8px;
+  border: 1px solid var(--ink);
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.sheet-here.in {
+  border-color: transparent;
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.btn.call {
+  width: 100%;
+  min-height: 76px;
+  gap: 16px;
+  justify-content: center;
+}
+.call-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.call-main strong {
+  font: 600 13px/1 var(--sans);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.call-main span {
+  font: 500 26px/1 var(--mono);
+  letter-spacing: 0.04em;
+}
+.sheet-nophone {
+  margin: 0;
+  padding: 18px 16px;
+  background: var(--paper-2);
+  color: var(--muted);
+  font: italic 400 20px/1.2 var(--serif);
+}
+.sheet-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+.sheet-buttons .btn {
+  flex: 1;
+  min-height: 48px;
+}
+.roster-row .pmeta {
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.roster-row .pmeta > * {
+  white-space: nowrap;
+}

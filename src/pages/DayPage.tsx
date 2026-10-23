@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { discardWork, retryWork, sendCommand, updateStore, useApp, usePendingWork, useSync, type PendingWork } from '../lib/db.ts';
 import { storeCrumbs } from '../lib/admins.ts';
-import { canUndo, computeQueue, matchNo, roundCount, roundName } from '../lib/bracket.ts';
+import { computeQueue, matchNo, roundCount, roundName } from '../lib/bracket.ts';
 import {
   checkInUrl,
   closeSelfCheckIn,
@@ -20,9 +20,12 @@ import { dayVersion, type Command } from '../lib/commands.ts';
 import { isPhone, maskPhone, MAX_IGN, normalizePhone, publicName } from '../lib/phone.ts';
 import { differentName, onSpotClash, tournamentCommand } from '../lib/tournament.ts';
 import { onSpotByPlayer } from '../lib/onspot.ts';
+import { feederOf, KIND_INFO, KIND_ORDER, matchState, slotKind, type MatchKind, type SlotKind } from '../lib/day-ui.ts';
 import type { Match, MatchDay, Player, Store, TournamentEvent } from '../lib/types.ts';
 import { cx, fmtTime, minutesSince, uid } from '../lib/util.ts';
-import { askConfirm, Chip, NotFound, NumberField, PageHead, Shell, useNow } from '../components/ui.tsx';
+import { askConfirm, Chip, NotFound, notify, NumberField, PageHead, Shell, useNow } from '../components/ui.tsx';
+import { MatchSheet, StateTag } from '../components/MatchSheet.tsx';
+import { PlayerSheet } from '../components/PlayerSheet.tsx';
 import { CheckInQr } from '../components/CheckInQr.tsx';
 import '../styles/day.css';
 import { shareOrigin, useLan } from '../lib/origin.ts';
@@ -42,7 +45,8 @@ type Tab = 'checkin' | 'queue' | 'bracket';
  * (src/lib/checkin.ts) — the server writes those, and they arrive here through normal sync.
  */
 interface Cmds {
-  run: (cmd: Command) => boolean;
+  run: (cmd: Command) => boolean; // a refusal lands in the notices at the top of the page
+  attempt: (cmd: Command) => string | null; // the same, but the refusal comes back to the caller — for the sheets, which cover those notices
   check: (cmd: Command) => string | null; // the precheck alone: why this device's view refuses it, or null
   base: number;
   inFlight: PendingWork[];
@@ -100,20 +104,25 @@ export function DayPage({ storeId }: { storeId: string }) {
       return e instanceof Error ? e.message : String(e);
     }
   };
-  const run = (cmd: Command) => {
-    const fail = (error: string) => (setLocal((l) => [...l, { id: uid(), cmd, error }]), false);
+  const attempt = (cmd: Command) => {
     const refused = check(cmd);
-    if (refused) return fail(refused);
+    if (refused) return refused;
     try {
       sendCommand(store.id, cmd);
-      return true;
+      return null;
     } catch (e) {
-      return fail(`Couldn’t queue this on the device: ${e instanceof Error ? e.message : String(e)}`);
+      return `Couldn’t queue this on the device: ${e instanceof Error ? e.message : String(e)}`;
     }
+  };
+  const run = (cmd: Command) => {
+    const error = attempt(cmd);
+    if (error) setLocal((l) => [...l, { id: uid(), cmd, error }]);
+    return !error;
   };
   const inFlight = work.filter((w) => w.state === 'queued' || w.state === 'sending');
   const cmds: Cmds = {
     run,
+    attempt,
     check,
     base: dayVersion(store),
     inFlight,
@@ -200,7 +209,7 @@ export function DayPage({ storeId }: { storeId: string }) {
       ) : tab === 'queue' ? (
         <QueueView day={day} editDay={editDay} names={names} igns={igns} cmds={cmds} />
       ) : (
-        <BracketView store={store} names={names} igns={igns} cmds={cmds} canReset={hq} />
+        <BracketView store={store} names={names} igns={igns} cmds={cmds} canReset={hq} onCheckIn={(pid) => editDay((d) => staffCheckIn(d, pid, new Date().toISOString()))} />
       )}
 
       <JoinedNotices
@@ -338,11 +347,14 @@ function CheckIn({
     .filter((p) => matchesPlayer(p, search))
     .sort((a, b) => a.name.localeCompare(b.name));
 
+  // The player whose name was tapped: a sheet with the full number and Call (the list stays masked).
+  const [open, setOpen] = useState<string | null>(null);
   const toggle = async (p: Player) => {
     if (day.checkIn[p.id]) {
-      if (!(await askConfirm(`Undo check-in for ${p.name}?${isSelf(day, p.id) ? ' They checked in by QR.' : ''}`, { ok: 'Undo check-in' }))) return;
+      if (!(await askConfirm(`Undo check-in for ${p.name}?${isSelf(day, p.id) ? ' They checked in by QR.' : ''}`, { ok: 'Undo check-in' }))) return false;
       editDay((d) => undoCheckIn(d, p.id));
     } else editDay((d) => staffCheckIn(d, p.id, new Date().toISOString()));
+    return true;
   };
 
   // Positions stay fixed (falsy placeholders), so the desk form keeps its state when the first walk-in fills an empty list.
@@ -378,9 +390,9 @@ function CheckIn({
       <ul className="roster">
         {list.map((p) => (
           <li key={p.id}>
-            <button className={cx('roster-row', day.checkIn[p.id] && 'in')} onClick={() => toggle(p)}>
+            <div className={cx('roster-row', day.checkIn[p.id] && 'in')}>
               <span className="seed">{String(p.seed).padStart(2, '0')}</span>
-              <span className="pmain">
+              <button className="pmain" onClick={() => setOpen(p.id)} aria-haspopup="dialog" title="Name, number and Call">
                 <span className="pname">{p.name}</span>
                 {(isSelf(day, p.id) || onSpot.has(p.id) || p.phone || p.ign) && (
                   <span className="pmeta">
@@ -402,13 +414,22 @@ function CheckIn({
                     {p.phone && maskPhone(p.phone)}
                   </span>
                 )}
-              </span>
-              <span className="pstate">{day.checkIn[p.id] ? `Here · ${fmtTime(day.checkIn[p.id])}` : 'Check in'}</span>
-            </button>
+              </button>
+              <button className="pstate" onClick={() => toggle(p)}>
+                {day.checkIn[p.id] ? `Here · ${fmtTime(day.checkIn[p.id])}` : 'Check in'}
+              </button>
+            </div>
           </li>
         ))}
         {!list.length && <li className="empty">No one matches.</li>}
       </ul>
+      <PlayerSheet
+        player={day.players.find((x) => x.id === open) ?? null}
+        day={day}
+        onSpot={open ? onSpot.get(open) : undefined}
+        onToggle={async (p) => (await toggle(p)) && setOpen(null)}
+        onClose={() => setOpen(null)}
+      />
         </>
       )}
     </section>
@@ -603,7 +624,7 @@ function SelfCheckInPanel({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      prompt('Copy this check-in link', url);
+      notify(`Copy this check-in link: ${url}`);
     }
   };
 
@@ -936,53 +957,146 @@ function QueueView({ day, editDay, names, igns, cmds }: { day: MatchDay; editDay
 
 /* ---------- bracket ---------- */
 
-function BracketView({ store, names, igns, cmds, canReset }: { store: Store; names: Record<string, string>; igns: Record<string, string>; cmds: Cmds; canReset: boolean }) {
+/** The key above the chart: one entry per state a match card can be in, drawn exactly as on the cards. Collapsible, and remembers it on this device. */
+function BracketLegend() {
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem('fd.bracketKey') !== 'closed';
+    } catch {
+      return true;
+    }
+  });
+  return (
+    <details
+      className="blegend"
+      open={open}
+      onToggle={(e) => {
+        const now = e.currentTarget.open;
+        setOpen(now);
+        try {
+          localStorage.setItem('fd.bracketKey', now ? 'open' : 'closed');
+        } catch {
+          /* private mode — the key just opens again next time */
+        }
+      }}
+    >
+      <summary>
+        <span className="label">Key — what the cards mean</span>
+        <span className="label blegend-tap">Tap a match to act on it</span>
+      </summary>
+      <ul className="blegend-list">
+        {KIND_ORDER.map((k) => (
+          <li key={k}>
+            <StateTag kind={k} />
+            <span>{KIND_INFO[k].hint}</span>
+          </li>
+        ))}
+        <li>
+          <span className="bmark here" aria-hidden>
+            ✓
+          </span>
+          <span>Player checked in.</span>
+        </li>
+        <li>
+          <span className="bmark away" aria-hidden>
+            ○
+          </span>
+          <span>Player not here — row shaded.</span>
+        </li>
+      </ul>
+    </details>
+  );
+}
+
+const SLOT_MARK: Record<SlotKind, string> = { here: '✓', away: '○', won: '', lost: '', adv: '', tbd: '', bye: '', open: '' };
+const SLOT_TAG: Partial<Record<SlotKind, string>> = { away: 'Not here', won: 'Won' };
+
+function BracketView({ store, names, igns, cmds, canReset, onCheckIn }: { store: Store; names: Record<string, string>; igns: Record<string, string>; cmds: Cmds; canReset: boolean; onCheckIn: (pid: string) => void }) {
   const { matches, checkIn } = store.day;
   const total = roundCount(matches);
   const rounds = Array.from({ length: total }, (_, r) => matches.filter((m) => m.round === r).sort((a, b) => a.index - b.index));
+  const [open, setOpen] = useState<string | null>(null);
+
+  // The round names sit in a strip that stays under the tabs while the page scrolls, and slides sideways with the chart.
+  const scroller = useRef<HTMLDivElement>(null);
+  const strip = useRef<HTMLDivElement>(null);
+  const follow = () => {
+    if (scroller.current && strip.current) strip.current.style.transform = `translateX(${-scroller.current.scrollLeft}px)`;
+  };
 
   const reset = async () => {
     if (!(await askConfirm('Reset the bracket? Every result and live match is cleared. Players (in their order) and check-ins stay — build it again on the Players & bracket page.', { ok: 'Reset bracket', danger: true }))) return;
     cmds.run({ type: 'bracket.reset', base: cmds.base });
   };
-  const undo = async (m: Match) =>
-    (await askConfirm(m.status === 'live' ? 'Cancel this match and send it back to the queue?' : 'Undo this result? The score is cleared too.', { ok: m.status === 'live' ? 'Cancel match' : 'Undo result', danger: true })) &&
-    cmds.run({ type: 'match.undo', base: cmds.base, matchId: m.id });
 
-  const slot = (m: Match, id: string | null) => (
-    <div className={cx('bslot', m.winner && m.winner === id && 'won', m.winner && id && m.winner !== id && 'lost')}>
-      <span title={id && igns[id] ? `In-game name: ${igns[id]}` : undefined}>{id ? names[id] : m.round === 0 && m.bye ? 'Bye' : 'TBD'}</span>
-      {id && !checkIn[id] && m.status !== 'done' && <i title="Not checked in">○</i>}
-    </div>
-  );
+  const no = (m: Match) => `M${matchNo(m, matches)}`;
+  const slot = (m: Match, side: 0 | 1) => {
+    const id = side === 0 ? m.a : m.b;
+    const kind = slotKind(m, id, checkIn);
+    const f = feederOf(m, side, matches);
+    const text = id ? names[id] : kind === 'bye' ? 'Bye' : f ? `Winner of ${no(f)}` : kind === 'open' ? '—' : 'TBD';
+    const tag = SLOT_TAG[kind];
+    return (
+      <span className={cx('bslot', kind)} title={id && igns[id] ? `In-game name: ${igns[id]}` : undefined}>
+        <span className="bmark" aria-hidden>
+          {SLOT_MARK[kind]}
+        </span>
+        <span className="bname">{text}</span>
+        {tag && <span className="btag">{tag}</span>}
+      </span>
+    );
+  };
+  const summary = (m: Match, kind: MatchKind) => {
+    const who = (id: string | null) => (id ? names[id] : 'to be decided');
+    const away = [m.a, m.b].filter((id): id is string => !!id && !checkIn[id]).map((id) => names[id]);
+    const state =
+      kind === 'one-missing' || kind === 'both-missing' ? `${KIND_INFO[kind].label}: ${away.join(' and ')} not here` : kind === 'live' ? `live on station ${m.station}` : kind === 'done' ? `done, ${names[m.winner ?? ''] ?? 'no winner'} won` : KIND_INFO[kind].label.toLowerCase();
+    return `${no(m)}, ${who(m.a)} versus ${who(m.b)} — ${state}. Open`;
+  };
 
   return (
     <section>
-      <div className="bracket-scroll">
+      <BracketLegend />
+      <div className="bhead" aria-hidden>
+        <div ref={strip} className="bracket" style={{ ['--rounds' as string]: total }}>
+          {rounds.map((list, r) => (
+            <div key={r} className="bround-head">
+              <span className="label">{roundName(r, total)}</span>
+              <span className="label">{list.every((m) => m.status === 'done') ? 'all done' : `${list.filter((m) => m.status === 'done').length}/${list.length} done`}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="bracket-scroll" ref={scroller} onScroll={follow}>
         <div className="bracket" style={{ ['--rounds' as string]: total }}>
           {rounds.map((list, r) => (
             <div key={r} className="bround">
-              <div className="label">{roundName(r, total)}</div>
               <div className="bround-list">
                 {list.map((m) => {
+                  const st = matchState(m, store.day);
                   const p = cmds.pendingFor(m.id);
-                  return (
-                    <div key={m.id} className={cx('bmatch', m.status, m.bye && 'bye')}>
-                      <div className="bmatch-top">
-                        <span>M{matchNo(m, matches)}</span>
-                        {m.status === 'live' && <Chip tone="accent">Stn {m.station}</Chip>}
-                        {m.walkover && <span>W/O</span>}
-                        {m.score && <span>{m.score}</span>}
-                        {p && <span className="pending-tag">{pendingLabel(p, cmds.offline)}</span>}
-                        {canUndo(m, matches) && (
-                          <button className="link" onClick={() => undo(m)}>
-                            {m.status === 'live' ? 'cancel' : 'undo'}
-                          </button>
-                        )}
-                      </div>
-                      {slot(m, m.a)}
-                      {slot(m, m.b)}
+                  const inner = (
+                    <>
+                      <span className="bmatch-top">
+                        <span className="bno">{no(m)}</span>
+                        {m.score && <span className="bscore">{m.score}</span>}
+                        {m.walkover && <span className="bwo">W/O</span>}
+                        <StateTag kind={st.kind} station={m.station} />
+                      </span>
+                      {slot(m, 0)}
+                      {slot(m, 1)}
+                      {p && <span className="bmatch-foot pending-tag">{pendingLabel(p, cmds.offline)}</span>}
+                    </>
+                  );
+                  // A bye has nothing to act on; every other card opens its sheet.
+                  return st.kind === 'bye' ? (
+                    <div key={m.id} className={cx('bmatch', st.kind)}>
+                      {inner}
                     </div>
+                  ) : (
+                    <button key={m.id} className={cx('bmatch', st.kind, open === m.id && 'open')} aria-haspopup="dialog" aria-label={summary(m, st.kind)} onClick={() => setOpen(m.id)}>
+                      {inner}
+                    </button>
                   );
                 })}
               </div>
@@ -991,7 +1105,7 @@ function BracketView({ store, names, igns, cmds, canReset }: { store: Store; nam
         </div>
       </div>
       <div className="submit-bar">
-        <span className="label">○ = not checked in yet</span>
+        <span className="label">Scroll sideways for later rounds</span>
         {canReset ? (
           <span className="row tight">
             <a className="link" href={`#/store/${store.id}/players`}>
@@ -1005,6 +1119,7 @@ function BracketView({ store, names, igns, cmds, canReset }: { store: Store; nam
           <span className="label">HQ owns the bracket — ask HQ to change players</span>
         )}
       </div>
+      <MatchSheet matchId={open} day={store.day} names={names} igns={igns} cmds={cmds} pendingText={(w) => pendingLabel(w, cmds.offline)} onCheckIn={onCheckIn} onClose={() => setOpen(null)} />
     </section>
   );
 }

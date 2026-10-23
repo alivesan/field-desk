@@ -5,13 +5,16 @@ import { copyText, csvRows, FILTER_LABEL, filterOnSpot, isAdded, onSpotCounts, o
 import type { OnSpotEntry, Store, TournamentEvent } from '../lib/types.ts';
 import { cx, downloadBlob, fmtDate, fmtTime, slug, todayLocal } from '../lib/util.ts';
 import { askConfirm, Chip } from './ui.tsx';
+import { useHqCommand } from './hqCommand.ts';
 import '../styles/onspot.css';
 
 /*
  * HQ: the walk-ins admins registered at the desk (day.onSpot, added by players.onspot), across a
  * campaign's stores (grouped by store) or for one store. HQ copies them into the store's
  * tournament on Toornament, ticks each one off (onspot.mark, HQ-only), and after a Refresh from
- * Toornament sees "In bracket" — the proof the round trip worked. Pure logic: src/lib/onspot.ts.
+ * Toornament sees "In bracket" — the proof the round trip worked. HQ can also delete registrations
+ * (onspot.remove — test data, mistakes): the record only, or with "also take them off the player
+ * list" the players too. Pure logic: src/lib/onspot.ts.
  */
 
 /** onspot.mark for each entry, checked here first like the server will. Returns '' or what went wrong. */
@@ -121,6 +124,8 @@ export function OnSpotList({ event, stores, single }: { event: TournamentEvent; 
 
 function StoreGroup({ store, filter, single }: { store: Store; filter: OnSpotFilter; single: boolean }) {
   const mark = useMarkOnSpot();
+  const send = useHqCommand();
+  const [alsoPlayers, setAlsoPlayers] = useState(false); // remove: take the players off the list too
   const [note, setNote] = useState<{ text: string; bad?: boolean } | null>(null);
   const [manual, setManual] = useState(''); // text to copy by hand when the browser won't
   const rows = filterOnSpot(onSpotStates(store.day), filter);
@@ -152,6 +157,23 @@ function StoreGroup({ store, filter, single }: { store: Store; filter: OnSpotFil
         open.map((e) => e.id),
         true,
       );
+  };
+
+  /** What happens to the players, in words: the confirm dialog says it before anything is deleted. */
+  const aftermath = (list: OnSpotState[]) => {
+    const onList = list.filter((r) => r.player);
+    if (!onList.length) return '';
+    const many = list.length > 1;
+    if (!alsoPlayers) return ` ${many ? 'Players who are on the list stay on it' : 'They stay on the player list'} — remove them there if you want them gone too.`;
+    const checked = onList.filter((r) => r.checkedIn).length;
+    return ` ${many ? `${plural(onList.length, 'player')} will` : 'They will'} also be taken off the player list${checked ? ` (${checked} checked in)` : ''}.`;
+  };
+  const remove = async (list: OnSpotState[]) => {
+    if (!list.length) return;
+    const who = list.length === 1 ? `${list[0].entry.name}’s on-spot registration` : `all ${list.length} on-spot registrations`;
+    if (!(await askConfirm(`Delete ${who} at ${store.name}?${aftermath(list)} This can’t be undone.`, { ok: list.length === 1 ? 'Delete' : 'Delete all', danger: true }))) return;
+    const problem = send(store.id, (s) => ({ type: 'onspot.remove', base: dayVersion(s), entryIds: list.map((r) => r.entry.id), ...(alsoPlayers ? { alsoPlayers: true as const } : {}) }));
+    setNote(problem ? { text: problem, bad: true } : null);
   };
 
   return (
@@ -188,19 +210,25 @@ function StoreGroup({ store, filter, single }: { store: Store; filter: OnSpotFil
             Mark all as added{open.length > 1 ? ` (${open.length})` : ''}
           </button>
         )}
+        <button className="btn danger os-remove-all" title="Delete these registrations" onClick={() => remove(rows)}>
+          {rows.length === all.length ? 'Remove all' : 'Remove these'} ({rows.length})
+        </button>
       </div>
+      <label className="os-also">
+        <input type="checkbox" checked={alsoPlayers} onChange={(e) => setAlsoPlayers(e.target.checked)} /> Also take them off the player list
+      </label>
       {note && <p className={cx('os-note', note.bad && 'bad')}>{note.text}</p>}
       {manual && <textarea className="os-manual" readOnly rows={Math.min(8, entries.length + 1)} value={manual} onFocus={(e) => e.currentTarget.select()} />}
       <ol className="os-list">
         {rows.map((r) => (
-          <Row key={r.entry.id} row={r} onMark={(done) => set([r.entry.id], done)} />
+          <Row key={r.entry.id} row={r} onMark={(done) => set([r.entry.id], done)} onRemove={() => remove([r])} />
         ))}
       </ol>
     </div>
   );
 }
 
-function Row({ row, onMark }: { row: OnSpotState; onMark: (done: boolean) => void }) {
+function Row({ row, onMark, onRemove }: { row: OnSpotState; onMark: (done: boolean) => void; onRemove: () => void }) {
   const e: OnSpotEntry = row.entry;
   return (
     <li className={cx('os-row', isAdded(e) && 'added')}>
@@ -238,6 +266,9 @@ function Row({ row, onMark }: { row: OnSpotState; onMark: (done: boolean) => voi
             Added to Toornament
           </button>
         )}
+        <button className="os-remove" aria-label={`Delete ${e.name}’s registration`} title="Delete this registration" onClick={onRemove}>
+          ×
+        </button>
       </span>
     </li>
   );

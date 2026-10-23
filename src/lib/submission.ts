@@ -1,6 +1,6 @@
 /*
- * Recce submissions: the 'recce.submit' / 'recce.review' command handlers, and the pure
- * helpers the UI uses to say where a recce stands.
+ * Recce submissions: the 'recce.submit' / 'recce.review' / 'recce.delete' / 'recce.reset' command
+ * handlers, and the pure helpers the UI uses to say where a recce stands.
  *
  *   Draft            no submission yet, or the working recce differs from the latest one
  *   Waiting to send  a recce.submit command is still in this device's outbox
@@ -10,6 +10,10 @@
  * A submission freezes a copy of the recce and the campaign requirements it was judged
  * against, so HQ can always reproduce exactly what it reviewed. The working recce stays
  * editable; changes after submitting show as "edited since rev N" until re-submitted.
+ *
+ * HQ can delete test data: recce.delete drops one revision (the working recce stays), recce.reset
+ * drops them all and blanks the working recce. Photo files are write-once on the server and stay;
+ * they're just no longer referenced. Revision numbers keep counting up past the highest one left.
  *
  * Handlers are pure (see commands.ts): ctx.now / ctx.commandId only — no clock, no random.
  * Node-loadable: no browser APIs, explicit .ts imports only.
@@ -21,7 +25,22 @@ import { ensureRecce } from './recce.ts';
 export const SUBMISSION_COMMANDS: Record<string, Role[]> = {
   'recce.submit': ['super', 'admin'],
   'recce.review': ['super'],
+  'recce.delete': ['super'],
+  'recce.reset': ['super'],
 };
+
+/** A recce nobody has touched — the server-side twin of newRecce() in db.ts (a test keeps them equal). */
+export function blankRecce(): Recce {
+  return {
+    status: 'draft',
+    venue: { photos: [] },
+    laptops: [],
+    network: { wifi: null, lan: null, speed: null, photos: [] },
+    furniture: { setup: null, chairType: '', chairCount: null, tablecloth: null, photos: [] },
+    collateral: { posters: false, standee: false, cheque: false, standeePhotos: [], chequePhotos: [], chequeInStandeePhoto: false },
+    summary: '',
+  };
+}
 
 // Same as submissionVersion() in commands.ts — repeated here because commands.ts imports this file.
 const version = (store: Store) => store.submissions?.length ?? 0;
@@ -42,7 +61,7 @@ export function submissionCommand(store: Store, cmd: Command, ctx: CommandContex
       frozen.submittedAt = ctx.now;
       const sub: Submission = {
         id,
-        rev: version(store) + 1,
+        rev: (store.submissions ?? []).reduce((n, s) => Math.max(n, s.rev), 0) + 1, // not length+1: HQ may have deleted a middle revision
         submittedAt: ctx.now,
         by: ctx.actor.principal,
         byName: ctx.actor.name,
@@ -63,6 +82,30 @@ export function submissionCommand(store: Store, cmd: Command, ctx: CommandContex
       if (store.submissions![i].reviewedAt) return store; // already reviewed — keep the first review
       const next = structuredClone(store);
       next.submissions![i] = { ...next.submissions![i], reviewedAt: ctx.now, reviewedBy: ctx.actor.name || ctx.actor.principal };
+      return next;
+    }
+    case 'recce.delete': {
+      // No base check, like review: removing a revision is still what HQ meant when a newer one arrives.
+      const i = store.submissions?.findIndex((s) => s.id === cmd.submissionId) ?? -1;
+      if (i < 0) throw new CommandError('conflict', 'That revision isn’t on the server any more — it was already deleted, or never arrived.');
+      const next = structuredClone(store);
+      next.submissions = next.submissions!.filter((s) => s.id !== cmd.submissionId);
+      // The legacy fields on the working recce must not leave a phantom "submitted" report behind (see submissionsOf).
+      const last = next.submissions.at(-1);
+      if (last) next.recce.submittedAt = last.submittedAt;
+      else {
+        next.recce.status = 'draft';
+        delete next.recce.submittedAt;
+      }
+      return next;
+    }
+    case 'recce.reset': {
+      // Destructive: HQ must have seen the revisions it is deleting.
+      if (cmd.base !== version(store)) throw new CommandError('conflict', `A new revision arrived since this page loaded (rev ${version(store)}) — look at it, then reset again.`);
+      const next = structuredClone(store);
+      next.submissions = [];
+      next.recce = blankRecce();
+      next.pin = null; // the provisional venue pin came from the first geotagged photo
       return next;
     }
     default:

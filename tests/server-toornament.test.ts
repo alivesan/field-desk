@@ -118,7 +118,7 @@ test('toornament fetch: a tournament link → stages, registered names and the f
     assert.equal(r.body.stage.type, 'single_elimination');
     assert.equal(r.body.participants.length, 8);
     assert.equal(r.body.bracket.mode, 'pairs');
-    assert.deepEqual(r.body.bracket.pairs[2], ['Diya Patel', null]);
+    assert.deepEqual(r.body.bracket.pairs[0], ['Diya Patel', null]);
     assert.ok(Date.parse(r.body.fetchedAt) > 0);
     assert.ok(seen.every((u) => u.startsWith('https://play.toornament.com/api/')), seen.join('\n'));
     assert.deepEqual(

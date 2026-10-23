@@ -14,8 +14,8 @@ The server enforces all of this — an admin's device never receives other store
 
 ## Campaign flow
 
-1. **HQ** creates the campaign, admins (Team page) and stores (address, Google Maps link, venue spot, date, admin).
-2. **Recce** (admin, days before): venue, laptops (each game *Installed* + *Launched*, drivers, Windows), internet (in-app speed test or typed figures + screenshot), setup, collateral — each with time/GPS-stamped photo proof. **Submit** creates a numbered revision; HQ sees it in **Recce reports** (New until opened), views exactly what was submitted against the requirements of that moment, marks it reviewed, and can save it as PDF/HTML. Later edits show as "edited since rev N" until resubmitted.
+1. **HQ** creates the campaign, admins (Team page) and stores (one by one, or all at once from a sheet — see *Stores from a sheet*: name, ROG Exclusive, city, state, Google Maps link, Toornament link, date, admin).
+2. **Recce** (admin, days before): venue, setup (what is in place when you walk in), laptops (each game *Installed* + *Launched*, drivers, Windows), internet (in-app speed test or typed figures + screenshot), collateral — each with time/GPS-stamped photo proof. **Submit** creates a numbered revision; HQ sees it in **Recce reports** (New until opened), views exactly what was submitted against the requirements of that moment, marks it reviewed, and can save it as PDF/HTML. Later edits show as "edited since rev N" until resubmitted.
 3. **Players & bracket** (HQ, per store): on the campaign page each store row has **Players & bracket**, two steps:
    - **01 Players** — upload a CSV, link a published sheet (Refresh pulls the latest), paste, or add one player at a time; remove one or all. Same number or same name twice → HQ is asked *"which one is it?"* (keep one, or both). The list order is the seed order: the file's row order, or its Seed column if it has one (seed 1 is the strongest; top seeds get the byes).
    - **02 Bracket** — first-round preview, **Create bracket** (stations set here), see it, **Reset bracket**. Reset clears results and live matches only; players (in their order) and check-ins stay.
@@ -39,6 +39,24 @@ Store row → **Players & bracket** → 01 Players (or campaign page → **One p
 
 Comma, semicolon or tab separated; UTF-8, Excel's UTF-16 "Unicode Text" or Windows-1252; other columns (Email, Discord…) are ignored; any phone format (`+91 98200 11111`, `098200-11111`). Excel's `9.82E+09` is caught with a "format the column as text" hint. Rows that can't be matched and bad phones are listed by row number and block that store until fixed. A repeated row (same name and number) is kept once; the same number on two names, or the same name on two numbers, is a question HQ answers before loading ("Both" on a shared number means those players check in at the desk, not by QR). Player ids come from the phone (or name) — never the IGN — so re-importing keeps check-ins, and a re-import where only IGNs changed shows as "N in-game names changed"; a store whose matches are under way is never replaced.
 
+## Stores from a sheet (HQ)
+
+Campaign page → **Import from a sheet**. One row per store, so nobody has to add stores one by one. Sources: **Upload CSV**, **Sheet link** (Google Sheets shared "Anyone with the link" or File → Share → **Publish to the web**; the link is remembered on the campaign and **Refresh** re-pulls it), or **Paste** cells copied from a sheet. The preview says per row **New**, **Changed** (with each field's old → new), **Unchanged** or **Fix the row**; nothing is written until **Apply**. **Download a template** gives the headers.
+
+| Column | Headers recognised (any case/spacing) |
+|---|---|
+| **Store name** — required | Store name, Store, Name, Outlet, Venue |
+| **ROG Exclusive** | ROG Exclusive, Exclusive, Store type, Type — Yes / No / True / 1 / "Exclusive" / "ROG Exclusive Store" are yes; "Multi-brand", "Non-exclusive" are no |
+| **City** | City, Town, Location |
+| **State** | State, Province |
+| **Google Maps link** | Google Maps, Maps, Map, Location link, Maps URL — coordinates are read from it (short `maps.app.goo.gl` links are expanded by the server) so photo distance checks work |
+| **Toornament link** | Toornament, Bracket link, Tournament link — a toornament.com tournament link |
+| **Date** | Date, Tournament date — `24/10/2026`, `24-10-26`, `2026-10-24`, `24 Oct 2026`, `Sat, 24th October 2026` or an Excel date number; day first. No date → the campaign's date |
+| Address, Phone, Venue spot — optional | Address; Phone, Mobile, Contact; Venue spot |
+| Admin — optional | Admin, Field admin, Assigned to — a name from Team (case-insensitive; "Rahul" works if only one admin has that word). An unknown name is a warning: the store is left without an admin |
+
+**Rules.** A store is found again by its **name** (case, spacing and the "ASUS ROG Exclusive Store — " prefix ignored: "San Infotech" is "ASUS ROG Exclusive Store — San Infotech"), so importing the same sheet again updates instead of duplicating. The name is the key and is never changed by an import. Two stores with one name (a chain in several cities) are told apart by **City**. A blank cell (or "-", "n/a") never erases what a store has. A store that isn't in the sheet is never changed or deleted — it is only listed as "not in the sheet". A row with a bad date, a Maps link that isn't a link, a Toornament link that isn't Toornament's, a missing name or the same store twice is skipped with the reason and its row number; the other rows still apply. Apply is one local edit (synced like any other store edit), so a store the import creates behaves exactly like one added by hand. In a CSV, a Maps link has commas in it, so the sheet's CSV export (which quotes it) is fine but a hand-typed CSV needs the link in quotes; pasting cells from a sheet needs nothing.
+
 ## Brackets from Toornament (HQ)
 
 Each store can carry its Toornament link (store details, or pasted on the store's bracket step): `https://play.toornament.com/en_US/tournaments/<id>/` — a `…/stages/<id>/` link picks that stage. **Fetch from Toornament** shows the stages, the players (matched to the store's list by name, ignoring case and spacing, then by IGN since Toornament names are often gamertags — matched players keep their phone, IGN and check-in; new ones come without a phone) and Toornament's first-round pairings; **Use this bracket** replaces the store's players and bracket in one step (refused once matches are under way). The tournament must be public. Toornament's pages are JavaScript-only, so the server reads the public JSON those pages use (`play.toornament.com/api/…`, no key); if Toornament changes it, fetching stops working with a plain error and the other player sources still work.
@@ -53,6 +71,11 @@ Each store can carry its Toornament link (store details, or pasted on the store'
 - **HQ sees them** in **On-spot registrations** — on the campaign page (every store, grouped by store; each store row also shows "2 on-spot to add"; the campaign on HQ's home page says so too) and on the store's **Players & bracket → 01 Players** (that store only; the walk-ins carry an **On spot** tag in the player list). Tabs: **To add to Toornament** (default) / **Added** / **All**. Each row: name, IGN, full phone, time, admin, checked in, and **In bracket** / **Not in bracket yet**.
 - **The Toornament round trip**: **Copy names** (one per line, for Toornament's participant add; **Copy in-game names** uses the IGN where given) or **Download CSV** (Name, Phone, In-game name, Store, Registered at, By, Added to Toornament) → add them on Toornament → tick **Added to Toornament** per player (or **Mark all as added**; **Undo** to clear) → Players & bracket → Bracket → **Refresh** from Toornament. Walk-ins match by name or IGN and keep their phone, IGN and check-in; once the bracket is used, HQ is offered **Mark N as added to Toornament** for any not ticked yet. **In bracket** is the proof.
 - **Not lost when HQ replaces the list**: a CSV / sheet / paste load keeps walk-ins who aren't in the file (after the file's players, check-in kept) and says so in the preview, with **Drop them** as the choice; a walk-in who is in the file is the file's row (same phone + name → same player, check-in kept). A Toornament bracket that doesn't have a walk-in yet names them in the preview ("aren't on Toornament yet — add them there first, then Refresh"); using it anyway takes them off the player list for now (a bracket here holds only Toornament's players), and the Refresh after they're added brings them back with phone and IGN. The registration itself is never removed, so the list keeps showing who still has to go into Toornament.
+
+## Deleting test data (HQ)
+
+- **On-spot registrations**: a **×** per row and **Remove all (N)** per store (`onspot.remove`, HQ only, one atomic command). It removes the registration record only — the player stays on the list (and checked in) so a real walk-in isn't lost; tick **Also take them off the player list** to remove those players (and their check-in) too, which is refused once matches are under way (a bracket that had them is cleared, like any roster change).
+- **Recce reports**: **Delete** in the inbox row, or on the report page's **Delete test data** area at the bottom: **Delete rev N** (`recce.delete`: that revision only, the admin's working recce stays) and **Reset recce for this store** (`recce.reset`: every revision gone and the working recce blank, so the admin does it again). Photo files are write-once and stay on the server, just unreferenced. Revision numbers keep counting up past the highest one left. Admins get 403 for all three.
 
 ## QR check-in (match day)
 
@@ -172,7 +195,7 @@ Built with a default; change the default if it's wrong:
 - `src/lib/commands.ts`, `tournament.ts`, `submission.ts` — server-authoritative commands (bracket, matches, stations, recce submit/review)
 - `src/lib/sync/engine.ts` — outbox, per-person storage, retries, failed work; `src/lib/db.ts` — the app's state API
 - `src/lib/bracket.ts` — seeding, byes, queue; `src/lib/assess.ts` — recce assessment and photo flags
-- `src/lib/phone.ts` — phone normalization, stable player ids; `src/lib/roster.ts` + `components/RosterImport.tsx` — HQ player import; `src/lib/toornament.ts` + `components/ToornamentImport.tsx` — brackets from Toornament; `src/lib/onspot.ts` + `components/OnSpotList.tsx` — HQ's on-spot registrations list
+- `src/lib/phone.ts` — phone normalization, stable player ids; `src/lib/roster.ts` + `components/RosterImport.tsx` — HQ player import; `src/lib/storesheet.ts` + `components/StoreSheetImport.tsx` — HQ store import from a sheet; `src/lib/toornament.ts` + `components/ToornamentImport.tsx` — brackets from Toornament; `src/lib/onspot.ts` + `components/OnSpotList.tsx` — HQ's on-spot registrations list
 - `server/public.ts` — player QR check-in (public); `server/roster-fetch.ts` — HQ sheet-link fetch (private / internal addresses refused on every redirect); `server/toornament-fetch.ts` — the same, for Toornament (toornament.com only)
 - `src/pages/CheckInPage.tsx` — the player's page; `src/lib/checkin.ts`, `src/lib/qr.ts` — check-in helpers, QR drawing
 - `tests/` — `npm test`

@@ -120,13 +120,13 @@ test('bracket: an 8-slot stage with 7 players → Toornament’s exact first rou
   assert.equal(bracket!.mode, 'pairs');
   assert.equal(bracket!.problem, undefined);
   assert.deepEqual(bracket!.pairs, [
-    ['Asha Rao', 'Ishaan Gupta'],
-    ['Vikram Nair', 'Rohan Mehta'],
     ['Diya Patel', null],
     ['Aarav Shah', 'Kabir Singh'],
+    ['Ishaan Gupta', 'Asha Rao'],
+    ['Vikram Nair', 'Rohan Mehta'],
   ]);
   // Seeds are the slots' seeds in a standard 8 bracket (1 8 4 5 2 7 3 6).
-  assert.deepEqual(bracket!.players, ['Asha Rao', 'Diya Patel', 'Aarav Shah', 'Vikram Nair', 'Rohan Mehta', 'Kabir Singh', 'Ishaan Gupta']);
+  assert.deepEqual(bracket!.players, ['Diya Patel', 'Ishaan Gupta', 'Vikram Nair', 'Aarav Shah', 'Kabir Singh', 'Rohan Mehta', 'Asha Rao']);
   assert.equal(bracket!.played, 6);
   assert.ok(bracket!.notes.some((n) => /6 results.*aren’t copied/.test(n)));
   assert.ok(bracket!.notes.some((n) => /1 registered on Toornament but not in this stage: Meera Iyer/.test(n)), bracket!.notes.join('\n'));
@@ -137,9 +137,9 @@ test('bracket: Toornament skips bye matches — a player placed straight into ro
   assert.equal(bracket!.mode, 'pairs');
   assert.deepEqual(bracket!.pairs, [
     ['Rohan Mehta', null],
-    ['Ishaan Gupta', 'Aarav Shah'],
-    ['Asha Rao', 'Meera Iyer'],
+    ['Aarav Shah', 'Ishaan Gupta'],
     ['Vikram Nair', 'Kabir Singh'],
+    ['Meera Iyer', 'Asha Rao'],
   ]);
   // Standard seeding of the derived seed order gives the very same bracket.
   const players: Player[] = bracket!.players.map((name, i) => ({ id: name, name, seed: i + 1 }));
@@ -177,9 +177,10 @@ test('bracket: no nodes, two brackets, repeated names, odd shapes', () => {
   assert.equal(d.mode, 'pairs');
   assert.deepEqual(d.pairs, [['Asha Rao', 'asha rao (2)'], ['Kabir', 'Meera']]);
   assert.ok(d.notes.some((n) => /more than once/.test(n)));
-  // Positions decide the order, not the order Toornament lists them in.
+  // The order Toornament lists opponents in is the order it draws them (top first), whatever their
+  // `position` numbers say: the final lists s2 (position 2) first, so s2 is the upper half.
   const swapped = [node('f', 2, 'g', win('s2', 2), win('s1', 1)), node('s1', 1, 'g', p('2', 'Rohan', 2), p('1', 'Asha', 1)), node('s2', 1, 'g', p('3', 'Kabir', 1), p('4', 'Meera', 2))];
-  assert.deepEqual(bracketFromNodes(swapped, []).pairs, [['Asha', 'Rohan'], ['Kabir', 'Meera']]);
+  assert.deepEqual(bracketFromNodes(swapped, []).pairs, [['Kabir', 'Meera'], ['Rohan', 'Asha']]);
   // A loser feed in the winners' tree isn't single elimination.
   const odd = [node('f', 2, 'g', win('s1', 1), { position: 2, participant: null, sourceType: 'loser', sourceNode: { id: 's1' } }), node('s1', 1, 'g', p('1', 'A', 1), p('2', 'B', 2))];
   assert.match(bracketFromNodes(odd, []).problem!, /shape Field Desk can’t copy/);
@@ -187,6 +188,130 @@ test('bracket: no nodes, two brackets, repeated names, odd shapes', () => {
   const names = readParticipants({ items: [{ id: '9', name: `  ${'x'.repeat(100)} ` }, { id: '8', name: '' }] });
   assert.equal(names[0].name.length, 80);
   assert.equal(names[1].name, 'Unnamed participant');
+});
+
+/* ---------- the order matches Toornament's page ---------- */
+
+/*
+ * Toornament draws a round top to bottom by match number, and a match's two sides in the order of
+ * its `opponents` array (the live API lists position 2 first in some matches, and a final's
+ * position 1 can be the lower half — position is not the drawing order). Below, the expected
+ * picture is worked out from the raw nodes by *match number* (a different route from the code's),
+ * and our built chart must be the same picture: first round top to bottom, and every later match
+ * fed by our matches 2i (upper source) and 2i+1 (lower source).
+ */
+interface RawOpponent {
+  position: number;
+  participant: { id: string; name: string } | null;
+  sourceType: string;
+  sourceNode: { id: string } | null;
+}
+interface RawNode {
+  id: string;
+  number: number;
+  branch: string;
+  round: { number: number };
+  opponents: RawOpponent[];
+}
+interface Placed {
+  node: RawNode;
+  start: number; // first slot of the node's 2^round slots
+  sides: { name: string | null; source: RawNode | null }[]; // top first
+}
+
+function pictureOf(nodes: RawNode[]) {
+  const wb = nodes.filter((n) => n.branch !== 'lb');
+  const byId = new Map(wb.map((n) => [n.id, n]));
+  const rounds = Math.max(...wb.map((n) => n.round.number));
+  const final = wb.filter((n) => n.round.number === rounds);
+  assert.equal(final.length, 1);
+  const slots: (string | null)[] = [];
+  const placed = new Map<string, Placed>();
+  const walk = (n: RawNode) => {
+    const start = slots.length;
+    // Top side first: a player placed straight in comes first; winners by the match number they come from.
+    const key = (o: RawOpponent) => (o.sourceType === 'winner' ? byId.get(o.sourceNode!.id)!.number : -1);
+    const sides = [...n.opponents].sort((a, b) => key(a) - key(b)).map((o) => ({ name: o.participant?.name ?? null, source: o.sourceType === 'winner' ? byId.get(o.sourceNode!.id)! : null }));
+    for (const side of sides) {
+      if (side.source) walk(side.source);
+      else slots.push(side.name, ...Array<null>(2 ** (n.round.number - 1) - 1).fill(null));
+    }
+    placed.set(n.id, { node: n, start, sides });
+  };
+  walk(final[0]);
+  const pairs: [string | null, string | null][] = [];
+  for (let i = 0; i < slots.length; i += 2) pairs.push([slots[i], slots[i + 1]]);
+  return { placed, rounds, pairs, slots };
+}
+
+/** Our first round must be Toornament's picture, and every Toornament match must sit where our chart feeds it the same way. */
+function assertSamePicture(name: string, nodes: RawNode[], pairs: [string | null, string | null][]) {
+  const pic = pictureOf(nodes);
+  assert.deepEqual(pairs, pic.pairs, `${name}: first round top to bottom`);
+  const players: Player[] = pic.slots.filter((x): x is string => !!x).map((n, i) => ({ id: n, name: n, seed: i + 1 }));
+  const chart = buildBracket(players, pairs, 'x');
+  const at = (r: number, i: number) => chart.find((m) => m.round === r && m.index === i)!;
+  const leaves = (r: number, i: number): string[] => (r === 0 ? [at(0, i).a, at(0, i).b].filter((x): x is string => !!x) : [...leaves(r - 1, 2 * i), ...leaves(r - 1, 2 * i + 1)]);
+  const under = (n: RawNode): string[] => n.opponents.flatMap((o) => (o.sourceType === 'winner' ? under(pic.placed.get(o.sourceNode!.id)!.node) : o.participant ? [o.participant.name] : []));
+  for (let r = 1; r <= pic.rounds; r++) {
+    const row = [...pic.placed.values()].filter((p) => p.node.round.number === r).sort((a, b) => a.node.number - b.node.number);
+    const starts = row.map((p) => p.start);
+    // Match numbers run top to bottom in the chart as well.
+    assert.deepEqual(starts, [...starts].sort((a, b) => a - b), `${name}: round ${r} numbered top to bottom`);
+    for (const p of row) {
+      const i = p.start / 2 ** r;
+      assert.ok(Number.isInteger(i), `${name}: round ${r} #${p.node.number} sits on a slot boundary`);
+      if (r === 1) {
+        assert.deepEqual([at(0, i).a, at(0, i).b], p.sides.map((x) => x.name), `${name}: round 1 #${p.node.number}`);
+        continue;
+      }
+      // Fed by our matches 2i and 2i+1 of the round before — the upper source in 2i.
+      p.sides.forEach((side, k) => {
+        const mine = leaves(r - 2, 2 * i + k).sort();
+        const theirs = (side.source ? under(side.source) : side.name ? [side.name] : []).sort();
+        assert.deepEqual(mine, theirs, `${name}: round ${r} #${p.node.number}, ${k === 0 ? 'upper' : 'lower'} feeder`);
+      });
+    }
+  }
+}
+
+test('order: se8 — Toornament’s first round top to bottom, each match fed by the same two sources in the same order', () => {
+  const { f, bracket } = first('se8');
+  assert.equal(bracket!.mode, 'pairs');
+  // Names top to bottom, as on Toornament's page (round 1 numbers 1–4; opponents in drawing order).
+  assert.deepEqual(bracket!.pairs!.flat(), ['Diya Patel', null, 'Aarav Shah', 'Kabir Singh', 'Ishaan Gupta', 'Asha Rao', 'Vikram Nair', 'Rohan Mehta']);
+  assertSamePicture('se8', f.nodes.items, bracket!.pairs!);
+  // The final lists the lower half as position 1; the upper half (Diya's, round 1 #1–2) must still be on top.
+  const final = f.nodes.items.find((n: RawNode) => n.round.number === 3) as RawNode;
+  assert.equal(final.opponents.find((o) => o.position === 1)!.participant!.name, 'Asha Rao');
+  assert.deepEqual(bracket!.pairs!.slice(0, 2).flat().filter(Boolean), ['Diya Patel', 'Aarav Shah', 'Kabir Singh']);
+});
+
+test('order: se7 (byes) — the player placed in round 2 sits in the right half, with their BYE beside them', () => {
+  const { f, bracket } = first('se7');
+  assert.equal(bracket!.mode, 'pairs');
+  assert.deepEqual(bracket!.pairs!.flat(), ['Rohan Mehta', null, 'Aarav Shah', 'Ishaan Gupta', 'Vikram Nair', 'Kabir Singh', 'Meera Iyer', 'Asha Rao']);
+  assertSamePicture('se7', f.nodes.items, bracket!.pairs!);
+});
+
+test('order: se12 — an empty round-1 match is still refused; filled in, the 12 players read like Toornament’s page', () => {
+  const { f, bracket, participants, stage } = first('se12');
+  assert.equal(bracket!.mode, 'seeded');
+  assert.match(bracket!.problem!, /First-round match 2 on Toornament has nobody in it/);
+  // Fill round-1 match 1 (the empty one) as Toornament would once the field is complete.
+  const nodes = JSON.parse(JSON.stringify(f.nodes.items)) as RawNode[];
+  const empty = nodes.find((n) => n.round.number === 1 && n.number === 1)!;
+  empty.opponents[0].participant = { id: '9001', name: 'Zed One' };
+  empty.opponents[1].participant = { id: '9002', name: 'Zed Two' };
+  const full = bracketFromNodes(nodes, participants, stage!);
+  assert.equal(full.mode, 'pairs', full.problem);
+  assert.deepEqual(full.pairs!.flat(), [
+    'Neel Joshi', null, 'Zed One', 'Zed Two', // upper quarter: round 2 #1 (Neel placed, fed by round 1 #1)
+    'Aarav Shah', null, 'Asha Rao', 'Ishaan Gupta', // round 2 #2
+    'Tara Bose', null, 'Kabir Singh', 'Meera Iyer', // round 2 #3
+    'Sara Khan', null, 'Rohan Mehta', 'Vikram Nair', // round 2 #4
+  ]);
+  assertSamePicture('se12', nodes, full.pairs!);
 });
 
 /* ---------- onto the store ---------- */
@@ -208,18 +333,18 @@ test('plan: names matched ignoring case and spacing keep id + phone; new ones co
   const { store, players } = storeWithCsv();
   const { bracket } = first('se8');
   const plan = planImport(bracket!, store.day.players);
-  assert.deepEqual(plan.matched.map((p) => [p.name, p.phone]), [['asha RAO', '9820011111'], ['Rohan Mehta', '9820022222'], ['Kabir Singh', undefined]]);
-  assert.equal(plan.matched[0].id, players[0].id);
-  assert.deepEqual(plan.added.map((p) => p.name), ['Diya Patel', 'Aarav Shah', 'Vikram Nair', 'Ishaan Gupta']);
+  assert.deepEqual(plan.matched.map((p) => [p.name, p.phone]), [['Kabir Singh', undefined], ['Rohan Mehta', '9820022222'], ['asha RAO', '9820011111']]);
+  assert.equal(plan.matched[2].id, players[0].id);
+  assert.deepEqual(plan.added.map((p) => p.name), ['Diya Patel', 'Ishaan Gupta', 'Vikram Nair', 'Aarav Shah']);
   assert.ok(plan.added.every((p) => !p.phone && p.id === playerIdFor(undefined, p.name)));
   assert.deepEqual(plan.dropped.map((p) => p.name), ['Zoya Ali']);
   assert.deepEqual(plan.players.map((p) => p.seed), [1, 2, 3, 4, 5, 6, 7]);
   const byId = new Map(plan.players.map((p) => [p.id, p.name]));
   assert.deepEqual(plan.pairs!.map(([a, b]) => [a && byId.get(a), b && byId.get(b)]), [
-    ['asha RAO', 'Ishaan Gupta'],
-    ['Vikram Nair', 'Rohan Mehta'],
     ['Diya Patel', null],
     ['Aarav Shah', 'Kabir Singh'],
+    ['Ishaan Gupta', 'asha RAO'],
+    ['Vikram Nair', 'Rohan Mehta'],
   ]);
 });
 
@@ -256,12 +381,12 @@ test('applied as one bracket.load: Toornament’s pairings, phones and check-ins
   const name = new Map(after.day.players.map((p) => [p.id, p.name]));
   const r0 = after.day.matches.filter((m) => m.round === 0).sort((a, b) => a.index - b.index);
   assert.deepEqual(r0.map((m) => [m.a && name.get(m.a), m.b && name.get(m.b)]), [
-    ['asha RAO', 'Ishaan Gupta'],
-    ['Vikram Nair', 'Rohan Mehta'],
     ['Diya Patel', null],
     ['Aarav Shah', 'Kabir Singh'],
+    ['Ishaan Gupta', 'asha RAO'],
+    ['Vikram Nair', 'Rohan Mehta'],
   ]);
-  assert.equal(r0[2].bye, true, 'the BYE auto-advances');
+  assert.equal(r0[0].bye, true, 'the BYE auto-advances');
   assert.equal(after.day.matches.length, 7);
   assert.equal(after.day.players.find((p) => p.id === players[0].id)!.phone, '9820011111');
   assert.deepEqual(Object.keys(after.day.checkIn), [players[0].id], 'Asha’s check-in stays; Zoya was dropped');

@@ -232,9 +232,23 @@ export function createApi(opts: ApiOptions) {
     if (who.role === 'super') return docs;
     const stores = storesOf(who.id);
     const eventIds = new Set(stores.map((s) => s.eventId));
+    // HQ's source links (the campaign's store sheet, a store's player-list link) are capabilities —
+    // anyone holding a published-sheet link can read the whole sheet — so they never reach admins.
     return {
-      events: Object.fromEntries(Object.entries(docs.events).filter(([id]) => eventIds.has(id))),
-      stores: Object.fromEntries(stores.map((s) => [s.id, s])),
+      events: Object.fromEntries(
+        Object.entries(docs.events)
+          .filter(([id]) => eventIds.has(id))
+          .map(([id, e]) => {
+            const { storeSheet: _hq, ...rest } = e as typeof e & { storeSheet?: unknown };
+            return [id, rest as typeof e];
+          }),
+      ),
+      stores: Object.fromEntries(
+        stores.map((s) => {
+          const { roster: _hq, ...rest } = s;
+          return [s.id, rest as typeof s];
+        }),
+      ),
       admins: {},
     };
   }

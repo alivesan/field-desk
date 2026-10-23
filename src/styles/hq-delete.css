@@ -1,0 +1,23 @@
+/* HQ deleting test data: the danger area on the report page, and Delete in the reports inbox. */
+
+.danger-zone {
+  margin: 56px 0 24px;
+  padding: 20px 0 0;
+  border-top: 1px solid var(--accent);
+}
+.danger-zone h2 {
+  font-size: 24px;
+  color: var(--accent);
+}
+.danger-zone .row {
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.inbox-delete {
+  flex: none;
+  color: var(--muted);
+  font-size: 13px;
+}
+.inbox-delete:hover:not(:disabled) {
+  color: var(--accent);
+}

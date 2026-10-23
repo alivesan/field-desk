@@ -185,6 +185,8 @@ export interface Store {
   eventId: string;
   name: string;
   city: string;
+  state?: string; // from HQ's store sheet or the details form
+  exclusive?: boolean; // an ASUS ROG Exclusive store (absent = not marked)
   address: string;
   date?: string; // yyyy-mm-dd — this store's tournament day; falls back to the campaign date
   phone?: string; // store's phone, from HQ
@@ -211,6 +213,13 @@ export interface TournamentEvent {
   gameReadyTarget: number; // laptops that must have games installed
   minDownMbps: number;
   createdAt: string;
+  storeSheet?: StoreSheetSource; // HQ-only: the sheet the campaign's stores are imported from
+}
+
+/** The sheet link HQ imports this campaign's stores from — so next time it's one press on Refresh. */
+export interface StoreSheetSource {
+  url: string; // a published / "anyone with the link" Google Sheet or CSV link
+  fetchedAt: string; // when the stores were last imported from it
 }
 
 /** A field admin. Signs in with a personal 4-character code link; sees only assigned stores. */

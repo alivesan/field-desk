@@ -3,11 +3,13 @@ import type { Admin, GeoFix, Store } from '../lib/types.ts';
 import { coordsFromMapsUrl, isShortMapsLink, mapsUrlProblem } from '../lib/recce.ts';
 import { fmtCoord } from '../lib/geo.ts';
 import { toornamentLinkProblem } from '../lib/toornament.ts';
-import { Field } from './ui.tsx';
+import { Check, Field } from './ui.tsx';
 
 export interface StoreDetails {
   name: string;
   city: string;
+  state: string;
+  exclusive: boolean; // an ASUS ROG Exclusive store
   date: string;
   phone: string;
   address: string;
@@ -21,6 +23,8 @@ export interface StoreDetails {
 export const detailsOf = (s: Store | undefined, campaignDate: string): StoreDetails => ({
   name: s?.name ?? '',
   city: s?.city ?? '',
+  state: s?.state ?? '',
+  exclusive: !!s?.exclusive,
   date: s?.date || campaignDate,
   phone: s?.phone ?? '',
   address: s?.address ?? '',
@@ -55,7 +59,7 @@ export function StoreForm({ initial, admins, submitLabel, onSave, onCancel }: { 
   // A link without coordinates is allowed, but only after HQ has seen that it can't be used as the reference.
   const [noGeoOk, setNoGeoOk] = useState(false);
   const [toornamentError, setToornamentError] = useState('');
-  const set = (k: keyof StoreDetails, v: string) => setD({ ...d, [k]: v });
+  const set = (k: keyof StoreDetails, v: string | boolean) => setD({ ...d, [k]: v });
 
   const save = async () => {
     const problem = mapsUrlProblem(d.mapsUrl);
@@ -76,7 +80,7 @@ export function StoreForm({ initial, admins, submitLabel, onSave, onCancel }: { 
       setNoGeoOk(true);
       return;
     }
-    onSave({ ...d, name: d.name.trim(), mapsUrl: d.mapsUrl.trim(), toornamentUrl: d.toornamentUrl.trim(), geo });
+    onSave({ ...d, name: d.name.trim(), state: d.state.trim(), mapsUrl: d.mapsUrl.trim(), toornamentUrl: d.toornamentUrl.trim(), geo });
   };
 
   return (
@@ -84,6 +88,15 @@ export function StoreForm({ initial, admins, submitLabel, onSave, onCancel }: { 
       <div className="grid2">
         <Field label="Store name" value={d.name} onChange={(v) => set('name', v)} />
         <Field label="City" value={d.city} onChange={(v) => set('city', v)} />
+      </div>
+      <div className="grid2">
+        <Field label="State" value={d.state} onChange={(v) => set('state', v)} />
+        <div className="field">
+          <span className="label">Store type</span>
+          <Check checked={d.exclusive} onChange={(v) => set('exclusive', v)}>
+            ROG Exclusive store
+          </Check>
+        </div>
       </div>
       <div className="grid2">
         <Field label="Tournament day" type="date" value={d.date} onChange={(v) => set('date', v)} />

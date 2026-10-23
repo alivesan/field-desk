@@ -13,9 +13,11 @@ import { askConfirm, Chip, Field, NotFound, NumberField, PageHead, Progress, She
 import { detailsOf, StoreForm, type StoreDetails } from '../components/StoreForm.tsx';
 import { applyToornamentLink } from '../lib/toornament.ts';
 import { RosterImport } from '../components/RosterImport.tsx';
+import { StoreSheetImport } from '../components/StoreSheetImport.tsx';
 import { OnSpotList } from '../components/OnSpotList.tsx';
 import { onSpotCounts } from '../lib/onspot.ts';
 import '../styles/evidence.css';
+import '../styles/storesheet.css';
 
 export function EventPage({ eventId }: { eventId: string }) {
   const event = useApp((s) => s.events[eventId]);
@@ -24,6 +26,7 @@ export function EventPage({ eventId }: { eventId: string }) {
   const admins = Object.values(adminsById).sort((a, b) => a.name.localeCompare(b.name));
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   const [bulk, setBulk] = useState(false);
   const [settings, setSettings] = useState(false);
   const now = useNow(20000);
@@ -35,7 +38,7 @@ export function EventPage({ eventId }: { eventId: string }) {
   const edit = (fn: (e: typeof event) => void) => update((d) => fn(d.events[eventId]));
 
   const save = (storeId: string | null, d: StoreDetails) => {
-    const fields = { name: d.name, city: d.city.trim(), date: d.date, phone: d.phone.trim(), address: d.address.trim(), mapsUrl: d.mapsUrl.trim(), venue: d.venue.trim(), geo: d.geo };
+    const fields = { name: d.name, city: d.city.trim(), state: d.state.trim(), exclusive: d.exclusive, date: d.date, phone: d.phone.trim(), address: d.address.trim(), mapsUrl: d.mapsUrl.trim(), venue: d.venue.trim(), geo: d.geo };
     let id = storeId;
     if (!id) {
       const s = newStore(event.id, fields);
@@ -68,10 +71,17 @@ export function EventPage({ eventId }: { eventId: string }) {
       <section className="index">
         <div className="index-head">
           <h2>Stores</h2>
-          <button className="btn" onClick={() => setAdding(true)}>
-            Add store
-          </button>
+          <div className="head-actions">
+            <button className="btn ghost" onClick={() => setImporting((v) => !v)}>
+              {importing ? 'Hide import' : 'Import from a sheet'}
+            </button>
+            <button className="btn" onClick={() => setAdding(true)}>
+              Add store
+            </button>
+          </div>
         </div>
+
+        {importing && <StoreSheetImport event={event} stores={stores} admins={admins} onClose={() => setImporting(false)} />}
 
         {adding && <StoreForm initial={detailsOf(undefined, event.date)} admins={admins} submitLabel="Add store" onSave={(d) => save(null, d)} onCancel={() => setAdding(false)} />}
 
@@ -86,7 +96,12 @@ export function EventPage({ eventId }: { eventId: string }) {
               <li key={s.id} className="store-row">
                 <div className="store-main">
                   <h3>{s.name}</h3>
-                  <span className="label">{[fmtDate(storeDate(s, event), { weekday: 'short', day: 'numeric', month: 'short' }), s.city].filter(Boolean).join(' · ')}</span>
+                  <span className="label">{[fmtDate(storeDate(s, event), { weekday: 'short', day: 'numeric', month: 'short' }), [s.city, s.state].filter(Boolean).join(', ')].filter(Boolean).join(' · ')}</span>
+                  {s.exclusive && (
+                    <div className="store-tags">
+                      <Chip>ROG Exclusive</Chip>
+                    </div>
+                  )}
                   <AdminSelect admins={admins} value={s.adminId && adminsById[s.adminId] ? s.adminId : ''} onChange={(v) => assignStore(s.id, v || null)} />
                   {s.updatedAt && <span className="label updated">Updated {ago(s.updatedAt, now)}</span>}
                   <button className="link" onClick={() => setEditing(editing === s.id ? null : s.id)}>
@@ -136,7 +151,7 @@ export function EventPage({ eventId }: { eventId: string }) {
               </li>
             );
           })}
-          {!stores.length && !adding && <li className="empty">No stores yet. Add the venues for this campaign.</li>}
+          {!stores.length && !adding && <li className="empty">No stores yet. Add the venues for this campaign, or import them from a sheet.</li>}
         </ol>
       </section>
 

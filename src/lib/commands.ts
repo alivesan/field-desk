@@ -86,7 +86,13 @@ export function validateCommand(input: unknown): Command {
       str('entryId');
       if (typeof c.done !== 'boolean') throw new CommandError('invalid', 'done must be true/false');
       break;
+    case 'onspot.remove':
+      if (!Array.isArray(c.entryIds) || !c.entryIds.length || c.entryIds.length > 256 || c.entryIds.some((x) => typeof x !== 'string' || !x || x.length > 200))
+        throw new CommandError('invalid', 'entryIds must be a list of 1–256 registration ids');
+      if (c.alsoPlayers !== undefined && typeof c.alsoPlayers !== 'boolean') throw new CommandError('invalid', 'alsoPlayers must be true/false');
+      break;
     case 'recce.review':
+    case 'recce.delete':
       str('submissionId');
       break;
   }

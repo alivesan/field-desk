@@ -19,7 +19,9 @@
  * free-for-all and the rest are named and refused (stageSupport). Toornament doesn't create bye
  * matches: in a 12-slot stage the four top slots sit directly in round 2. bracketFromNodes walks
  * the tree from the final down, so a player placed in round 2 becomes "<player> vs BYE" in round
- * 1 — the same bracket. A first-round match with nobody on either side (an empty slot left in a
+ * 1 — the same bracket. Order matters: Toornament draws a match's two sides in the order of its
+ * `opponents` array (not by `position`, which can list the lower half first), and the tree is
+ * walked in that order so our chart reads top to bottom like theirs. A first-round match with nobody on either side (an empty slot left in a
  * stage bigger than its field) can't be expressed here (BYE vs BYE); that is reported, with the
  * placed players offered as a seeded list instead. The 3rd-place match ('lb') is left out.
  *
@@ -252,6 +254,7 @@ interface Node {
   branch: string;
   group: string;
   round: number;
+  number: number; // the match's number within its round — Toornament draws a round top to bottom by it
   status: string;
   opponents: { position: number; participant: ToornamentParticipant | null; sourceType: string; sourceNode: string }[];
 }
@@ -262,7 +265,10 @@ function readNodes(items: unknown[]): Node[] {
     branch: str(n.branch) || 'wb',
     group: idOf(n.group),
     round: isObj(n.round) && typeof n.round.number === 'number' ? n.round.number : 0,
+    number: typeof n.number === 'number' ? n.number : 0,
     status: str(n.status),
+    // Array order is Toornament's drawing order (top side, then bottom). `position` is NOT: in the
+    // same answer a match can list position 2 first, and a final's position 1 can be the lower half.
     opponents: (Array.isArray(n.opponents) ? n.opponents : []).filter(isObj).map((o, i) => ({
       position: typeof o.position === 'number' ? o.position : i + 1,
       participant: isObj(o.participant) && str(o.participant.id) ? { id: str(o.participant.id), name: clean(str(o.participant.name)) } : null,
@@ -304,14 +310,17 @@ export function bracketFromNodes(nodeItems: unknown[], registered: ToornamentPar
   const roots = wb.filter((n) => !fed.has(n.id));
   if (roots.length !== 1) return fallback('Toornament’s bracket for this stage isn’t one knockout tree.');
 
-  // Walk from the final down. A node in round r covers 2^r first-round slots; a player placed
-  // straight into round r (Toornament skips bye matches) fills the first slot of their half.
+  // Walk from the final down, top opponent first (the order Toornament draws them in — see
+  // readNodes), so first-round match i here is the i-th match from the top on Toornament's page
+  // and each later match is fed by matches 2i and 2i+1 of the round before, as Toornament's is.
+  // A node in round r covers 2^r first-round slots; a player placed straight into round r
+  // (Toornament skips bye matches) fills the first slot of their half.
   let shape = '';
   const visited = new Set<string>();
   const expand = (n: Node, round: number): (ToornamentParticipant | null)[] => {
     if (visited.has(n.id) || n.round !== round || round < 1 || round > 9) return (shape ||= 'loop'), [];
     visited.add(n.id);
-    const opps = [...n.opponents].sort((a, b) => a.position - b.position);
+    const opps = n.opponents;
     if (opps.length !== 2) return (shape ||= 'not-duel'), [];
     const half = 2 ** (round - 1);
     return opps.flatMap((o) => {
@@ -372,8 +381,8 @@ export function bracketFromNodes(nodeItems: unknown[], registered: ToornamentPar
 function leafOrder(nodes: Node[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const n of [...nodes].sort((a, b) => a.round - b.round)) {
-    for (const o of [...n.opponents].sort((a, b) => a.position - b.position)) {
+  for (const n of [...nodes].sort((a, b) => a.round - b.round || a.number - b.number)) {
+    for (const o of n.opponents) {
       if (o.sourceType === 'none' && o.participant && !seen.has(o.participant.id)) {
         seen.add(o.participant.id);
         out.push(o.participant.name);

@@ -2012,3 +2012,57 @@ code {
 .ask .row.end .btn {
   min-width: 96px;
 }
+
+/* a submitted recce folds to one line, and match day takes the lead */
+.fold-head {
+  appearance: none;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    'title tog'
+    'sum tog';
+  gap: 4px 12px;
+  align-items: center;
+  padding: 0 0 10px;
+  border: 0;
+  border-bottom: 1px solid var(--ink);
+  background: none;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.fold-head h3 {
+  grid-area: title;
+  padding: 0;
+  border: 0;
+}
+.fold-head small {
+  grid-area: sum;
+  font-size: 13px;
+  color: var(--ok);
+}
+.fold-head em {
+  grid-area: tog;
+  font: 500 11px/1 var(--mono);
+  font-style: normal;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--rule);
+  min-height: 44px;
+  display: grid;
+  align-items: center;
+}
+.fold-head:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.task-card section.recce-part.sent + section {
+  margin-top: 22px;
+}
+.task-card section.main h3 {
+  font-size: clamp(28px, 7vw, 34px);
+  border-bottom-width: 3px;
+}
