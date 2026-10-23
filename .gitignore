@@ -1,0 +1,12 @@
+node_modules
+dist
+
+# Real data and secrets — never committed
+.data
+data
+*.local
+.env
+.env.*
+*.pem
+*.key
+*.log
