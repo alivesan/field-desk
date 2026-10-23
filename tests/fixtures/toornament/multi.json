@@ -1,0 +1,468 @@
+{
+ "_note": "Trimmed from play.toornament.com/api/* (public JSON the tournament pages use), Oct 2026. Participant names replaced with synthetic ones; ids and structure kept.",
+ "tournament": {
+  "id": "1341889430865920000",
+  "discipline": "fifa18",
+  "name": "Synthetic League + Playoffs",
+  "fullName": null,
+  "status": "running",
+  "participantType": "single",
+  "size": 12,
+  "public": true,
+  "archived": false
+ },
+ "stages": {
+  "items": [
+   {
+    "id": "1341891244374917120",
+    "tournament": {
+     "id": "1341889430865920000"
+    },
+    "number": 1,
+    "name": "Regular Season",
+    "type": "league",
+    "status": "running",
+    "closed": false,
+    "settings": {
+     "size": 7,
+     "arrival": "branch",
+     "departure": "mirror",
+     "nb_groups": 1,
+     "calculators": [
+      {
+       "name": "match_result_points",
+       "options": {
+        "win": 3,
+        "draw": 1,
+        "loss": 0
+       }
+      }
+     ],
+     "tiebreakers": [
+      {
+       "name": "points_head_to_head",
+       "options": {}
+      },
+      {
+       "name": "manual",
+       "options": {}
+      },
+      {
+       "name": "match_score_difference_head_to_head",
+       "options": {}
+      },
+      {
+       "name": "match_score_difference_overall",
+       "options": {}
+      }
+     ],
+     "group_naming": "number",
+     "match_format": "one",
+     "round_naming": "number",
+     "pairing_method": "double_standard"
+    }
+   },
+   {
+    "id": "1341896368476872704",
+    "tournament": {
+     "id": "1341889430865920000"
+    },
+    "number": 2,
+    "name": "Playoffs",
+    "type": "single_elimination",
+    "status": "pending",
+    "closed": false,
+    "settings": {
+     "size": 6,
+     "threshold": 0,
+     "match_format": "home_away",
+     "round_naming": "number",
+     "third_decider": true
+    }
+   }
+  ],
+  "range": {
+   "offset": 0,
+   "length": 2,
+   "total": 2
+  }
+ },
+ "participants": {
+  "items": [
+   {
+    "id": "1341905987246014464",
+    "type": "player",
+    "name": "Aarav Shah",
+    "logo": null
+   },
+   {
+    "id": "1341905987246014466",
+    "type": "player",
+    "name": "Asha Rao",
+    "logo": null
+   },
+   {
+    "id": "1341905987246014468",
+    "type": "player",
+    "name": "Rohan Mehta",
+    "logo": null
+   },
+   {
+    "id": "1341905987246014472",
+    "type": "player",
+    "name": "Kabir Singh",
+    "logo": null
+   },
+   {
+    "id": "1341905987246014474",
+    "type": "player",
+    "name": "Meera Iyer",
+    "logo": null
+   },
+   {
+    "id": "1341905987246014476",
+    "type": "player",
+    "name": "Vikram Nair",
+    "logo": null
+   },
+   {
+    "id": "1341905987246014478",
+    "type": "player",
+    "name": "Ishaan Gupta",
+    "logo": null
+   },
+   {
+    "id": "1341905987246014482",
+    "type": "player",
+    "name": "Diya Patel",
+    "logo": null
+   }
+  ],
+  "range": {
+   "offset": 0,
+   "length": 8,
+   "total": 8
+  }
+ },
+ "nodes": {
+  "items": [
+   {
+    "id": "1341896369449951252",
+    "depth": 3,
+    "branch": "wb",
+    "code": null,
+    "opponents": [
+     {
+      "participant": null,
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 1,
+      "position": 1,
+      "result": null,
+      "forfeit": false,
+      "score": null
+     },
+     {
+      "participant": null,
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 2,
+      "position": 2,
+      "result": null,
+      "forfeit": false,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "1341896368476872704",
+     "number": 2,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "pending"
+    },
+    "group": {
+     "id": "1341896369382842381",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "1341896369483505693",
+     "number": 1,
+     "name": "Round 1"
+    },
+    "number": 1,
+    "type": "duel",
+    "status": "pending"
+   },
+   {
+    "id": "1341896369449951258",
+    "depth": 3,
+    "branch": "wb",
+    "code": null,
+    "opponents": [
+     {
+      "participant": null,
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 1,
+      "position": 1,
+      "result": null,
+      "forfeit": false,
+      "score": null
+     },
+     {
+      "participant": null,
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 2,
+      "position": 2,
+      "result": null,
+      "forfeit": false,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "1341896368476872704",
+     "number": 2,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "pending"
+    },
+    "group": {
+     "id": "1341896369382842381",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "1341896369483505693",
+     "number": 1,
+     "name": "Round 1"
+    },
+    "number": 2,
+    "type": "duel",
+    "status": "pending"
+   },
+   {
+    "id": "1341896369449951249",
+    "depth": 2,
+    "branch": "wb",
+    "code": "semis",
+    "opponents": [
+     {
+      "participant": null,
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 1,
+      "position": 1,
+      "result": null,
+      "forfeit": false,
+      "score": null
+     },
+     {
+      "participant": null,
+      "sourceType": "winner",
+      "sourceNode": {
+       "id": "1341896369449951252"
+      },
+      "sourcePosition": null,
+      "number": 2,
+      "position": 2,
+      "result": null,
+      "forfeit": false,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "1341896368476872704",
+     "number": 2,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "pending"
+    },
+    "group": {
+     "id": "1341896369382842381",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "1341896369483505694",
+     "number": 2,
+     "name": "Round 2"
+    },
+    "number": 1,
+    "type": "duel",
+    "status": "pending"
+   },
+   {
+    "id": "1341896369449951255",
+    "depth": 2,
+    "branch": "wb",
+    "code": "semis",
+    "opponents": [
+     {
+      "participant": null,
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 1,
+      "position": 1,
+      "result": null,
+      "forfeit": false,
+      "score": null
+     },
+     {
+      "participant": null,
+      "sourceType": "winner",
+      "sourceNode": {
+       "id": "1341896369449951258"
+      },
+      "sourcePosition": null,
+      "number": 2,
+      "position": 2,
+      "result": null,
+      "forfeit": false,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "1341896368476872704",
+     "number": 2,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "pending"
+    },
+    "group": {
+     "id": "1341896369382842381",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "1341896369483505694",
+     "number": 2,
+     "name": "Round 2"
+    },
+    "number": 2,
+    "type": "duel",
+    "status": "pending"
+   },
+   {
+    "id": "1341896369449951246",
+    "depth": 1,
+    "branch": "wb",
+    "code": "final",
+    "opponents": [
+     {
+      "participant": null,
+      "sourceType": "winner",
+      "sourceNode": {
+       "id": "1341896369449951249"
+      },
+      "sourcePosition": null,
+      "number": 1,
+      "position": 1,
+      "result": null,
+      "forfeit": false,
+      "score": null
+     },
+     {
+      "participant": null,
+      "sourceType": "winner",
+      "sourceNode": {
+       "id": "1341896369449951255"
+      },
+      "sourcePosition": null,
+      "number": 2,
+      "position": 2,
+      "result": null,
+      "forfeit": false,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "1341896368476872704",
+     "number": 2,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "pending"
+    },
+    "group": {
+     "id": "1341896369382842381",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "1341896369483505695",
+     "number": 3,
+     "name": "Round 3"
+    },
+    "number": 1,
+    "type": "duel",
+    "status": "pending"
+   },
+   {
+    "id": "1341896370154594336",
+    "depth": 1,
+    "branch": "lb",
+    "code": "third_decider",
+    "opponents": [
+     {
+      "participant": null,
+      "sourceType": "loser",
+      "sourceNode": {
+       "id": "1341896369449951255"
+      },
+      "sourcePosition": null,
+      "number": 1,
+      "position": 1,
+      "result": null,
+      "forfeit": false,
+      "score": null
+     },
+     {
+      "participant": null,
+      "sourceType": "loser",
+      "sourceNode": {
+       "id": "1341896369449951249"
+      },
+      "sourcePosition": null,
+      "number": 2,
+      "position": 2,
+      "result": null,
+      "forfeit": false,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "1341896368476872704",
+     "number": 2,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "pending"
+    },
+    "group": {
+     "id": "1341896369382842381",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "1341896369483505695",
+     "number": 3,
+     "name": "Round 3"
+    },
+    "number": 2,
+    "type": "duel",
+    "status": "pending"
+   }
+  ],
+  "range": {
+   "offset": 0,
+   "length": 6,
+   "total": 6
+  }
+ }
+}

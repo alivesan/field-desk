@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "field-desk",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 5173
+    },
+    {
+      "name": "field-desk-isolated",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["scripts/isolated-dev.mjs"],
+      "port": 5174
+    }
+  ]
+}

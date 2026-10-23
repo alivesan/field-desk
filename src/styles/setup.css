@@ -1,0 +1,209 @@
+/* HQ store page: Players → Bracket */
+
+.setup-meta a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.setup-steps {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--rule);
+  margin: 0 0 24px;
+}
+.setup-step {
+  appearance: none;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: none;
+  text-align: left;
+  padding: 14px 12px 12px 0;
+  cursor: pointer;
+  color: var(--ink);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  align-items: baseline;
+}
+.setup-step + .setup-step {
+  padding-left: 14px;
+  border-left: 1px solid var(--rule);
+}
+.setup-step.on {
+  border-bottom-color: var(--accent);
+}
+.setup-n {
+  font: 500 12px/1 var(--mono);
+  color: var(--accent);
+}
+.setup-title {
+  font: 400 24px/1.1 var(--serif);
+}
+.setup-step small {
+  grid-column: 2;
+  font: 500 10.5px/1.3 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.setup-step:not(.on) .setup-title {
+  color: var(--ink-2);
+}
+@media (max-width: 560px) {
+  .setup-title {
+    font-size: 19px;
+  }
+  .setup-step small {
+    font-size: 9.5px;
+  }
+}
+
+.setup-section {
+  margin-bottom: 40px;
+}
+.setup-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.setup-head h2 {
+  font-size: 30px;
+}
+.setup-problem,
+.setup-lock {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  font-size: 14px;
+  background: var(--paper-2);
+  border-left: 3px solid var(--warn);
+}
+.setup-problem {
+  border-left-color: var(--accent);
+}
+.setup-work {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  font-size: 13.5px;
+}
+.setup-work li {
+  padding: 8px 12px;
+  background: var(--paper-2);
+  margin-bottom: 4px;
+}
+.setup-work li.bad {
+  border-left: 3px solid var(--accent);
+}
+
+.setup-roster {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--ink);
+}
+.setup-roster li {
+  display: grid;
+  grid-template-columns: 32px 1fr auto auto auto;
+  gap: 12px;
+  align-items: baseline;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.sr-seed {
+  font: 500 12px/1 var(--mono);
+  color: var(--muted);
+}
+.sr-name {
+  font: 400 19px/1.2 var(--serif);
+  min-width: 0;
+}
+.sr-name .ign {
+  font-size: 12.5px;
+}
+.sr-phone {
+  font: 400 13px/1 var(--mono);
+  color: var(--ink-2);
+}
+.sr-phone.none {
+  color: var(--warn);
+}
+.sr-state {
+  font: 500 10.5px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ok);
+}
+.sr-remove {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+@media (max-width: 560px) {
+  .setup-roster li {
+    grid-template-columns: 28px 1fr auto;
+  }
+  .sr-phone {
+    grid-column: 2;
+  }
+  .sr-state {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .sr-remove {
+    grid-column: 3;
+  }
+}
+
+.setup-add {
+  margin-top: 24px;
+}
+.setup-add-row {
+  display: grid;
+  grid-template-columns: 2fr 1.3fr 1.3fr auto; /* name, phone, in-game name, Add */
+  gap: 10px;
+  margin-top: 8px;
+}
+.setup-add-row input {
+  font: 400 15px/1.4 var(--sans);
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  background: transparent;
+  padding: 8px 0;
+  outline: none;
+  color: var(--ink);
+  min-width: 0;
+}
+.setup-add-row input:focus {
+  border-bottom-color: var(--ink);
+}
+@media (max-width: 520px) {
+  .setup-add-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .setup-add-row input:first-child,
+  .setup-add-row .btn {
+    grid-column: 1 / -1;
+  }
+}
+
+/* first round, before the bracket is built */
+.setup-preview {
+  background: var(--paper-2);
+  padding: 14px 16px;
+  margin-bottom: 8px;
+}
+.setup-preview ol {
+  margin: 8px 0 0;
+  padding-left: 22px;
+  font-size: 14px;
+  line-height: 1.9;
+}
+.setup-preview em {
+  color: var(--muted);
+  font-style: italic;
+  padding: 0 4px;
+}

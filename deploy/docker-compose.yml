@@ -1,0 +1,34 @@
+# Field Desk on one server: the app + Caddy (automatic HTTPS from Let's Encrypt).
+# Settings come from deploy/.env, which deploy/setup.sh creates (SUPER_ADMIN_CODE, DOMAIN).
+#
+#   cd deploy && docker compose up -d --build      start / update
+#   docker compose logs -f app                      watch the app
+services:
+  app:
+    build: ..
+    restart: unless-stopped
+    environment:
+      SUPER_ADMIN_CODE: ${SUPER_ADMIN_CODE:?run deploy/setup.sh first — it creates deploy/.env}
+      TRUST_PROXY: '1' # Caddy is the one proxy in front: rate limits see the real client address
+    volumes:
+      - field-desk-data:/data # the database and every proof photo — back this up
+
+  caddy:
+    image: caddy:2.8
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      DOMAIN: ${DOMAIN:?run deploy/setup.sh first — it creates deploy/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data # certificates
+      - caddy-config:/config
+    depends_on:
+      - app
+
+volumes:
+  field-desk-data:
+  caddy-data:
+  caddy-config:

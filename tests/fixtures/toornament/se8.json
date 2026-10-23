@@ -1,0 +1,520 @@
+{
+ "_note": "Trimmed from play.toornament.com/api/* (public JSON the tournament pages use), Oct 2026. Participant names replaced with synthetic ones; ids and structure kept.",
+ "tournament": {
+  "id": "2606138892358238208",
+  "discipline": "fortnite",
+  "name": "Synthetic Cup — 8 slots",
+  "fullName": null,
+  "status": "completed",
+  "participantType": "single",
+  "size": 8,
+  "public": true,
+  "archived": false
+ },
+ "stages": {
+  "items": [
+   {
+    "id": "2606170040841388032",
+    "tournament": {
+     "id": "2606138892358238208"
+    },
+    "number": 1,
+    "name": "Playoffs",
+    "type": "single_elimination",
+    "status": "completed",
+    "closed": false,
+    "settings": {
+     "size": 8,
+     "threshold": 0,
+     "round_naming": "number",
+     "third_decider": false
+    }
+   }
+  ],
+  "range": {
+   "offset": 0,
+   "length": 1,
+   "total": 1
+  }
+ },
+ "participants": {
+  "items": [
+   {
+    "id": "2606175777114316802",
+    "type": "player",
+    "name": "Aarav Shah",
+    "logo": null
+   },
+   {
+    "id": "2606177123301531649",
+    "type": "player",
+    "name": "Asha Rao",
+    "logo": null
+   },
+   {
+    "id": "2606177341021020162",
+    "type": "player",
+    "name": "Rohan Mehta",
+    "logo": null
+   },
+   {
+    "id": "2606177371318935555",
+    "type": "player",
+    "name": "Kabir Singh",
+    "logo": null
+   },
+   {
+    "id": "2606177564710084610",
+    "type": "player",
+    "name": "Meera Iyer",
+    "logo": null
+   },
+   {
+    "id": "2606181087069626372",
+    "type": "player",
+    "name": "Vikram Nair",
+    "logo": null
+   },
+   {
+    "id": "2606181823203713027",
+    "type": "player",
+    "name": "Ishaan Gupta",
+    "logo": null
+   },
+   {
+    "id": "2606194014811537408",
+    "type": "player",
+    "name": "Diya Patel",
+    "logo": null
+   }
+  ],
+  "range": {
+   "offset": 0,
+   "length": 8,
+   "total": 8
+  }
+ },
+ "nodes": {
+  "items": [
+   {
+    "id": "2606198538977239047",
+    "depth": 3,
+    "branch": "wb",
+    "code": null,
+    "opponents": [
+     {
+      "participant": {
+       "id": "2606194014811537408",
+       "type": "player",
+       "name": "Diya Patel"
+      },
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 1,
+      "position": 1,
+      "result": "win",
+      "forfeit": false,
+      "score": null
+     },
+     {
+      "participant": null,
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 2,
+      "position": 2,
+      "result": null,
+      "forfeit": true,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "2606170040841388032",
+     "number": 1,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "completed"
+    },
+    "group": {
+     "id": "2606198538977239040",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "2606198539010793494",
+     "number": 1,
+     "name": "Round 1"
+    },
+    "number": 1,
+    "type": "duel",
+    "status": "completed"
+   },
+   {
+    "id": "2606198538977239050",
+    "depth": 3,
+    "branch": "wb",
+    "code": null,
+    "opponents": [
+     {
+      "participant": {
+       "id": "2606175777114316802",
+       "type": "player",
+       "name": "Aarav Shah"
+      },
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 1,
+      "position": 1,
+      "result": "win",
+      "forfeit": false,
+      "score": null
+     },
+     {
+      "participant": {
+       "id": "2606177371318935555",
+       "type": "player",
+       "name": "Kabir Singh"
+      },
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 2,
+      "position": 2,
+      "result": null,
+      "forfeit": true,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "2606170040841388032",
+     "number": 1,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "completed"
+    },
+    "group": {
+     "id": "2606198538977239040",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "2606198539010793494",
+     "number": 1,
+     "name": "Round 1"
+    },
+    "number": 2,
+    "type": "duel",
+    "status": "completed"
+   },
+   {
+    "id": "2606198538977239056",
+    "depth": 3,
+    "branch": "wb",
+    "code": null,
+    "opponents": [
+     {
+      "participant": {
+       "id": "2606181823203713027",
+       "type": "player",
+       "name": "Ishaan Gupta"
+      },
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 1,
+      "position": 2,
+      "result": null,
+      "forfeit": true,
+      "score": null
+     },
+     {
+      "participant": {
+       "id": "2606177123301531649",
+       "type": "player",
+       "name": "Asha Rao"
+      },
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 2,
+      "position": 1,
+      "result": "win",
+      "forfeit": false,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "2606170040841388032",
+     "number": 1,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "completed"
+    },
+    "group": {
+     "id": "2606198538977239040",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "2606198539010793494",
+     "number": 1,
+     "name": "Round 1"
+    },
+    "number": 3,
+    "type": "duel",
+    "status": "completed"
+   },
+   {
+    "id": "2606198538977239059",
+    "depth": 3,
+    "branch": "wb",
+    "code": null,
+    "opponents": [
+     {
+      "participant": {
+       "id": "2606181087069626372",
+       "type": "player",
+       "name": "Vikram Nair"
+      },
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 1,
+      "position": 1,
+      "result": "win",
+      "forfeit": false,
+      "score": null
+     },
+     {
+      "participant": {
+       "id": "2606177341021020162",
+       "type": "player",
+       "name": "Rohan Mehta"
+      },
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 2,
+      "position": 2,
+      "result": null,
+      "forfeit": true,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "2606170040841388032",
+     "number": 1,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "completed"
+    },
+    "group": {
+     "id": "2606198538977239040",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "2606198539010793494",
+     "number": 1,
+     "name": "Round 1"
+    },
+    "number": 4,
+    "type": "duel",
+    "status": "completed"
+   },
+   {
+    "id": "2606198538977239044",
+    "depth": 2,
+    "branch": "wb",
+    "code": "semis",
+    "opponents": [
+     {
+      "participant": {
+       "id": "2606194014811537408",
+       "type": "player",
+       "name": "Diya Patel"
+      },
+      "sourceType": "winner",
+      "sourceNode": {
+       "id": "2606198538977239047"
+      },
+      "sourcePosition": null,
+      "number": 1,
+      "position": 1,
+      "result": "win",
+      "forfeit": false,
+      "score": null
+     },
+     {
+      "participant": {
+       "id": "2606175777114316802",
+       "type": "player",
+       "name": "Aarav Shah"
+      },
+      "sourceType": "winner",
+      "sourceNode": {
+       "id": "2606198538977239050"
+      },
+      "sourcePosition": null,
+      "number": 2,
+      "position": 2,
+      "result": null,
+      "forfeit": true,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "2606170040841388032",
+     "number": 1,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "completed"
+    },
+    "group": {
+     "id": "2606198538977239040",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "2606198539010793495",
+     "number": 2,
+     "name": "Round 2"
+    },
+    "number": 1,
+    "type": "duel",
+    "status": "completed"
+   },
+   {
+    "id": "2606198538977239053",
+    "depth": 2,
+    "branch": "wb",
+    "code": "semis",
+    "opponents": [
+     {
+      "participant": {
+       "id": "2606177123301531649",
+       "type": "player",
+       "name": "Asha Rao"
+      },
+      "sourceType": "winner",
+      "sourceNode": {
+       "id": "2606198538977239056"
+      },
+      "sourcePosition": null,
+      "number": 1,
+      "position": 1,
+      "result": "win",
+      "forfeit": false,
+      "score": null
+     },
+     {
+      "participant": {
+       "id": "2606181087069626372",
+       "type": "player",
+       "name": "Vikram Nair"
+      },
+      "sourceType": "winner",
+      "sourceNode": {
+       "id": "2606198538977239059"
+      },
+      "sourcePosition": null,
+      "number": 2,
+      "position": 2,
+      "result": null,
+      "forfeit": true,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "2606170040841388032",
+     "number": 1,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "completed"
+    },
+    "group": {
+     "id": "2606198538977239040",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "2606198539010793495",
+     "number": 2,
+     "name": "Round 2"
+    },
+    "number": 2,
+    "type": "duel",
+    "status": "completed"
+   },
+   {
+    "id": "2606198538977239041",
+    "depth": 1,
+    "branch": "wb",
+    "code": "final",
+    "opponents": [
+     {
+      "participant": {
+       "id": "2606194014811537408",
+       "type": "player",
+       "name": "Diya Patel"
+      },
+      "sourceType": "winner",
+      "sourceNode": {
+       "id": "2606198538977239044"
+      },
+      "sourcePosition": null,
+      "number": 1,
+      "position": 2,
+      "result": null,
+      "forfeit": true,
+      "score": null
+     },
+     {
+      "participant": {
+       "id": "2606177123301531649",
+       "type": "player",
+       "name": "Asha Rao"
+      },
+      "sourceType": "winner",
+      "sourceNode": {
+       "id": "2606198538977239053"
+      },
+      "sourcePosition": null,
+      "number": 2,
+      "position": 1,
+      "result": "win",
+      "forfeit": false,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "2606170040841388032",
+     "number": 1,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "completed"
+    },
+    "group": {
+     "id": "2606198538977239040",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "2606198539010793496",
+     "number": 3,
+     "name": "Round 3"
+    },
+    "number": 1,
+    "type": "duel",
+    "status": "completed"
+   }
+  ],
+  "range": {
+   "offset": 0,
+   "length": 7,
+   "total": 7
+  }
+ }
+}

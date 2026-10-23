@@ -1,0 +1,30 @@
+{
+  "name": "field-desk",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:phone": "vite --host --mode phone",
+    "build": "tsc --noEmit && vite build",
+    "start": "node server/index.ts",
+    "pc": "npm run build && node scripts/pc.mjs",
+    "test": "node --test --test-concurrency=1 \"tests/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "idb-keyval": "6.2.1",
+    "qrcode-generator": "2.0.4",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "@vitejs/plugin-basic-ssl": "1.1.0",
+    "@vitejs/plugin-react": "4.3.3",
+    "typescript": "5.6.3",
+    "vite": "5.4.10"
+  }
+}
