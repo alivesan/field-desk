@@ -4,6 +4,15 @@
  */
 import type { Player, TournamentEvent } from './types.ts';
 
+/** What the desk types for a winner / runner-up — who they are is taken from the final, not from here. */
+export interface WinnerInput {
+  realName: string;
+  ign?: string;
+  phone?: string;
+  email?: string;
+  instagram?: string;
+}
+
 export type Role = 'super' | 'admin';
 
 export type Command =
@@ -23,6 +32,7 @@ export type Command =
   | { type: 'onspot.mark'; base: number; entryId: string; done: boolean } // HQ: added to Toornament (or not yet)
   // HQ deletes registrations (test data, mistakes). The players stay on the list unless alsoPlayers (refused once matches are under way).
   | { type: 'onspot.remove'; base: number; entryIds: string[]; alsoPlayers?: boolean }
+  | { type: 'winners.set'; base: number; winner: WinnerInput; runnerUp: WinnerInput } // admin or HQ, once the final is done; who won comes from the final
   // submissions (src/lib/submission.ts)
   | { type: 'recce.submit'; base: number }
   | { type: 'recce.review'; base: number; submissionId: string }

@@ -1,0 +1,259 @@
+/* HQ: all winners (src/pages/WinnersPage.tsx) + the Winners link in the header and on campaign pages. */
+
+.mast-link + .mast-link {
+  margin-left: 16px;
+}
+
+.wn-bar {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+}
+.wn-campaign {
+  flex: 1;
+  min-width: 220px;
+  max-width: 480px;
+}
+.wn-campaign select {
+  width: 100%;
+  font: 400 16px/1.45 var(--sans);
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  border-radius: 0;
+  padding: 6px 0 8px;
+  outline: none;
+}
+.wn-campaign select:focus {
+  border-color: var(--ink);
+}
+.wn-summary {
+  margin: 20px 0 12px;
+  font-size: 15px;
+  color: var(--ink-2);
+}
+.wn-check {
+  color: var(--accent);
+}
+.wn-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.wn-filter {
+  appearance: none;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--rule);
+  background: transparent;
+  color: var(--ink-2);
+  font: 500 13px/1 var(--sans);
+  cursor: pointer;
+}
+.wn-filter span {
+  font: 500 11px/1 var(--mono);
+  opacity: 0.7;
+  margin-left: 4px;
+}
+.wn-filter.on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+.wn-empty {
+  color: var(--muted);
+  margin: 32px 0;
+}
+
+.wn-campaign-group {
+  margin-top: 48px;
+}
+.wn-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--ink);
+}
+.wn-group-head h2 {
+  font-size: 28px;
+}
+.wn-group-head h2 a {
+  color: var(--ink);
+  text-decoration: none;
+}
+.wn-group-head h2 a:hover {
+  color: var(--accent);
+}
+
+.wn-store {
+  padding: 20px 0 22px;
+  border-bottom: 1px solid var(--rule);
+}
+.wn-store-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+}
+.wn-store-head h3 {
+  font-size: 22px;
+}
+.wn-where {
+  flex: 1;
+  min-width: 200px;
+  font: 500 11px/1.4 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.wn-links {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+}
+.wn-links a {
+  color: var(--ink-2);
+  text-underline-offset: 3px;
+}
+.wn-links a:hover {
+  color: var(--accent);
+}
+.wn-open {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.wn-places {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 32px;
+  margin-top: 14px;
+}
+.wn-person {
+  min-width: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--ink);
+  overflow-wrap: anywhere;
+}
+.wn-person.mismatch {
+  border-top-color: var(--accent);
+}
+.wn-place {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.wn-name {
+  margin-top: 8px;
+  font: 400 26px/1.15 var(--serif);
+}
+.wn-name.list {
+  color: var(--ink-2);
+}
+.wn-person .ign {
+  margin-top: 4px;
+}
+.wn-note {
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: var(--paper-2);
+  border-left: 3px solid var(--rule);
+  color: var(--ink-2);
+}
+.wn-note.warn {
+  border-left-color: var(--warn);
+}
+.wn-note.bad {
+  border-left-color: var(--accent);
+}
+.wn-contact {
+  margin: 12px 0 0;
+}
+.wn-line {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-top: 1px solid var(--rule);
+}
+.wn-line dt {
+  margin: 0;
+}
+.wn-line dd {
+  margin: 0;
+  font-size: 14.5px;
+}
+.wn-line dd a {
+  color: var(--ink);
+  text-underline-offset: 3px;
+}
+.wn-line dd a:hover {
+  color: var(--accent);
+}
+.wn-line dd.none {
+  color: var(--muted);
+  font-size: 13px;
+}
+.wn-saved {
+  margin: 8px 0 0;
+  font: 400 11.5px/1.4 var(--mono);
+  color: var(--muted);
+}
+
+/* Winners summary on a campaign page. */
+.wn-event {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 40px 0 0;
+  padding: 14px 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.wn-event h2 {
+  font-size: 24px;
+}
+.wn-event p {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.wn-event .wn-event-links {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.wn-event .btn {
+  min-height: 36px;
+  font-size: 13px;
+  padding: 0 12px;
+}
+
+@media (max-width: 640px) {
+  .wn-places {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .wn-name {
+    font-size: 24px;
+  }
+  .wn-line {
+    grid-template-columns: 76px minmax(0, 1fr);
+  }
+  .wn-campaign {
+    max-width: none;
+  }
+  .wn-bar .btn {
+    width: 100%;
+  }
+}

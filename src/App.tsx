@@ -12,6 +12,7 @@ import { ReportPage } from './pages/ReportPage.tsx';
 import { DayPage } from './pages/DayPage.tsx';
 import { BoardPage } from './pages/BoardPage.tsx';
 import { StoreSetupPage } from './pages/StoreSetupPage.tsx';
+import { WinnersPage } from './pages/WinnersPage.tsx';
 
 export function App() {
   const [a, id, view] = useRoute();
@@ -36,10 +37,11 @@ export function App() {
   }
 
   // A field admin has one home and their own stores — nothing else exists for them.
-  if (role === 'admin') return a === 'store' ? <NotFound /> : <AdminHome />;
+  if (role === 'admin') return a === 'store' || a === 'winners' ? <NotFound /> : <AdminHome />;
 
   if (!a) return <Home />;
   if (a === 'team') return <TeamPage />;
+  if (a === 'winners') return <WinnersPage eventId={id} />;
   if (a === 'event' && id) return <EventPage key={id} eventId={id} />;
   return <NotFound />;
 }

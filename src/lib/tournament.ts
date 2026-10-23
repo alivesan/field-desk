@@ -6,7 +6,7 @@
  * How `base` is used:
  *   bracket.load / bracket.reset — destructive: `base` must equal the current day version,
  *     so a device that hasn't seen the latest bracket can't replace or wipe it.
- *   stations.set / match.start / match.finish / match.undo / players.onspot / onspot.mark / onspot.remove —
+ *   stations.set / match.start / match.finish / match.undo / players.onspot / onspot.mark / onspot.remove / winners.set —
  *     `base` is informational only.
  *     These are checked against the *current* state (station free, players checked in and
  *     not busy, match in the right status, nothing downstream started), which is the real
@@ -16,11 +16,12 @@
  *     Check-ins are plain field edits and never bump the version.
  * Every successful command bumps `day.version` by exactly 1.
  */
-import type { Match, MatchDay, OnSpotEntry, Player, Store } from './types.ts';
+import type { Match, MatchDay, OnSpotEntry, Player, Store, WinnerDetails, Winners } from './types.ts';
 import { CommandError, type Command, type CommandContext, type Role } from './command-types.ts';
 import { buildBracket, isPow2, matchNo, nextOf, reopened, resolve } from './bracket.ts';
 import { onSpotPlayer } from './onspot.ts';
 import { cleanIgn, isPhone, MAX_IGN, normalizePhone, playerIdFor } from './phone.ts';
+import { cleanWinnerInput, finalOf, finalResult } from './winnerInput.ts';
 
 export const TOURNAMENT_COMMANDS: Record<string, Role[]> = {
   // HQ owns the bracket: it loads players from its sheet / CSV / tournament site. Admins run the day.
@@ -37,6 +38,8 @@ export const TOURNAMENT_COMMANDS: Record<string, Role[]> = {
   'players.onspot': ['super', 'admin'],
   'onspot.mark': ['super'],
   'onspot.remove': ['super'], // HQ deletes registrations (test data, mistakes)
+  // The admin collects the winner's and runner-up's details after the final; HQ may correct them.
+  'winners.set': ['super', 'admin'],
 };
 
 const conflict = (msg: string) => new CommandError('conflict', msg);
@@ -52,6 +55,7 @@ export function tournamentCommand(store: Store, cmd: Command, ctx: CommandContex
       break;
     case 'bracket.reset':
       // The bracket only: players, seeds and check-ins stay, so HQ can re-seed and build again.
+      // day.winners stays too — prize details are never lost to a reset (see setWinners).
       if (cmd.base !== version) throw conflict(staleMsg);
       next = { ...day, matches: [] };
       break;
@@ -97,6 +101,9 @@ export function tournamentCommand(store: Store, cmd: Command, ctx: CommandContex
       break;
     case 'onspot.remove':
       next = removeOnSpot(day, cmd);
+      break;
+    case 'winners.set':
+      next = setWinners(day, cmd, ctx);
       break;
     default:
       throw invalid(`${(cmd as { type: string }).type} isn’t a tournament command`);
@@ -344,6 +351,30 @@ function removeOnSpot(day: MatchDay, cmd: Extract<Command, { type: 'onspot.remov
   const players = day.players.filter((p) => !leaving.has(p.id));
   const inBracket = day.matches.some((m) => (m.a && leaving.has(m.a)) || (m.b && leaving.has(m.b)));
   return { ...next, ...keptCheckIns(day, players), players, matches: inBracket ? [] : day.matches };
+}
+
+/* ---------- winners.set ---------- */
+
+/**
+ * winners.set: the admin's winner / runner-up details after the final. Who they are comes from the
+ * final, never from the command. Saving again updates (`at` keeps the first time). Like the other
+ * day-of commands `base` is informational: several devices may fill this in, and the real guard is
+ * the final itself. Everything that rewrites the bracket or players (bracket.reset / load / build,
+ * players.set) leaves day.winners alone — prize details must never be lost; a record whose final
+ * no longer matches is flagged (winnersState), not deleted.
+ */
+function setWinners(day: MatchDay, cmd: Extract<Command, { type: 'winners.set' }>, ctx: CommandContext): MatchDay {
+  const final = finalOf(day.matches);
+  const result = finalResult(day.matches);
+  if (!final || !result) throw conflict('Record the final first — the winner and runner-up come from its result.');
+  const w = cleanWinnerInput(cmd.winner, 'Winner');
+  if (!w.ok) throw invalid(w.error);
+  const r = cleanWinnerInput(cmd.runnerUp, 'Runner-up');
+  if (!r.ok) throw invalid(r.error);
+  const winner: WinnerDetails = { playerId: result.winner, ...w.value };
+  const runnerUp: WinnerDetails = { playerId: result.runnerUp, ...r.value };
+  const winners: Winners = { winner, runnerUp, finalMatchId: final.id, at: day.winners?.at ?? ctx.now, updatedAt: ctx.now, by: ctx.actor.name };
+  return { ...day, winners };
 }
 
 /* ---------- stations.set ---------- */

@@ -104,6 +104,7 @@ const PROTECTED: [string, (s: any) => unknown][] = [
   ['day.stations', (s) => s?.day?.stations ?? null],
   ['day.version', (s) => s?.day?.version ?? 0],
   ['day.onSpot', (s) => s?.day?.onSpot ?? []], // on-the-spot registrations: players.onspot / onspot.mark
+  ['day.winners', (s) => s?.day?.winners ?? null], // winner + runner-up details: winners.set
   ['submissions', (s) => s?.submissions ?? []],
 ];
 

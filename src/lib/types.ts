@@ -106,6 +106,32 @@ export interface MatchDay {
   checkInSource?: Record<string, 'self' | 'staff'>; // playerId -> who checked them in (absent = staff)
   selfCheckIn?: SelfCheckIn; // the store's player QR check-in
   onSpot?: OnSpotEntry[]; // players registered at the desk on the day, oldest first (commands only)
+  winners?: Winners; // winner + runner-up details the admin collects after the final (commands only)
+}
+
+/**
+ * The store's winner and runner-up, as the admin collected them at the desk after the final.
+ * Who they are comes from the final match (server-side, never typed); the contact details are
+ * typed or confirmed by the admin — name / in-game name / phone are prefilled from the player list.
+ * Kept even if HQ later resets the bracket, so prize details are never lost; HQ's list flags a
+ * record whose final no longer matches.
+ */
+export interface Winners {
+  winner: WinnerDetails;
+  runnerUp: WinnerDetails;
+  finalMatchId: string; // the final these were taken from
+  at: string; // ISO, first saved
+  updatedAt: string; // ISO, last saved
+  by: string; // who saved them last (admin's or HQ's name)
+}
+
+export interface WinnerDetails {
+  playerId: string; // from the final (winner / loser)
+  realName: string; // full legal name for the prize ('' = not given yet)
+  ign?: string;
+  phone?: string; // normalized digits
+  email?: string; // lower-cased
+  instagram?: string; // handle without '@'
 }
 
 /**
