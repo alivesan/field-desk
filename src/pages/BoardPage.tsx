@@ -3,6 +3,7 @@ import { computeQueue, matchNo, roundCount, roundName } from '../lib/bracket.ts'
 import { NotFound, useNow } from '../components/ui.tsx';
 import { cx, fmtTime } from '../lib/util.ts';
 import { checkInUrl } from '../lib/checkin.ts';
+import { finalResult } from '../lib/winnerInput.ts';
 import { CheckInQr } from '../components/CheckInQr.tsx';
 import '../styles/day.css';
 import { shareOrigin, useLan } from '../lib/origin.ts';
@@ -27,6 +28,7 @@ export function BoardPage({ storeId }: { storeId: string }) {
   const label = (m: (typeof day.matches)[number]) => `M${matchNo(m, day.matches)} · ${roundName(m.round, total)}`;
   const callNext = q.ready.slice(0, 6);
   const needed = [...new Set(q.waiting.flatMap((w) => w.missing))];
+  const runnerUp = finalResult(day.matches)?.runnerUp; // names only on this public screen — never the collected contact details
   const qr = day.selfCheckIn?.open ? checkInUrl(shareOrigin(), day.selfCheckIn.token) : null;
 
   return (
@@ -48,6 +50,7 @@ export function BoardPage({ storeId }: { storeId: string }) {
             <section className="board-champ">
               <span className="label">Champion</span>
               <h2>{names[q.champion]}</h2>
+              {runnerUp && names[runnerUp] && <p className="board-runner">Runner-up · {names[runnerUp]}</p>}
             </section>
           ) : !day.matches.length ? (
             <section className="board-champ">

@@ -15,6 +15,7 @@ import { applyToornamentLink } from '../lib/toornament.ts';
 import { RosterImport } from '../components/RosterImport.tsx';
 import { StoreSheetImport } from '../components/StoreSheetImport.tsx';
 import { OnSpotList } from '../components/OnSpotList.tsx';
+import { EventWinners } from './WinnersPage.tsx';
 import { onSpotCounts } from '../lib/onspot.ts';
 import '../styles/evidence.css';
 import '../styles/storesheet.css';
@@ -154,6 +155,8 @@ export function EventPage({ eventId }: { eventId: string }) {
           {!stores.length && !adding && <li className="empty">No stores yet. Add the venues for this campaign, or import them from a sheet.</li>}
         </ol>
       </section>
+
+      {stores.length > 0 && <EventWinners event={event} stores={stores} />}
 
       {stores.length > 0 && <OnSpotList event={event} stores={stores} />}
 

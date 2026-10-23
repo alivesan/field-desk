@@ -1212,6 +1212,11 @@ code {
   color: var(--accent);
   margin-top: 16px;
 }
+.board-runner {
+  margin: 24px 0 0;
+  font: 400 clamp(24px, 3.2vw, 44px) / 1.2 var(--serif);
+  color: var(--ink-2);
+}
 @media (max-width: 800px) {
   .board-grid {
     grid-template-columns: 1fr;

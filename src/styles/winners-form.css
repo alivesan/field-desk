@@ -1,0 +1,247 @@
+/* Match day: the champion / winner-details card (WinnersBanner.tsx) and its form sheet (WinnersForm.tsx). */
+
+.wb {
+  margin: 0 0 28px;
+  padding: 28px 0 0;
+  border-top: 2px solid var(--ink);
+}
+.wb.hero {
+  padding-top: 40px;
+}
+.wb-kicker span {
+  font-size: 20px;
+  vertical-align: -2px;
+}
+.wb-kicker {
+  display: block;
+  color: var(--accent);
+}
+.wb-champ {
+  margin: 10px 0 0;
+  font-size: clamp(40px, 9vw, 64px);
+  line-height: 1;
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+.wb.hero .wb-champ {
+  font-size: clamp(56px, 12vw, 120px);
+}
+.wb-line {
+  margin: 10px 0 0;
+  font-size: 17px;
+  color: var(--ink-2);
+}
+.wb-next {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px 24px;
+  margin-top: 22px;
+  padding: 16px 18px;
+  background: var(--paper-2);
+  border-left: 3px solid var(--accent);
+}
+.wb.incomplete .wb-next {
+  border-left-color: var(--warn);
+}
+.wb.complete .wb-next {
+  border-left-color: var(--ok);
+}
+.wb-next > div:first-child {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+.wb-next p {
+  margin: 6px 0 0;
+  font-size: 16px;
+  line-height: 1.4;
+}
+.wb-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+.wb-actions .btn {
+  min-height: 48px;
+  font-size: 16px;
+}
+.wb-people {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.wb-people li {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 0 12px;
+  padding: 6px 0;
+  border-top: 1px solid var(--rule);
+  font-size: 16px;
+}
+.wb-people li:first-child {
+  border-top: 0;
+}
+.wb-people strong {
+  font: 500 11px/1.9 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.wb-people span {
+  overflow-wrap: anywhere;
+}
+.wb-people small {
+  grid-column: 2;
+  font-size: 13px;
+  color: var(--muted);
+}
+.wb-people li.must small {
+  color: var(--accent);
+}
+.wb-people li.maybe small {
+  color: var(--warn);
+}
+.wb-when {
+  font: 500 11px/1.4 var(--mono) !important;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.champion-note {
+  margin-top: 20px;
+}
+
+/* the saved record no longer matches the bracket */
+.wb-stalebox {
+  margin-top: 22px;
+  padding: 16px 18px;
+  background: var(--warn-soft);
+  border-left: 3px solid var(--warn);
+}
+.wb-warn {
+  color: var(--warn);
+}
+.wb-stale {
+  margin: 8px 0 0;
+  font-size: 16px;
+  line-height: 1.45;
+}
+.wb-stalebox .wb-actions {
+  margin-top: 14px;
+}
+
+/* the form sheet */
+.wf .hint {
+  margin-top: 10px;
+}
+.wf-saved {
+  margin: 12px 0 0;
+  padding: 8px 12px;
+  background: var(--ok-soft);
+  color: var(--ok);
+  font-size: 14px;
+}
+.wf-person {
+  margin: 20px 0 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.wf-person legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+  width: 100%;
+  padding: 10px 0 2px;
+  border-top: 1px solid var(--ink);
+  font: 400 26px/1.1 var(--serif);
+  letter-spacing: -0.015em;
+}
+.wf-person legend small {
+  font: 400 14px/1.2 var(--sans);
+  letter-spacing: 0;
+  color: var(--muted);
+}
+.wf .field input {
+  font-size: 18px;
+  min-height: 48px;
+  border-bottom-color: var(--ink-2);
+}
+.wf .field input:focus {
+  border-color: var(--accent);
+}
+.wf-field.bad input {
+  border-bottom-color: var(--accent);
+}
+.wf-hint {
+  font-size: 13px;
+  color: var(--accent);
+}
+.wf-at {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  border-bottom: 1px solid var(--ink-2);
+}
+.wf-at:focus-within {
+  border-bottom-color: var(--accent);
+}
+.wf-at > span {
+  font: 500 18px/1 var(--mono);
+  color: var(--muted);
+}
+.wf-at input {
+  border-bottom: 0 !important;
+}
+.wf-field.bad .wf-at {
+  border-bottom-color: var(--accent);
+}
+.wf-missing {
+  margin: 0;
+  font: 500 11px/1.4 var(--mono);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+.wf-missing.ok {
+  color: var(--ok);
+}
+.wf-msg {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  font-size: 15px;
+  line-height: 1.45;
+}
+.wf-actions {
+  position: sticky;
+  bottom: calc(-20px - env(safe-area-inset-bottom, 0px));
+  display: flex;
+  gap: 8px;
+  margin: 18px -20px calc(-20px - env(safe-area-inset-bottom, 0px));
+  padding: 12px 20px calc(14px + env(safe-area-inset-bottom, 0px));
+  background: var(--paper);
+  border-top: 1px solid var(--rule);
+}
+.wf-actions .btn {
+  min-height: 52px;
+  font-size: 16px;
+}
+.wf-actions .btn.accent {
+  flex: 1;
+}
+@media (max-width: 600px) {
+  .wb-people li {
+    grid-template-columns: 1fr;
+  }
+  .wb-people small {
+    grid-column: 1;
+  }
+  .wb-actions,
+  .wb-actions .btn {
+    width: 100%;
+  }
+}

@@ -219,7 +219,12 @@ export function planImport(b: ParsedBackup, current: AppState, opts: ImportOptio
     if (s.day?.onSpot?.length && !sameJson(s.day.onSpot, cur?.day?.onSpot ?? [])) {
       warnings.push(`${s.name}: the backup’s on-the-spot registrations (${s.day.onSpot.length}) can’t be restored by import — ${cur ? 'they stay as on the server' : 'register them again on the match-day page'}`);
     }
+    // And the winner / runner-up details (prize details the admin collected).
+    if (s.day?.winners && !sameJson(s.day.winners, cur?.day?.winners ?? null)) {
+      warnings.push(`${s.name}: the backup’s winner and runner-up details can’t be restored by import — ${cur?.day?.winners ? 'they stay as on the server' : 'collect them again on the match-day page'}`);
+    }
     const onSpot = cur?.day?.onSpot;
+    const winners = cur?.day?.winners;
     const ids = new Set(keptPlayers.map((p) => p.id));
     s.day = {
       ...s.day,
@@ -231,6 +236,8 @@ export function planImport(b: ParsedBackup, current: AppState, opts: ImportOptio
     };
     if (onSpot) s.day.onSpot = structuredClone(onSpot);
     else delete s.day.onSpot;
+    if (winners) s.day.winners = structuredClone(winners);
+    else delete s.day.winners;
     // Assignment: only to an admin that will exist; otherwise keep the current assignment.
     if (s.adminId && !adminsAfter[s.adminId]) {
       const was = s.admin;

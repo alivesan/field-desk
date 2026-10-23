@@ -91,6 +91,14 @@ export function validateCommand(input: unknown): Command {
         throw new CommandError('invalid', 'entryIds must be a list of 1–256 registration ids');
       if (c.alsoPlayers !== undefined && typeof c.alsoPlayers !== 'boolean') throw new CommandError('invalid', 'alsoPlayers must be true/false');
       break;
+    case 'winners.set':
+      for (const k of ['winner', 'runnerUp']) {
+        const w = c[k] as Record<string, unknown> | null;
+        if (!w || typeof w !== 'object' || Array.isArray(w)) throw new CommandError('invalid', `${k} must be an object`);
+        for (const f of ['realName', 'ign', 'phone', 'email', 'instagram'])
+          if (w[f] !== undefined && (typeof w[f] !== 'string' || (w[f] as string).length > 400)) throw new CommandError('invalid', `${k}.${f} must be short text`);
+      }
+      break;
     case 'recce.review':
     case 'recce.delete':
       str('submissionId');

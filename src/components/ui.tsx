@@ -92,9 +92,14 @@ export function Shell({ crumbs = [], children, wide }: { crumbs?: { label: strin
             )}
           </nav>
           {role === 'super' && (
-            <a href="#/team" className="mast-link">
-              Team
-            </a>
+            <>
+              <a href="#/winners" className="mast-link">
+                Winners
+              </a>
+              <a href="#/team" className="mast-link">
+                Team
+              </a>
+            </>
           )}
           <SyncStatus />
         </div>

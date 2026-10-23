@@ -5,8 +5,9 @@ import { computeQueue } from '../lib/bracket.ts';
 import { storeDate } from '../lib/recce.ts';
 import { isLegacy, revLabel, submissionState } from '../lib/submission.ts';
 import type { Store, TournamentEvent } from '../lib/types.ts';
-import { cx, fmtDate, fmtDateTime } from '../lib/util.ts';
+import { cx, fmtDate, fmtDateTime, fmtTime } from '../lib/util.ts';
 import { PageHead, Shell, useNow } from '../components/ui.tsx';
+import { winnersState } from '../lib/winnerInput.ts';
 
 /** Whether this device last left a store's submitted recce open. A convenience only — storage may be blocked. */
 const reccePref = (storeId: string) => {
@@ -82,6 +83,9 @@ function StoreTasks({ store, event, now }: { store: Store; event: TournamentEven
   const played = day.matches.filter((m) => m.status === 'done' && !m.bye).length;
   const total = day.matches.filter((m) => !m.bye).length;
   const here = Object.keys(day.checkIn).length;
+  // After the final: the winner's and runner-up's details are the next job, until both names + phones are saved.
+  const ws = winnersState(day);
+  const collect = ws.kind === 'collect' || (ws.kind === 'saved' && ws.missing) || (ws.kind === 'stale' && !!q?.champion);
   const selfIn = Object.keys(day.checkIn).filter((pid) => day.checkInSource?.[pid] === 'self').length;
 
   const d = new Date(now);
@@ -91,8 +95,9 @@ function StoreTasks({ store, event, now }: { store: Store; event: TournamentEven
   const when = days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : days > 1 ? `In ${days} days` : `${-days} day${days === -1 ? '' : 's'} ago`;
 
   const base = `#/store/${store.id}`;
-  const next =
-    st.kind === 'failed'
+  const next = collect
+    ? { label: 'Collect winner details', href: `${base}/day` }
+    : st.kind === 'failed'
       ? { label: 'Fix the recce submission', href: `${base}/recce` }
       : !st.acknowledged && st.kind !== 'waiting'
         ? { label: r.startedAt ? 'Continue the recce' : 'Start the recce', href: `${base}/recce` }
@@ -194,6 +199,17 @@ function StoreTasks({ store, event, now }: { store: Store; event: TournamentEven
           )}
           {step(!!q?.champion, 'Run the matches', total ? `${played} of ${total} played${q && q.live.length ? ` · ${q.live.length} live now` : ''}` : 'Call each match from the queue')}
           {step(!!q?.champion, 'Champion', q?.champion ? names[q.champion] : '—')}
+          {(q?.champion || day.winners) &&
+            step(
+              ws.kind === 'saved' && !ws.missing,
+              ws.kind === 'saved' && !ws.missing ? 'Winners: details saved ✓' : 'Winner details',
+              ws.kind === 'stale'
+                ? 'Saved details no longer match the bracket — open match day'
+                : ws.kind === 'saved'
+                  ? `${ws.missing ? 'Still needs a real name or phone' : 'Winner and runner-up'} · saved ${fmtTime(day.winners!.updatedAt)} by ${day.winners!.by}`
+                  : 'Collect the winner’s and runner-up’s name, phone, email and Instagram',
+              ws.kind === 'stale' || (ws.kind === 'saved' && ws.missing),
+            )}
         </ol>
         <div className="row">
           <a className="btn ghost" href={`${base}/day`}>

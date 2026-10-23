@@ -96,11 +96,11 @@ export function csvRows(stores: Pick<Store, 'name' | 'day'>[], f: OnSpotFilter =
 }
 
 /** One CSV cell: quoted when needed, and never read as a formula by a spreadsheet. */
-const cell = (v: string) => {
+export const csvCell = (v: string) => {
   const t = /^[=+\-@\t\r]/.test(v) ? `'${v}` : v;
   return /[",\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
 };
-export const toCsv = (rows: string[][]) => [CSV_HEADER, ...rows].map((r) => r.map(cell).join(',')).join('\r\n') + '\r\n';
+export const toCsv = (rows: string[][]) => [CSV_HEADER, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
 
 /* ---------- HQ replaces the player list ---------- */
 

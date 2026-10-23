@@ -27,6 +27,8 @@ import { askConfirm, Chip, NotFound, notify, NumberField, PageHead, Shell, useNo
 import { MatchSheet, StateTag } from '../components/MatchSheet.tsx';
 import { PlayerSheet } from '../components/PlayerSheet.tsx';
 import { CheckInQr } from '../components/CheckInQr.tsx';
+import { WinnersBanner } from '../components/WinnersBanner.tsx';
+import { finalResult } from '../lib/winnerInput.ts';
 import '../styles/day.css';
 import { shareOrigin, useLan } from '../lib/origin.ts';
 import '../styles/checkin.css';
@@ -131,6 +133,19 @@ export function DayPage({ storeId }: { storeId: string }) {
     offline: status !== 'live',
   };
 
+  // The champion / winner-details card (queue + bracket tabs). hero = the queue's big champion block.
+  const winnersPending = inFlight.find((w) => w.cmd?.type === 'winners.set');
+  const banner = (hero = false) => (
+    <WinnersBanner
+      day={day}
+      names={names}
+      hero={hero}
+      offline={cmds.offline}
+      pending={winnersPending ? (winnersPending.state === 'sending' ? 'sending' : 'queued') : null}
+      save={(winner, runnerUp) => cmds.attempt({ type: 'winners.set', base: cmds.base, winner, runnerUp })}
+    />
+  );
+
   return (
     <Shell wide crumbs={storeCrumbs(role, event, store, { label: 'Match day' })}>
       <PageHead kicker={`Match day · ${event.name}`} title={store.name}>
@@ -207,9 +222,12 @@ export function DayPage({ storeId }: { storeId: string }) {
           )}
         </section>
       ) : tab === 'queue' ? (
-        <QueueView day={day} editDay={editDay} names={names} igns={igns} cmds={cmds} />
+        <QueueView day={day} editDay={editDay} names={names} igns={igns} cmds={cmds} banner={banner} />
       ) : (
-        <BracketView store={store} names={names} igns={igns} cmds={cmds} canReset={hq} onCheckIn={(pid) => editDay((d) => staffCheckIn(d, pid, new Date().toISOString()))} />
+        <>
+          {banner()}
+          <BracketView store={store} names={names} igns={igns} cmds={cmds} canReset={hq} onCheckIn={(pid) => editDay((d) => staffCheckIn(d, pid, new Date().toISOString()))} />
+        </>
       )}
 
       <JoinedNotices
@@ -247,6 +265,8 @@ function describe(cmd: Command, day: MatchDay) {
       return 'Reset the bracket';
     case 'players.onspot':
       return `Register ${cmd.name.trim() || 'a player'} on the spot`;
+    case 'winners.set':
+      return 'Save the winner details';
     case 'onspot.mark': {
       const e = day.onSpot?.find((x) => x.id === cmd.entryId);
       return `Mark ${e?.name ?? 'an on-the-spot player'} as ${cmd.done ? 'added to' : 'not yet on'} Toornament`;
@@ -275,7 +295,9 @@ function WorkNotices({
   const waiting = work.filter((w) => w.state === 'queued' || w.state === 'sending');
   if (!refused.length && !local.length && !waiting.length) return null;
   const regs = waiting.filter((w) => w.cmd?.type === 'players.onspot').length;
-  const noun = (n: number) => (regs === n ? `registration${n === 1 ? '' : 's'}` : regs ? `action${n === 1 ? '' : 's'}` : `match action${n === 1 ? '' : 's'}`);
+  const saves = waiting.filter((w) => w.cmd?.type === 'winners.set').length;
+  const noun = (n: number) =>
+    regs === n ? `registration${n === 1 ? '' : 's'}` : saves === n ? `winner-details save${n === 1 ? '' : 's'}` : regs || saves ? `action${n === 1 ? '' : 's'}` : `match action${n === 1 ? '' : 's'}`;
   return (
     <div className="day-notices" role="status">
       {local.map((x) => (
@@ -723,7 +745,21 @@ function JoinedNotices({ list, names, onUndo, onDismiss }: { list: SelfArrival[]
 
 /* ---------- the call queue ---------- */
 
-function QueueView({ day, editDay, names, igns, cmds }: { day: MatchDay; editDay: (fn: (d: MatchDay) => void) => void; names: Record<string, string>; igns: Record<string, string>; cmds: Cmds }) {
+function QueueView({
+  day,
+  editDay,
+  names,
+  igns,
+  cmds,
+  banner,
+}: {
+  day: MatchDay;
+  editDay: (fn: (d: MatchDay) => void) => void;
+  names: Record<string, string>;
+  igns: Record<string, string>;
+  cmds: Cmds;
+  banner: (hero?: boolean) => React.ReactNode;
+}) {
   const q = computeQueue(day);
   const total = roundCount(day.matches);
   const n = (id: string | null) => (id ? names[id] : 'TBD');
@@ -758,6 +794,16 @@ function QueueView({ day, editDay, names, igns, cmds }: { day: MatchDay; editDay
     return () => clearTimeout(t);
   }, [stDraft]);
 
+  // The final is recorded: the champion block is the winners card (collect their details), then the usual note.
+  if (q.champion && finalResult(day.matches))
+    return (
+      <>
+        {banner(true)}
+        <p className="deck champion-note">
+          {day.matches.filter((m) => !m.bye).length} matches played. The full results are on the Bracket tab — the store report covers the recce only, not match day.
+        </p>
+      </>
+    );
   if (q.champion)
     return (
       <section className="champion">
@@ -812,6 +858,7 @@ function QueueView({ day, editDay, names, igns, cmds }: { day: MatchDay; editDay
 
   return (
     <div className="queue">
+      {banner()}
       <section>
         <div className="qhead">
           <h2>Stations</h2>
