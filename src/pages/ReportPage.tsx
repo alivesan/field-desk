@@ -1,0 +1,207 @@
+import { useEffect, useRef, useState } from 'react';
+import { sendCommand, useApp, usePendingWork, usePhotoUrls, useSync } from '../lib/db.ts';
+import { storeCrumbs } from '../lib/admins.ts';
+import { submissionVersion } from '../lib/commands.ts';
+import { evidenceBanner, expectedPhotos, missingSummary, type EvidenceBanner, type ManifestResult } from '../lib/evidence.ts';
+import { checkRenderedPhotos, loadEvidence, type LoadedEvidence } from '../lib/evidenceLoad.ts';
+import { buildReportFile } from '../lib/exportReport.ts';
+import { useRoute } from '../lib/router.ts';
+import { editedSince, isLegacy, revLabel, submissionIdFor, submissionsOf, submissionState, type AnySubmission } from '../lib/submission.ts';
+import { downloadBlob, fmtDateTime } from '../lib/util.ts';
+import { NotFound, notify, Shell } from '../components/ui.tsx';
+import { Report } from '../components/Report.tsx';
+import { markReportSeen } from '../components/ReportsInbox.tsx';
+import '../styles/evidence.css';
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const frame = () => new Promise((r) => requestAnimationFrame(() => r(null)));
+
+type Mode = 'pdf' | 'download' | 'share';
+/** An export that found missing evidence and is waiting for the user: retry, or go ahead with a banner. */
+interface Held {
+  mode: Mode;
+  result: ManifestResult;
+  evidence: LoadedEvidence;
+}
+
+export function ReportPage({ storeId }: { storeId: string }) {
+  const store = useApp((s) => s.stores[storeId]);
+  const { role } = useSync();
+  const event = useApp((s) => (store ? s.events[store.eventId] : undefined));
+  const pending = usePendingWork(storeId);
+  const wantPdf = useRoute()[3] === 'pdf'; // the inbox's PDF button: #/store/:id/report/pdf
+  const [pick, setPick] = useState<string | null>(null); // submission id, 'draft', or null = default
+  const [busy, setBusy] = useState<Mode | ''>('');
+  const [held, setHeld] = useState<Held | null>(null);
+  const [printBanner, setPrintBanner] = useState<EvidenceBanner | null>(null);
+  const [printNote, setPrintNote] = useState<string | undefined>(undefined);
+  const printing = useRef(false);
+
+  const subs = store ? submissionsOf(store) : [];
+  const st = store ? submissionState(store, pending) : null;
+  // HQ opens the latest revision the server has; the admin opens their working draft.
+  const fallback = role === 'super' ? (st?.acknowledged?.id ?? subs.at(-1)?.id ?? 'draft') : 'draft';
+  const chosen = pick ?? fallback;
+  const submission: AnySubmission | undefined = chosen === 'draft' ? undefined : (subs.find((s) => s.id === chosen) ?? subs.at(-1));
+  const latest = subs.at(-1);
+  const expected = store ? expectedPhotos(submission ? submission.recce : store.recce, store.id) : [];
+  const urls = usePhotoUrls(expected.map((e) => e.id));
+
+  // Opening the latest submitted revision as HQ clears its "New" mark in the inbox.
+  const seenId = role === 'super' && submission && submission.id === latest?.id ? submission.id : undefined;
+  useEffect(() => {
+    if (seenId) markReportSeen(storeId, seenId);
+  }, [storeId, seenId]);
+
+  /** Fetch + decode every photo this revision shows. For the PDF, also the on-screen <img>s. */
+  const check = async (mode: Mode): Promise<Held> => {
+    const evidence = await loadEvidence(expected);
+    if (mode !== 'pdf' || !evidence.result.complete) return { mode, result: evidence.result, evidence };
+    const root = document.querySelector('.report');
+    const start = Date.now();
+    while (root && Date.now() - start < 8000 && expected.some((e) => !root.querySelector(`img[data-photo-id="${CSS.escape(e.id)}"]`))) await sleep(150);
+    return { mode, result: root ? await checkRenderedPhotos(root, expected) : evidence.result, evidence };
+  };
+
+  const deliver = async (h: Held) => {
+    if (!store || !event) return;
+    if (h.mode === 'pdf') {
+      if (printing.current) return;
+      printing.current = true;
+      setPrintBanner(evidenceBanner(h.result)); // an incomplete PDF carries the list of what's missing
+      setPrintNote(h.result.complete && h.result.expected ? `All ${h.result.expected} proof photos included.` : undefined);
+      await frame();
+      await frame();
+      await document.fonts.ready;
+      const title = document.title;
+      document.title = `Recce — ${store.name} — ${event.name}${h.result.complete ? '' : ' (incomplete)'}`;
+      window.print();
+      document.title = title;
+      setPrintBanner(null);
+      setPrintNote(undefined);
+      printing.current = false;
+      return;
+    }
+    const f = await buildReportFile(event, store, { submission, evidence: h.evidence, draftNote });
+    if (h.mode === 'share' && navigator.canShare?.({ files: [f] })) {
+      await navigator.share({ files: [f], title: `Recce — ${store.name}`, text: `Store recce report for ${store.name} (${event.name})${h.result.complete ? '' : ' — incomplete: some photos are missing'}` });
+    } else downloadBlob(f, f.name);
+  };
+
+  const run = async (mode: Mode, anyway?: Held) => {
+    setBusy(mode);
+    try {
+      const h = anyway ?? (await check(mode));
+      if (!h.result.complete && !anyway) return setHeld(h);
+      setHeld(null);
+      await deliver(h);
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError') void notify((e as Error).message);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  useEffect(() => {
+    if (!wantPdf || !store || !event) return;
+    history.replaceState(null, '', `#/store/${storeId}/report`);
+    run('pdf');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantPdf, !!store, !!event]);
+
+  if (!store || !event || !st) return <NotFound />;
+
+  const edited = !!latest && editedSince(store, latest);
+  const unsent = st.kind === 'waiting' || st.kind === 'failed' ? st.work : undefined; // its revision is only optimistic
+  const unsentId = unsent ? submissionIdFor(unsent.id) : undefined;
+  const draftNote = unsent && (!submission || submission.id === unsentId)
+    ? st.kind === 'waiting'
+      ? 'Submitted on this device — waiting to send. HQ gets it when there’s signal.'
+      : `Not sent to HQ — ${unsent.error ?? 'open the recce to retry'}.`
+    : submission
+    ? submission.id === latest?.id && edited
+      ? `Edited since ${revLabel(submission)} — the admin’s later changes aren’t submitted yet, so they’re not shown here.`
+      : undefined
+    : latest
+      ? `Working draft — ${edited ? `edited since ${revLabel(latest)}, not submitted yet` : `same as ${revLabel(latest)}`}.`
+      : 'Working draft — not submitted to HQ yet.';
+
+  const reviewWork = pending.find((w) => w.cmd?.type === 'recce.review' && 'submissionId' in w.cmd && w.cmd.submissionId === submission?.id);
+  const canReview = role === 'super' && submission && !isLegacy(submission) && !submission.reviewedAt;
+  const review = () => {
+    if (!submission) return;
+    try {
+      sendCommand(store.id, { type: 'recce.review', base: submissionVersion(store), submissionId: submission.id });
+    } catch (e) {
+      void notify(`Couldn’t mark it reviewed: ${(e as Error).message}`);
+    }
+  };
+
+  const label = (mode: Mode, text: string) => (busy === mode ? 'Checking photos…' : text);
+
+  return (
+    <Shell crumbs={storeCrumbs(role, event, store, { label: 'Report' })}>
+      <div className="report-actions no-print">
+        <div className="row">
+          <a className="btn ghost" href={`#/store/${store.id}/recce`}>
+            Edit recce
+          </a>
+          {subs.length > 0 && (
+            <label className="ev-rev">
+              <span className="label">Showing</span>
+              <select value={submission ? submission.id : 'draft'} onChange={(e) => (setPick(e.target.value), setHeld(null))}>
+                {[...subs].reverse().map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {isLegacy(s) ? 'Submitted report' : `Rev ${s.rev}`} · {s.id === unsentId ? 'not sent yet' : fmtDateTime(s.submittedAt)}
+                    {s.reviewedAt ? ' · reviewed' : ''}
+                  </option>
+                ))}
+                <option value="draft">Working draft (live)</option>
+              </select>
+            </label>
+          )}
+        </div>
+        <div className="row">
+          {canReview &&
+            (reviewWork ? (
+              <span className="label">{reviewWork.state === 'failed' || reviewWork.state === 'conflict' ? `Review not saved — ${reviewWork.error ?? 'try again'}` : 'Marking reviewed…'}</span>
+            ) : (
+              <button className="btn accent" onClick={review}>
+                Mark {revLabel(submission!)} reviewed
+              </button>
+            ))}
+          <button className="btn" onClick={() => run('pdf')} disabled={!!busy}>
+            {label('pdf', 'Save as PDF')}
+          </button>
+          <button className="btn ghost" onClick={() => run('share')} disabled={!!busy}>
+            {label('share', 'Share file')}
+          </button>
+          <button className="link" onClick={() => run('download')} disabled={!!busy}>
+            {label('download', 'Download HTML')}
+          </button>
+        </div>
+      </div>
+
+      {held && (
+        <div className="ev-prompt no-print" role="alert">
+          <strong>Not every proof photo could be loaded.</strong>
+          <p>{missingSummary(held.result)}</p>
+          <p className="hint">A photo still uploading from the field usually arrives within a minute. If you export anyway, the {held.mode === 'pdf' ? 'PDF' : 'file'} opens with a banner listing what’s missing.</p>
+          <div className="row">
+            <button className="btn" onClick={() => run(held.mode)} disabled={!!busy}>
+              {busy ? 'Checking photos…' : 'Retry'}
+            </button>
+            <button className="btn ghost" onClick={() => run(held.mode, held)} disabled={!!busy}>
+              Export incomplete {held.mode === 'pdf' ? 'PDF' : 'file'}
+            </button>
+            <button className="link" onClick={() => setHeld(null)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      <Report event={event} store={store} submission={submission} src={(id) => urls[id]} generatedAt={new Date().toISOString()} banner={printBanner} evidenceNote={printNote} draftNote={draftNote} />
+    </Shell>
+  );
+}

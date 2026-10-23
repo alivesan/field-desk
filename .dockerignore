@@ -1,0 +1,31 @@
+# Secrets and local settings — never in the build context
+.env
+.env*
+**/.env*
+*.local
+**/*.local
+*.pem
+*.key
+
+# VCS, editor and tool state
+.git
+.gitignore
+.claude
+.vscode
+.idea
+
+# Data and build output (the image builds its own dist)
+.data
+data
+**/backups
+dist
+node_modules
+*.db
+*.db-*
+
+# Not needed to build or run
+tests
+scripts
+*.md
+Dockerfile
+.dockerignore

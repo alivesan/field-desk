@@ -1,0 +1,327 @@
+/* HQ roster import — "Players & brackets" on the campaign page (src/components/RosterImport.tsx). */
+
+.roster-import {
+  margin-top: 64px;
+}
+.roster-import > .hint {
+  margin: 0 0 20px;
+  max-width: 70ch;
+}
+.roster-import b {
+  font-weight: 600;
+}
+
+/* what each store has now */
+.roster-current ol {
+  list-style: none;
+  margin: 0 0 24px;
+  padding: 0;
+  border-top: 1px solid var(--ink);
+}
+.roster-current li {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.4fr) auto;
+  gap: 4px 16px;
+  align-items: baseline;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.rc-name {
+  font: 400 18px/1.2 var(--serif);
+}
+.rc-meta {
+  font-size: 13px;
+  color: var(--muted);
+}
+.rc-refresh {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+@media (max-width: 700px) {
+  .roster-current li {
+    grid-template-columns: 1fr;
+  }
+  .rc-refresh {
+    justify-content: flex-start;
+  }
+}
+
+/* the form */
+.roster-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 32px;
+  align-items: flex-end;
+}
+.roster-scope {
+  flex: 1;
+  min-width: 220px;
+}
+.roster-scope select,
+.roster-link input {
+  width: 100%;
+  font: 400 16px/1.45 var(--sans);
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  border-radius: 0;
+  padding: 6px 0 8px;
+  outline: none;
+}
+.roster-scope select:focus,
+.roster-link input:focus {
+  border-color: var(--ink);
+}
+.roster-form input[type='file'] {
+  font: 400 14px/1.4 var(--sans);
+  max-width: 100%;
+}
+.roster-form textarea {
+  font-family: var(--mono);
+  font-size: 14px;
+  min-height: 140px;
+}
+.roster-link {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+.roster-link input {
+  flex: 1;
+  min-width: 0;
+}
+.roster-form .field .hint {
+  margin: 0;
+}
+.roster-problem {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 14px;
+}
+
+/* preview */
+.roster-preview {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+}
+.roster-preview > .label {
+  margin: 0 0 12px;
+  overflow-wrap: anywhere;
+}
+.roster-stores {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.rs {
+  padding: 16px 0;
+  border-top: 1px solid var(--rule);
+}
+.rs.quiet {
+  opacity: 0.6;
+}
+.rs-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: baseline;
+}
+.rs-head h4 {
+  margin: 0;
+  font: 400 19px/1.2 var(--serif);
+  letter-spacing: -0.015em;
+  flex: 1 1 240px;
+}
+.rs-count {
+  font: 500 12px/1 var(--mono);
+  color: var(--ink-2);
+}
+.rs .hint {
+  margin-top: 6px;
+}
+.rs-diff {
+  margin: 8px 0 0;
+  font: 500 12px/1.4 var(--mono);
+  color: var(--ink-2);
+}
+.rs-changes {
+  margin: 6px 0 0;
+  font-size: 13px;
+}
+.rs-changes div {
+  display: flex;
+  gap: 10px;
+}
+.rs-changes dt {
+  flex: 0 0 78px;
+  padding-top: 3px;
+}
+.rs-changes dd {
+  margin: 0;
+  color: var(--ink-2);
+}
+.rs-warn {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--warn);
+}
+.rs-names {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  font-size: 14px;
+}
+.rs-names li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 3px 0;
+}
+.rs-seed {
+  font: 500 11px/1.9 var(--mono);
+  color: var(--muted);
+}
+.rs-player {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rs-player small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.rs-phone {
+  font: 400 12px/1.8 var(--mono);
+  color: var(--ink-2);
+}
+.rs-phone.none {
+  color: var(--warn);
+}
+.rs-names .rs-more {
+  display: block;
+  padding-left: 36px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.roster-issues {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0 0 0 12px;
+  font-size: 13px;
+  border-left: 2px solid var(--rule);
+}
+.roster-issues.bad {
+  border-left-color: var(--accent);
+  color: var(--accent);
+}
+.roster-issues.note {
+  border-left-color: var(--warn);
+  color: var(--ink-2);
+}
+.roster-issues li + li {
+  margin-top: 4px;
+}
+.ri-line {
+  font: 500 10.5px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-right: 8px;
+}
+
+.roster-actions {
+  margin-top: 20px;
+  gap: 16px;
+}
+
+.roster-progress {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--rule);
+  font-size: 14px;
+}
+.roster-progress li {
+  padding: 4px 0;
+}
+.roster-progress li.ok {
+  color: var(--ok);
+}
+.roster-progress li.bad {
+  color: var(--accent);
+}
+.roster-progress b {
+  color: var(--ink);
+}
+
+@media (max-width: 600px) {
+  .roster-link {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .roster-actions .btn {
+    flex: 1;
+  }
+}
+
+/* duplicates: "which one is it?" — also used by the add-player form on the store page */
+.rq {
+  border: 0;
+  border-left: 3px solid var(--warn);
+  background: var(--paper-2);
+  margin: 14px 0;
+  padding: 12px 14px 14px;
+  min-width: 0;
+}
+.rq legend {
+  float: left;
+  width: 100%;
+  font: 400 18px/1.3 var(--serif);
+  margin-bottom: 10px;
+  padding: 0;
+}
+.rq-opt {
+  appearance: none;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  padding: 10px 12px;
+  margin-top: 6px;
+  cursor: pointer;
+}
+.rq-opt:hover,
+.rq-opt.on {
+  border-color: var(--ink);
+}
+.rq-opt input {
+  margin: 3px 0 0;
+  accent-color: var(--accent);
+}
+.rq-opt > span {
+  display: grid;
+  gap: 2px;
+}
+.rq-opt b {
+  font-weight: 500;
+  font-size: 15px;
+}
+.rq-opt small {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.rq-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}

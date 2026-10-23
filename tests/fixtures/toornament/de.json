@@ -1,0 +1,116 @@
+{
+ "_note": "Trimmed from play.toornament.com/api/* (public JSON the tournament pages use), Oct 2026. Participant names replaced with synthetic ones; ids and structure kept.",
+ "tournament": {
+  "id": "2001331429601337344",
+  "discipline": "tekken7",
+  "name": "Synthetic Double Elim",
+  "fullName": null,
+  "status": "completed",
+  "participantType": "single",
+  "size": 48,
+  "public": true,
+  "archived": false
+ },
+ "stages": {
+  "items": [
+   {
+    "id": "2001450584539652096",
+    "tournament": {
+     "id": "2001331429601337344"
+    },
+    "number": 1,
+    "name": "Playoffs",
+    "type": "double_elimination",
+    "status": "completed",
+    "closed": false,
+    "settings": {
+     "size": 11,
+     "threshold": 0,
+     "grand_final": "simple",
+     "skip_round1": false,
+     "round_naming": "number"
+    }
+   }
+  ],
+  "range": {
+   "offset": 0,
+   "length": 1,
+   "total": 1
+  }
+ },
+ "participants": {
+  "items": [
+   {
+    "id": "2001371723235442688",
+    "type": "player",
+    "name": "Aarav Shah",
+    "logo": null
+   },
+   {
+    "id": "2001373228965208064",
+    "type": "player",
+    "name": "Asha Rao",
+    "logo": null
+   },
+   {
+    "id": "2001376610313994240",
+    "type": "player",
+    "name": "Rohan Mehta",
+    "logo": null
+   },
+   {
+    "id": "2001388440058871808",
+    "type": "player",
+    "name": "Kabir Singh",
+    "logo": null
+   },
+   {
+    "id": "2001390615894736896",
+    "type": "player",
+    "name": "Meera Iyer",
+    "logo": null
+   },
+   {
+    "id": "2001391356270575616",
+    "type": "player",
+    "name": "Vikram Nair",
+    "logo": null
+   },
+   {
+    "id": "2001400345979428864",
+    "type": "player",
+    "name": "Ishaan Gupta",
+    "logo": null
+   },
+   {
+    "id": "2001402208233037824",
+    "type": "player",
+    "name": "Diya Patel",
+    "logo": null
+   },
+   {
+    "id": "2001412459109990400",
+    "type": "player",
+    "name": "Arjun Rao",
+    "logo": null
+   },
+   {
+    "id": "2001412875154554880",
+    "type": "player",
+    "name": "Sara Khan",
+    "logo": null
+   },
+   {
+    "id": "2001414718340055040",
+    "type": "player",
+    "name": "Neel Joshi",
+    "logo": null
+   }
+  ],
+  "range": {
+   "offset": 0,
+   "length": 11,
+   "total": 11
+  }
+ }
+}

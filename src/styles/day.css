@@ -1,0 +1,117 @@
+/* Match day + venue board additions (tournament workstream). Base styles live in app.css. */
+
+/* ---------- queued / refused match actions ---------- */
+
+.day-notices {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 24px;
+}
+.day-notice {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--muted);
+  background: var(--paper-2);
+  font-size: 14px;
+}
+.day-notice.conflict,
+.day-notice.failed {
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
+}
+.day-notice.waiting {
+  border-left-color: var(--warn);
+  background: var(--warn-soft);
+}
+.day-notice .link {
+  flex: none;
+}
+
+.pending-tag {
+  color: var(--warn) !important;
+  font: 500 10.5px/1.3 var(--mono);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+/* a live match on a station that's out of range or doubled up (F14 / older data) */
+.station.live.odd {
+  box-shadow: inset 0 3px 0 var(--warn);
+}
+.station-warn {
+  margin: 0;
+  padding: 6px 10px;
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 13px;
+}
+
+/* ---------- loading the bracket ---------- */
+
+.feed-mode {
+  margin-top: 20px;
+}
+.feed-errors,
+.feed-preview {
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+}
+.feed-errors li {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rule);
+  color: var(--accent);
+}
+.feed-errors .label {
+  display: inline-block;
+  min-width: 64px;
+  color: var(--accent);
+}
+.feed-preview {
+  columns: 2 220px;
+  column-gap: 24px;
+  max-height: 320px;
+  overflow: auto;
+  border-top: 1px solid var(--rule);
+  padding-top: 8px;
+}
+.feed-preview li {
+  break-inside: avoid;
+  padding: 3px 0;
+}
+.feed-preview .seed {
+  font: 500 11px/1 var(--mono);
+  color: var(--muted);
+  margin-right: 6px;
+}
+.feed-preview em {
+  color: var(--muted);
+  font-style: normal;
+}
+.feed-preview .vs {
+  color: var(--muted);
+  margin: 0 4px;
+}
+
+/* ---------- venue board freshness ---------- */
+
+.board-clock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+.board-fresh {
+  font: 500 12px/1.3 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: right;
+}
+.board-fresh.stale {
+  color: #f2b25c;
+}

@@ -1,0 +1,453 @@
+/* Player self check-in: the public page, the match-day QR panel + notices, the venue-board QR. */
+
+.qr {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #fff;
+  image-rendering: pixelated;
+}
+
+/* ---------- public page (/c/<token>) ---------- */
+
+.ci {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  align-items: start;
+  justify-items: center;
+  padding: max(40px, 8vh) 16px 48px;
+}
+.ci-inner {
+  width: min(440px, 100%);
+}
+.ci-kicker {
+  font: 500 11px/1.3 var(--mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 20px;
+}
+.ci-kicker.ok {
+  color: var(--ok);
+}
+.ci h1 {
+  font-size: clamp(38px, 11vw, 56px);
+  line-height: 0.98;
+  overflow-wrap: anywhere;
+}
+.ci-store {
+  color: var(--ink-2);
+}
+.ci-deck {
+  font-size: 18px;
+  line-height: 1.45;
+  color: var(--ink-2);
+  margin: 18px 0 0;
+}
+.ci-wait {
+  font: italic 400 24px/1.2 var(--serif);
+  color: var(--muted);
+}
+.ci-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 36px;
+}
+.ci-field input {
+  width: 100%;
+  font: 500 clamp(26px, 9vw, 36px) / 1.1 var(--mono);
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid var(--ink);
+  border-radius: 0;
+  padding: 8px 0 10px;
+  outline: none;
+}
+.ci-field input::placeholder {
+  color: var(--paper-3);
+}
+.ci-field input:focus {
+  border-color: var(--accent);
+}
+.ci-help {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 10px 0 0;
+}
+.ci-problem {
+  margin-top: 20px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  font-size: 15px;
+  line-height: 1.45;
+}
+.ci-problem strong {
+  display: block;
+  font-weight: 600;
+}
+.ci-btn {
+  margin-top: 24px;
+  min-height: 56px;
+  font-size: 17px;
+}
+.ci-done h1 {
+  margin-top: 20px;
+}
+.ci-name {
+  color: var(--ok);
+}
+.ci-tick {
+  display: block;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--ok);
+  position: relative;
+}
+.ci-tick::after {
+  content: '';
+  position: absolute;
+  left: 20px;
+  top: 13px;
+  width: 12px;
+  height: 22px;
+  border: solid #fff;
+  border-width: 0 3px 3px 0;
+  transform: rotate(45deg);
+}
+.ci-notyou {
+  margin-top: 40px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.ci-notyou .link {
+  font-size: 14px;
+}
+
+/* ---------- match day: the QR panel ---------- */
+
+.selfci {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px 32px;
+  padding: 20px;
+  margin: 0 0 28px;
+  background: var(--paper-2);
+}
+.selfci h2 {
+  font-size: 28px;
+}
+.selfci .hint {
+  margin-top: 8px;
+}
+.selfci-state {
+  margin-left: 10px;
+  vertical-align: 4px;
+}
+.selfci-actions {
+  margin-top: 16px;
+}
+.selfci-link {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  font: 400 13px/1.4 var(--mono);
+  color: var(--ink-2);
+  word-break: break-all;
+}
+.selfci-qr {
+  width: 176px;
+  align-self: start;
+}
+.selfci-qr .qr {
+  outline: 1px solid var(--rule);
+}
+.selfci-qr .label {
+  display: block;
+  margin-top: 6px;
+  text-align: center;
+}
+@media (max-width: 600px) {
+  .selfci {
+    grid-template-columns: 1fr;
+  }
+  .selfci-qr {
+    width: min(240px, 100%);
+    justify-self: center;
+  }
+}
+
+/* recent QR check-ins */
+.selfci-recent {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--rule);
+  padding-top: 12px;
+}
+.selfci-recent ol {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  column-gap: 24px;
+}
+.selfci-recent li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 14px;
+}
+.selfci-recent time {
+  font: 500 11px/1 var(--mono);
+  color: var(--muted);
+  margin-left: 8px;
+}
+
+/* roster rows: who checked them in + masked phone */
+.roster-row .pmain {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.roster-row .pmeta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font: 500 11px/1.2 var(--mono);
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+.self-tag {
+  font: 500 10px/1 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 6px;
+  background: var(--ok);
+  color: #fff;
+}
+
+/* registered at the desk on the day — HQ still has to add them on Toornament */
+.onspot-tag {
+  font: 500 10px/1 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 6px;
+  background: var(--warn);
+  color: #fff;
+}
+
+/* ---------- match day: on-the-spot registration ---------- */
+
+.onspot-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  margin: 0 0 24px;
+}
+.onspot-bar .hint {
+  margin: 0;
+  flex: 1 1 240px;
+}
+.onspot {
+  padding: 20px;
+  margin: 0 0 28px;
+  background: var(--paper-2);
+  border-left: 3px solid var(--warn);
+}
+.onspot-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+.onspot h2 {
+  font-size: 28px;
+}
+.onspot .field input {
+  font-size: 18px;
+  min-height: 48px;
+  border-bottom-color: var(--ink-2);
+}
+.onspot .field input:focus {
+  border-color: var(--warn);
+}
+.onspot-msg {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px 16px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-left: 3px solid;
+  font-size: 15px;
+  line-height: 1.45;
+}
+.onspot-msg.problem {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.onspot-msg.ok {
+  border-color: var(--ok);
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.onspot-msg .btn {
+  background: var(--paper);
+}
+.onspot-go {
+  margin-top: 16px;
+  min-height: 52px;
+  font-size: 16px;
+}
+.onspot .hint.warn {
+  margin-top: 12px;
+}
+.onspot-pending {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+.onspot-pending li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 14px;
+}
+@media (max-width: 600px) {
+  .onspot {
+    padding: 16px;
+  }
+  .onspot-go,
+  .onspot-bar .btn {
+    width: 100%;
+  }
+}
+
+/* live "joined" notices */
+.joined {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 40;
+  display: grid;
+  gap: 8px;
+  width: min(360px, calc(100vw - 32px));
+}
+.joined-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 14px;
+  box-shadow: 0 6px 24px rgba(22, 21, 19, 0.18);
+  animation: joined-in 0.2s ease-out;
+}
+.joined-item strong {
+  font-weight: 600;
+}
+.joined-item .link {
+  color: var(--paper);
+  text-decoration-color: rgba(243, 240, 232, 0.4);
+  flex: none;
+}
+.joined-item .link + .link {
+  margin-left: 12px;
+}
+@keyframes joined-in {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .joined-item {
+    animation: none;
+  }
+}
+
+/* field admin waiting for HQ's player list */
+.feed-wait {
+  max-width: 560px;
+  padding: 20px;
+  background: var(--paper-2);
+}
+.feed-wait h2 {
+  font-size: 28px;
+}
+.feed-wait + .onspot,
+.feed-wait + .onspot-bar {
+  margin-top: 20px;
+}
+
+/* ---------- venue board ---------- */
+
+.board-body.with-qr {
+  display: grid;
+  grid-template-columns: 1fr minmax(240px, 24vw);
+  gap: clamp(24px, 4vw, 64px);
+  align-items: start;
+}
+.board-body.with-qr > .board-main {
+  min-width: 0;
+}
+.board-body.with-qr .board-grid {
+  grid-template-columns: 1fr;
+}
+@media (min-width: 1400px) {
+  .board-body.with-qr .board-grid {
+    grid-template-columns: 1.1fr 1fr;
+  }
+}
+.board-qr {
+  margin-top: 40px;
+  padding: clamp(16px, 1.6vw, 28px);
+  background: #fff;
+  color: #121110;
+  text-align: center;
+}
+.board-qr h2 {
+  font-size: clamp(30px, 3vw, 52px);
+  margin-top: 14px;
+  color: #121110;
+}
+.board-qr p {
+  margin: 10px 0 0;
+  font-size: clamp(15px, 1.2vw, 22px);
+  line-height: 1.35;
+  color: #3a3833;
+}
+.board-qr .board-qr-url {
+  font: 500 clamp(11px, 0.8vw, 15px) / 1.3 var(--mono);
+  color: #77726a;
+  word-break: break-all;
+}
+@media (max-width: 800px) {
+  .board-body.with-qr {
+    grid-template-columns: 1fr;
+  }
+  .board-qr {
+    max-width: 360px;
+    justify-self: center;
+    width: 100%;
+  }
+}

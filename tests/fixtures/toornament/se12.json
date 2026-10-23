@@ -1,0 +1,838 @@
+{
+ "_note": "Trimmed from play.toornament.com/api/* (public JSON the tournament pages use), Oct 2026. Participant names replaced with synthetic ones; ids and structure kept.",
+ "tournament": {
+  "id": "1146602957085786112",
+  "discipline": "fifa18",
+  "name": "Synthetic Cup — 12 slots",
+  "fullName": null,
+  "status": "completed",
+  "participantType": "single",
+  "size": 12,
+  "public": true,
+  "archived": false
+ },
+ "stages": {
+  "items": [
+   {
+    "id": "1146604142406115328",
+    "tournament": {
+     "id": "1146602957085786112"
+    },
+    "number": 1,
+    "name": "Playoffs",
+    "type": "single_elimination",
+    "status": "completed",
+    "closed": false,
+    "settings": {
+     "size": 12,
+     "threshold": 0,
+     "round_naming": "number",
+     "third_decider": true
+    }
+   }
+  ],
+  "range": {
+   "offset": 0,
+   "length": 1,
+   "total": 1
+  }
+ },
+ "participants": {
+  "items": [
+   {
+    "id": "1146617729161814016",
+    "type": "player",
+    "name": "Aarav Shah",
+    "logo": null
+   },
+   {
+    "id": "1146618026933731328",
+    "type": "player",
+    "name": "Asha Rao",
+    "logo": null
+   },
+   {
+    "id": "1146618247320600576",
+    "type": "player",
+    "name": "Rohan Mehta",
+    "logo": null
+   },
+   {
+    "id": "1146618485680037888",
+    "type": "player",
+    "name": "Kabir Singh",
+    "logo": null
+   },
+   {
+    "id": "1146618685671366656",
+    "type": "player",
+    "name": "Meera Iyer",
+    "logo": null
+   },
+   {
+    "id": "1146618880121970688",
+    "type": "player",
+    "name": "Vikram Nair",
+    "logo": null
+   },
+   {
+    "id": "1146619396589461504",
+    "type": "player",
+    "name": "Ishaan Gupta",
+    "logo": null
+   },
+   {
+    "id": "1146619742213660672",
+    "type": "player",
+    "name": "Diya Patel",
+    "logo": null
+   },
+   {
+    "id": "1146620246306988032",
+    "type": "player",
+    "name": "Arjun Rao",
+    "logo": null
+   },
+   {
+    "id": "1146620495163375616",
+    "type": "player",
+    "name": "Sara Khan",
+    "logo": null
+   },
+   {
+    "id": "1146620735266234368",
+    "type": "player",
+    "name": "Neel Joshi",
+    "logo": null
+   },
+   {
+    "id": "1146621014093414400",
+    "type": "player",
+    "name": "Tara Bose",
+    "logo": null
+   }
+  ],
+  "range": {
+   "offset": 0,
+   "length": 12,
+   "total": 12
+  }
+ },
+ "nodes": {
+  "items": [
+   {
+    "id": "1146604143412748323",
+    "depth": 4,
+    "branch": "wb",
+    "code": null,
+    "opponents": [
+     {
+      "participant": null,
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 1,
+      "position": 1,
+      "result": "win",
+      "forfeit": false,
+      "score": 2
+     },
+     {
+      "participant": null,
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 2,
+      "position": 2,
+      "result": "loss",
+      "forfeit": false,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "1146604142406115328",
+     "number": 1,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "completed"
+    },
+    "group": {
+     "id": "1146604143345639449",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "1146604143446302779",
+     "number": 1,
+     "name": "Round 1"
+    },
+    "number": 1,
+    "type": "duel",
+    "status": "completed"
+   },
+   {
+    "id": "1146604143412748329",
+    "depth": 4,
+    "branch": "wb",
+    "code": null,
+    "opponents": [
+     {
+      "participant": {
+       "id": "1146618026933731328",
+       "type": "player",
+       "name": "Asha Rao"
+      },
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 1,
+      "position": 2,
+      "result": "loss",
+      "forfeit": false,
+      "score": 1
+     },
+     {
+      "participant": {
+       "id": "1146619396589461504",
+       "type": "player",
+       "name": "Ishaan Gupta"
+      },
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 2,
+      "position": 1,
+      "result": "win",
+      "forfeit": false,
+      "score": 12
+     }
+    ],
+    "stage": {
+     "id": "1146604142406115328",
+     "number": 1,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "completed"
+    },
+    "group": {
+     "id": "1146604143345639449",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "1146604143446302779",
+     "number": 1,
+     "name": "Round 1"
+    },
+    "number": 2,
+    "type": "duel",
+    "status": "completed"
+   },
+   {
+    "id": "1146604143412748338",
+    "depth": 4,
+    "branch": "wb",
+    "code": null,
+    "opponents": [
+     {
+      "participant": {
+       "id": "1146618485680037888",
+       "type": "player",
+       "name": "Kabir Singh"
+      },
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 1,
+      "position": 1,
+      "result": "win",
+      "forfeit": false,
+      "score": 1
+     },
+     {
+      "participant": {
+       "id": "1146618685671366656",
+       "type": "player",
+       "name": "Meera Iyer"
+      },
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 2,
+      "position": 2,
+      "result": "loss",
+      "forfeit": false,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "1146604142406115328",
+     "number": 1,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "completed"
+    },
+    "group": {
+     "id": "1146604143345639449",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "1146604143446302779",
+     "number": 1,
+     "name": "Round 1"
+    },
+    "number": 3,
+    "type": "duel",
+    "status": "completed"
+   },
+   {
+    "id": "1146604143412748344",
+    "depth": 4,
+    "branch": "wb",
+    "code": null,
+    "opponents": [
+     {
+      "participant": {
+       "id": "1146618247320600576",
+       "type": "player",
+       "name": "Rohan Mehta"
+      },
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 1,
+      "position": 1,
+      "result": "win",
+      "forfeit": false,
+      "score": 5
+     },
+     {
+      "participant": {
+       "id": "1146618880121970688",
+       "type": "player",
+       "name": "Vikram Nair"
+      },
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 2,
+      "position": 2,
+      "result": "loss",
+      "forfeit": false,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "1146604142406115328",
+     "number": 1,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "completed"
+    },
+    "group": {
+     "id": "1146604143345639449",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "1146604143446302779",
+     "number": 1,
+     "name": "Round 1"
+    },
+    "number": 4,
+    "type": "duel",
+    "status": "completed"
+   },
+   {
+    "id": "1146604143412748320",
+    "depth": 3,
+    "branch": "wb",
+    "code": null,
+    "opponents": [
+     {
+      "participant": {
+       "id": "1146620735266234368",
+       "type": "player",
+       "name": "Neel Joshi"
+      },
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 1,
+      "position": 1,
+      "result": "win",
+      "forfeit": false,
+      "score": 3
+     },
+     {
+      "participant": null,
+      "sourceType": "winner",
+      "sourceNode": {
+       "id": "1146604143412748323"
+      },
+      "sourcePosition": null,
+      "number": 2,
+      "position": 2,
+      "result": "loss",
+      "forfeit": false,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "1146604142406115328",
+     "number": 1,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "completed"
+    },
+    "group": {
+     "id": "1146604143345639449",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "1146604143446302780",
+     "number": 2,
+     "name": "Round 2"
+    },
+    "number": 1,
+    "type": "duel",
+    "status": "completed"
+   },
+   {
+    "id": "1146604143412748326",
+    "depth": 3,
+    "branch": "wb",
+    "code": null,
+    "opponents": [
+     {
+      "participant": {
+       "id": "1146617729161814016",
+       "type": "player",
+       "name": "Aarav Shah"
+      },
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 1,
+      "position": 1,
+      "result": "win",
+      "forfeit": false,
+      "score": 4
+     },
+     {
+      "participant": {
+       "id": "1146619396589461504",
+       "type": "player",
+       "name": "Ishaan Gupta"
+      },
+      "sourceType": "winner",
+      "sourceNode": {
+       "id": "1146604143412748329"
+      },
+      "sourcePosition": null,
+      "number": 2,
+      "position": 2,
+      "result": "loss",
+      "forfeit": false,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "1146604142406115328",
+     "number": 1,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "completed"
+    },
+    "group": {
+     "id": "1146604143345639449",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "1146604143446302780",
+     "number": 2,
+     "name": "Round 2"
+    },
+    "number": 2,
+    "type": "duel",
+    "status": "completed"
+   },
+   {
+    "id": "1146604143412748335",
+    "depth": 3,
+    "branch": "wb",
+    "code": null,
+    "opponents": [
+     {
+      "participant": {
+       "id": "1146621014093414400",
+       "type": "player",
+       "name": "Tara Bose"
+      },
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 1,
+      "position": 1,
+      "result": "win",
+      "forfeit": false,
+      "score": 5
+     },
+     {
+      "participant": {
+       "id": "1146618485680037888",
+       "type": "player",
+       "name": "Kabir Singh"
+      },
+      "sourceType": "winner",
+      "sourceNode": {
+       "id": "1146604143412748338"
+      },
+      "sourcePosition": null,
+      "number": 2,
+      "position": 2,
+      "result": "loss",
+      "forfeit": false,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "1146604142406115328",
+     "number": 1,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "completed"
+    },
+    "group": {
+     "id": "1146604143345639449",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "1146604143446302780",
+     "number": 2,
+     "name": "Round 2"
+    },
+    "number": 3,
+    "type": "duel",
+    "status": "completed"
+   },
+   {
+    "id": "1146604143412748341",
+    "depth": 3,
+    "branch": "wb",
+    "code": null,
+    "opponents": [
+     {
+      "participant": {
+       "id": "1146620495163375616",
+       "type": "player",
+       "name": "Sara Khan"
+      },
+      "sourceType": "none",
+      "sourceNode": null,
+      "sourcePosition": null,
+      "number": 1,
+      "position": 1,
+      "result": "win",
+      "forfeit": false,
+      "score": 2
+     },
+     {
+      "participant": {
+       "id": "1146618247320600576",
+       "type": "player",
+       "name": "Rohan Mehta"
+      },
+      "sourceType": "winner",
+      "sourceNode": {
+       "id": "1146604143412748344"
+      },
+      "sourcePosition": null,
+      "number": 2,
+      "position": 2,
+      "result": "loss",
+      "forfeit": false,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "1146604142406115328",
+     "number": 1,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "completed"
+    },
+    "group": {
+     "id": "1146604143345639449",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "1146604143446302780",
+     "number": 2,
+     "name": "Round 2"
+    },
+    "number": 4,
+    "type": "duel",
+    "status": "completed"
+   },
+   {
+    "id": "1146604143412748317",
+    "depth": 2,
+    "branch": "wb",
+    "code": "semis",
+    "opponents": [
+     {
+      "participant": {
+       "id": "1146620735266234368",
+       "type": "player",
+       "name": "Neel Joshi"
+      },
+      "sourceType": "winner",
+      "sourceNode": {
+       "id": "1146604143412748320"
+      },
+      "sourcePosition": null,
+      "number": 1,
+      "position": 1,
+      "result": "win",
+      "forfeit": false,
+      "score": 6
+     },
+     {
+      "participant": {
+       "id": "1146617729161814016",
+       "type": "player",
+       "name": "Aarav Shah"
+      },
+      "sourceType": "winner",
+      "sourceNode": {
+       "id": "1146604143412748326"
+      },
+      "sourcePosition": null,
+      "number": 2,
+      "position": 2,
+      "result": "loss",
+      "forfeit": false,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "1146604142406115328",
+     "number": 1,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "completed"
+    },
+    "group": {
+     "id": "1146604143345639449",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "1146604143446302781",
+     "number": 3,
+     "name": "Round 3"
+    },
+    "number": 1,
+    "type": "duel",
+    "status": "completed"
+   },
+   {
+    "id": "1146604143412748332",
+    "depth": 2,
+    "branch": "wb",
+    "code": "semis",
+    "opponents": [
+     {
+      "participant": {
+       "id": "1146621014093414400",
+       "type": "player",
+       "name": "Tara Bose"
+      },
+      "sourceType": "winner",
+      "sourceNode": {
+       "id": "1146604143412748335"
+      },
+      "sourcePosition": null,
+      "number": 1,
+      "position": 1,
+      "result": "win",
+      "forfeit": false,
+      "score": 6
+     },
+     {
+      "participant": {
+       "id": "1146620495163375616",
+       "type": "player",
+       "name": "Sara Khan"
+      },
+      "sourceType": "winner",
+      "sourceNode": {
+       "id": "1146604143412748341"
+      },
+      "sourcePosition": null,
+      "number": 2,
+      "position": 2,
+      "result": "loss",
+      "forfeit": false,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "1146604142406115328",
+     "number": 1,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "completed"
+    },
+    "group": {
+     "id": "1146604143345639449",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "1146604143446302781",
+     "number": 3,
+     "name": "Round 3"
+    },
+    "number": 2,
+    "type": "duel",
+    "status": "completed"
+   },
+   {
+    "id": "1146604143412748314",
+    "depth": 1,
+    "branch": "wb",
+    "code": "final",
+    "opponents": [
+     {
+      "participant": {
+       "id": "1146620735266234368",
+       "type": "player",
+       "name": "Neel Joshi"
+      },
+      "sourceType": "winner",
+      "sourceNode": {
+       "id": "1146604143412748317"
+      },
+      "sourcePosition": null,
+      "number": 1,
+      "position": 1,
+      "result": "win",
+      "forfeit": false,
+      "score": 6
+     },
+     {
+      "participant": {
+       "id": "1146621014093414400",
+       "type": "player",
+       "name": "Tara Bose"
+      },
+      "sourceType": "winner",
+      "sourceNode": {
+       "id": "1146604143412748332"
+      },
+      "sourcePosition": null,
+      "number": 2,
+      "position": 2,
+      "result": "loss",
+      "forfeit": false,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "1146604142406115328",
+     "number": 1,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "completed"
+    },
+    "group": {
+     "id": "1146604143345639449",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "1146604143446302782",
+     "number": 4,
+     "name": "Round 4"
+    },
+    "number": 1,
+    "type": "duel",
+    "status": "completed"
+   },
+   {
+    "id": "1146613832032509952",
+    "depth": 1,
+    "branch": "lb",
+    "code": "third_decider",
+    "opponents": [
+     {
+      "participant": {
+       "id": "1146620495163375616",
+       "type": "player",
+       "name": "Sara Khan"
+      },
+      "sourceType": "loser",
+      "sourceNode": {
+       "id": "1146604143412748332"
+      },
+      "sourcePosition": null,
+      "number": 1,
+      "position": 1,
+      "result": "win",
+      "forfeit": false,
+      "score": 365
+     },
+     {
+      "participant": {
+       "id": "1146617729161814016",
+       "type": "player",
+       "name": "Aarav Shah"
+      },
+      "sourceType": "loser",
+      "sourceNode": {
+       "id": "1146604143412748317"
+      },
+      "sourcePosition": null,
+      "number": 2,
+      "position": 2,
+      "result": "loss",
+      "forfeit": false,
+      "score": null
+     }
+    ],
+    "stage": {
+     "id": "1146604142406115328",
+     "number": 1,
+     "name": "Playoffs",
+     "type": "single_elimination",
+     "status": "completed"
+    },
+    "group": {
+     "id": "1146604143345639449",
+     "number": 1,
+     "name": "Main Bracket"
+    },
+    "round": {
+     "id": "1146604143446302782",
+     "number": 4,
+     "name": "Round 4"
+    },
+    "number": 2,
+    "type": "duel",
+    "status": "completed"
+   }
+  ],
+  "range": {
+   "offset": 0,
+   "length": 12,
+   "total": 12
+  }
+ }
+}

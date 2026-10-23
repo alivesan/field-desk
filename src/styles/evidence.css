@@ -1,0 +1,144 @@
+/* Evidence, submission and validation states. Also inlined into the exported report HTML. */
+
+/* An incomplete artifact says so at the top — on screen, in print and in the HTML file. */
+.ev-banner {
+  margin: 0 0 28px;
+  padding: 14px 18px;
+  border: 2px solid var(--accent);
+  background: var(--accent-soft);
+  font-size: 14px;
+  break-inside: avoid;
+}
+.ev-banner strong {
+  display: block;
+  font: 500 12px/1.4 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.ev-banner ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.ev-draft {
+  margin: 0 0 20px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--warn);
+  background: var(--warn-soft);
+  font-size: 14px;
+}
+
+.ev-sub {
+  display: block;
+  margin-top: 2px;
+  font: 400 11px/1.45 var(--mono);
+  color: var(--muted);
+}
+
+.rp-photos .ev-ph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  text-align: center;
+  font: 500 11px/1.4 var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Export / import prompts */
+.ev-prompt {
+  margin: 16px 0;
+  padding: 14px 16px;
+  background: var(--paper-2);
+  border-left: 3px solid var(--warn);
+  font-size: 14px;
+}
+.ev-prompt.bad {
+  border-left-color: var(--accent);
+}
+.ev-prompt p {
+  margin: 6px 0 10px;
+  color: var(--ink-2);
+}
+.ev-prompt ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font: 400 12px/1.5 var(--mono);
+  color: var(--ink-2);
+}
+
+.ev-import {
+  margin-top: 16px;
+  display: grid;
+  gap: 14px;
+}
+.ev-counts {
+  border-collapse: collapse;
+  font-size: 13px;
+  width: 100%;
+  max-width: 560px;
+}
+.ev-counts th,
+.ev-counts td {
+  text-align: left;
+  padding: 6px 12px 6px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.ev-counts thead th {
+  font: 500 10.5px/1.2 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ev-rev {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.ev-rev select {
+  font: inherit;
+  font-size: 13px;
+  min-height: 38px;
+  padding: 0 8px;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  max-width: 100%;
+}
+
+.ev-failed {
+  display: inline-flex;
+  gap: 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+/* Validation and status text */
+.field-error {
+  display: block;
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  color: var(--accent);
+  max-width: 60ch;
+}
+.field input[aria-invalid='true'] {
+  border-color: var(--accent);
+}
+.hint.warn,
+.label.warn {
+  color: var(--warn);
+}
+.hint.ok {
+  color: var(--ok);
+}
+
+@media print {
+  .ev-prompt,
+  .ev-rev {
+    display: none !important;
+  }
+}

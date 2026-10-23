@@ -1,0 +1,33 @@
+/* HQ home: how phones on the same Wi-Fi reach this PC */
+.phone-access {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  margin: 0 0 28px;
+  padding: 14px 16px;
+  background: var(--paper-2);
+  border-left: 3px solid var(--ok);
+  font-size: 14px;
+}
+.phone-access.warn {
+  border-left-color: var(--warn);
+  display: block;
+}
+.phone-access p {
+  margin: 6px 0;
+}
+.phone-access a {
+  font: 500 15px/1.3 var(--mono);
+  color: var(--ink);
+}
+.phone-qr {
+  width: 140px;
+  height: 140px;
+  flex: none;
+}
+@media (max-width: 520px) {
+  .phone-access {
+    flex-direction: column;
+  }
+}

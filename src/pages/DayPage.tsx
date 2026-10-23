@@ -1,0 +1,1010 @@
+import { useEffect, useRef, useState } from 'react';
+import { discardWork, retryWork, sendCommand, updateStore, useApp, usePendingWork, useSync, type PendingWork } from '../lib/db.ts';
+import { storeCrumbs } from '../lib/admins.ts';
+import { canUndo, computeQueue, matchNo, roundCount, roundName } from '../lib/bracket.ts';
+import {
+  checkInUrl,
+  closeSelfCheckIn,
+  isSelf,
+  matchesPlayer,
+  newSelfCheckIns,
+  openSelfCheckIn,
+  recentSelfCheckIns,
+  rotateSelfCheckIn,
+  staffCheckIn,
+  undoCheckIn,
+  withoutPhone,
+  type SelfArrival,
+} from '../lib/checkin.ts';
+import { dayVersion, type Command } from '../lib/commands.ts';
+import { isPhone, maskPhone, MAX_IGN, normalizePhone, publicName } from '../lib/phone.ts';
+import { differentName, onSpotClash, tournamentCommand } from '../lib/tournament.ts';
+import { onSpotByPlayer } from '../lib/onspot.ts';
+import type { Match, MatchDay, Player, Store, TournamentEvent } from '../lib/types.ts';
+import { cx, fmtTime, minutesSince, uid } from '../lib/util.ts';
+import { askConfirm, Chip, NotFound, NumberField, PageHead, Shell, useNow } from '../components/ui.tsx';
+import { CheckInQr } from '../components/CheckInQr.tsx';
+import '../styles/day.css';
+import { shareOrigin, useLan } from '../lib/origin.ts';
+import '../styles/checkin.css';
+
+type Tab = 'checkin' | 'queue' | 'bracket';
+
+/*
+ * Players, matches and stations change only through server commands (src/lib/tournament.ts):
+ * `run` checks the command against this device's current view first (so an obviously
+ * impossible action is explained right away), then queues it with sendCommand. The server has
+ * the final say; anything it refuses comes back through usePendingWork as a conflict.
+ * Check-ins stay plain field edits (updateStore) — they merge safely.
+ *
+ * HQ owns the bracket: only HQ (role 'super') can paste one here or reset it; field admins
+ * wait for HQ's player list and run the day. Players can also check themselves in by QR
+ * (src/lib/checkin.ts) — the server writes those, and they arrive here through normal sync.
+ */
+interface Cmds {
+  run: (cmd: Command) => boolean;
+  check: (cmd: Command) => string | null; // the precheck alone: why this device's view refuses it, or null
+  base: number;
+  inFlight: PendingWork[];
+  pendingFor: (matchId: string) => PendingWork | undefined;
+  pendingStart: (station: number) => PendingWork | undefined;
+  offline: boolean;
+}
+
+export function DayPage({ storeId }: { storeId: string }) {
+  const store = useApp((s) => s.stores[storeId]);
+  const { role, status } = useSync();
+  const event = useApp((s) => (store ? s.events[store.eventId] : undefined));
+  const [tab, setTab] = useState<Tab>(store?.day.matches.length ? 'queue' : 'checkin');
+  const work = usePendingWork(storeId).filter((w) => w.kind === 'cmd' && w.cmd);
+  const [local, setLocal] = useState<{ id: string; cmd: Command; error: string }[]>([]);
+  useNow(30000);
+
+  // "Aarav S. checked in by QR" — compare each new view with the one before.
+  const seen = useRef<MatchDay | undefined>(undefined);
+  const [joined, setJoined] = useState<SelfArrival[]>([]);
+  useEffect(() => {
+    if (!store) return;
+    const fresh = newSelfCheckIns(seen.current, store.day);
+    seen.current = store.day;
+    if (fresh.length) setJoined((j) => [...j.filter((x) => !fresh.some((f) => f.pid === x.pid)), ...fresh].slice(-4));
+  }, [store?.day]);
+  useEffect(() => {
+    if (!joined.length) return;
+    const t = setTimeout(() => setJoined((j) => j.slice(1)), 12000);
+    return () => clearTimeout(t);
+  }, [joined]);
+
+  if (!store || !event) return <NotFound />;
+
+  const day = store.day;
+  const hq = role === 'super';
+  const editDay = (fn: (d: MatchDay) => void) => updateStore(store.id, (s) => fn(s.day));
+  const undoSelf = async (pid: string) => {
+    const p = day.players.find((x) => x.id === pid);
+    if (!p || !day.checkIn[pid] || !(await askConfirm(`Undo ${p.name}’s QR check-in? They’ll show as not here.`, { ok: 'Undo check-in' }))) return;
+    editDay((d) => undoCheckIn(d, pid));
+    setJoined((j) => j.filter((x) => x.pid !== pid));
+  };
+  const names = Object.fromEntries(day.players.map((p) => [p.id, p.name]));
+  const igns: Record<string, string> = Object.fromEntries(day.players.flatMap((p) => (p.ign ? [[p.id, p.ign]] : [])));
+  const here = Object.keys(day.checkIn).length;
+  const q = computeQueue(day);
+  const left = day.matches.filter((m) => m.status !== 'done').length;
+
+  const check = (cmd: Command) => {
+    try {
+      precheck(store, event, cmd, role ?? 'admin');
+      return null;
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e);
+    }
+  };
+  const run = (cmd: Command) => {
+    const fail = (error: string) => (setLocal((l) => [...l, { id: uid(), cmd, error }]), false);
+    const refused = check(cmd);
+    if (refused) return fail(refused);
+    try {
+      sendCommand(store.id, cmd);
+      return true;
+    } catch (e) {
+      return fail(`Couldn’t queue this on the device: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+  const inFlight = work.filter((w) => w.state === 'queued' || w.state === 'sending');
+  const cmds: Cmds = {
+    run,
+    check,
+    base: dayVersion(store),
+    inFlight,
+    pendingFor: (id) => inFlight.find((w) => w.cmd && 'matchId' in w.cmd && w.cmd.matchId === id),
+    pendingStart: (st) => inFlight.find((w) => w.cmd?.type === 'match.start' && w.cmd.station === st),
+    offline: status !== 'live',
+  };
+
+  return (
+    <Shell wide crumbs={storeCrumbs(role, event, store, { label: 'Match day' })}>
+      <PageHead kicker={`Match day · ${event.name}`} title={store.name}>
+        <div className="day-stats">
+          <div>
+            <strong>
+              {here}
+              <small>/{day.players.length}</small>
+            </strong>
+            <span>Checked in</span>
+          </div>
+          <div>
+            <strong>{q.live.length}</strong>
+            <span>Playing now</span>
+          </div>
+          <div>
+            <strong>{q.ready.length}</strong>
+            <span>Ready to call</span>
+          </div>
+          <div>
+            <strong>{day.matches.length ? left : '—'}</strong>
+            <span>Matches left</span>
+          </div>
+          <a className="btn ghost" href={`#/store/${store.id}/board`} target="_blank" rel="noreferrer">
+            Open venue board ↗
+          </a>
+        </div>
+      </PageHead>
+
+      <div className="tabs" role="tablist">
+        {(
+          [
+            ['checkin', 'Check-in'],
+            ['queue', 'Queue'],
+            ['bracket', 'Bracket'],
+          ] as [Tab, string][]
+        ).map(([k, l]) => (
+          <button key={k} role="tab" aria-selected={tab === k} className={cx(tab === k && 'on')} onClick={() => setTab(k)}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      <WorkNotices day={day} work={work} local={local} offline={cmds.offline} onDismissLocal={(id) => setLocal((l) => l.filter((x) => x.id !== id))} />
+
+      {!day.players.length && hq ? (
+        <section className="feed-wait">
+          <h2>No players yet.</h2>
+          <p className="deck">Add them in this store’s Players & bracket page — import a CSV or sheet (its order is the seed order), then build the bracket.</p>
+          <a className="btn accent" href={`#/store/${store.id}/players`}>
+            Players & bracket →
+          </a>
+        </section>
+      ) : tab === 'checkin' ? (
+        // With no list yet the admin still registers walk-ins here (CheckIn shows the waiting note).
+        <CheckIn day={day} editDay={editDay} names={names} cmds={cmds} hq={hq} onUndoSelf={undoSelf} />
+      ) : !day.players.length ? (
+        <section className="feed-wait">
+          <h2>Waiting for the players.</h2>
+          <p className="deck">HQ hasn’t loaded the players yet — they’ll appear here automatically. Walk-ins can be registered on the Check-in tab meanwhile.</p>
+        </section>
+      ) : !day.matches.length ? (
+        <section className="feed-wait">
+          <h2>No bracket yet.</h2>
+          {hq ? (
+            <>
+              <p className="deck">The players are in — build the bracket on the Players & bracket page.</p>
+              <a className="btn accent" href={`#/store/${store.id}/players`}>
+                Players & bracket →
+              </a>
+            </>
+          ) : (
+            <p className="deck">HQ hasn’t built the bracket yet — it appears here automatically. Check-in works already.</p>
+          )}
+        </section>
+      ) : tab === 'queue' ? (
+        <QueueView day={day} editDay={editDay} names={names} igns={igns} cmds={cmds} />
+      ) : (
+        <BracketView store={store} names={names} igns={igns} cmds={cmds} canReset={hq} />
+      )}
+
+      <JoinedNotices
+        list={joined.filter((j) => names[j.pid] && isSelf(day, j.pid) && day.checkIn[j.pid] === j.at)}
+        names={names}
+        onUndo={undoSelf}
+        onDismiss={(pid) => setJoined((j) => j.filter((x) => x.pid !== pid))}
+      />
+    </Shell>
+  );
+}
+
+/** Run the real handler over this device's view — throws the same CommandError the server would. */
+function precheck(store: Store, event: TournamentEvent, cmd: Command, role: 'super' | 'admin') {
+  tournamentCommand(store, cmd, { commandId: 'precheck', now: new Date().toISOString(), actor: { principal: '', name: '', role }, event });
+}
+
+/* ---------- queued / refused match actions ---------- */
+
+function describe(cmd: Command, day: MatchDay) {
+  const m = 'matchId' in cmd ? day.matches.find((x) => x.id === cmd.matchId) : undefined;
+  const L = m ? `M${matchNo(m, day.matches)}` : 'a match';
+  switch (cmd.type) {
+    case 'match.start':
+      return `Call ${L} to station ${cmd.station}`;
+    case 'match.finish':
+      return cmd.walkover ? `Walkover in ${L}` : `Result for ${L}`;
+    case 'match.undo':
+      return m?.status === 'live' ? `Cancel ${L}` : `Undo ${L}`;
+    case 'stations.set':
+      return `Set stations to ${cmd.count}`;
+    case 'bracket.load':
+      return 'Load the bracket';
+    case 'bracket.reset':
+      return 'Reset the bracket';
+    case 'players.onspot':
+      return `Register ${cmd.name.trim() || 'a player'} on the spot`;
+    case 'onspot.mark': {
+      const e = day.onSpot?.find((x) => x.id === cmd.entryId);
+      return `Mark ${e?.name ?? 'an on-the-spot player'} as ${cmd.done ? 'added to' : 'not yet on'} Toornament`;
+    }
+    default:
+      return cmd.type;
+  }
+}
+
+const pendingLabel = (w: PendingWork, offline: boolean) => (w.state === 'sending' ? 'Sending…' : offline ? 'Queued · offline' : 'Queued');
+
+function WorkNotices({
+  day,
+  work,
+  local,
+  offline,
+  onDismissLocal,
+}: {
+  day: MatchDay;
+  work: PendingWork[];
+  local: { id: string; cmd: Command; error: string }[];
+  offline: boolean;
+  onDismissLocal: (id: string) => void;
+}) {
+  const refused = work.filter((w) => w.state === 'conflict' || w.state === 'failed');
+  const waiting = work.filter((w) => w.state === 'queued' || w.state === 'sending');
+  if (!refused.length && !local.length && !waiting.length) return null;
+  const regs = waiting.filter((w) => w.cmd?.type === 'players.onspot').length;
+  const noun = (n: number) => (regs === n ? `registration${n === 1 ? '' : 's'}` : regs ? `action${n === 1 ? '' : 's'}` : `match action${n === 1 ? '' : 's'}`);
+  return (
+    <div className="day-notices" role="status">
+      {local.map((x) => (
+        <div key={x.id} className="day-notice conflict">
+          <span>
+            <strong>{describe(x.cmd, day)} — not done.</strong> {x.error}
+          </span>
+          <button className="link" onClick={() => onDismissLocal(x.id)}>
+            Dismiss
+          </button>
+        </div>
+      ))}
+      {refused.map((w) => (
+        <div key={w.id} className={cx('day-notice', w.state)}>
+          <span>
+            <strong>
+              {describe(w.cmd!, day)} — {w.state === 'conflict' ? 'refused by the server' : 'couldn’t be sent'}.
+            </strong>{' '}
+            {w.error ?? 'No reason given.'} {w.state === 'conflict' && 'The queue now shows the latest state.'}
+          </span>
+          <span className="row tight">
+            {w.state === 'failed' && (
+              <button className="link" onClick={() => retryWork(w.id)}>
+                Retry
+              </button>
+            )}
+            <button className="link" onClick={() => discardWork(w.id)}>
+              Dismiss
+            </button>
+          </span>
+        </div>
+      ))}
+      {waiting.length > 0 && (
+        <div className="day-notice waiting">
+          <span>
+            {offline
+              ? `${waiting.length} ${noun(waiting.length)} saved on this device — offline, not on the server yet. They’ll be checked and sent when the connection is back.`
+              : `Sending ${waiting.length} ${noun(waiting.length)}…`}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- attendance ---------- */
+
+function CheckIn({
+  day,
+  editDay,
+  names,
+  cmds,
+  hq,
+  onUndoSelf,
+}: {
+  day: MatchDay;
+  editDay: (fn: (d: MatchDay) => void) => void;
+  names: Record<string, string>;
+  cmds: Cmds;
+  hq: boolean;
+  onUndoSelf: (pid: string) => void;
+}) {
+  const offline = cmds.offline;
+  const [filter, setFilter] = useState<'all' | 'out' | 'in'>('all');
+  const [search, setSearch] = useState('');
+  const onSpot = onSpotByPlayer(day); // same matching as HQ's list: id, then phone, then name
+  const list = day.players
+    .filter((p) => (filter === 'all' ? true : filter === 'in' ? day.checkIn[p.id] : !day.checkIn[p.id]))
+    .filter((p) => matchesPlayer(p, search))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const toggle = async (p: Player) => {
+    if (day.checkIn[p.id]) {
+      if (!(await askConfirm(`Undo check-in for ${p.name}?${isSelf(day, p.id) ? ' They checked in by QR.' : ''}`, { ok: 'Undo check-in' }))) return;
+      editDay((d) => undoCheckIn(d, p.id));
+    } else editDay((d) => staffCheckIn(d, p.id, new Date().toISOString()));
+  };
+
+  // Positions stay fixed (falsy placeholders), so the desk form keeps its state when the first walk-in fills an empty list.
+  const empty = !day.players.length;
+  return (
+    <section>
+      {empty && (
+        <section className="feed-wait">
+          <h2>Waiting for the players.</h2>
+          <p className="deck">HQ hasn’t loaded the players yet — they’ll appear here automatically. Walk-ins can be registered now: they’re checked in and HQ sees them as on the spot.</p>
+        </section>
+      )}
+      <OnSpotDesk day={day} editDay={editDay} cmds={cmds} hq={hq} startOpen={empty} />
+      {!empty && <SelfCheckInPanel day={day} editDay={editDay} names={names} offline={offline} onUndo={onUndoSelf} />}
+      {!empty && (
+        <>
+      <div className="toolbar">
+        <input className="search" placeholder="Find a player — name, in-game name or phone digits" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <div className="seg small">
+          {(
+            [
+              ['all', 'All'],
+              ['out', 'Not here'],
+              ['in', 'Here'],
+            ] as const
+          ).map(([k, l]) => (
+            <button key={k} className={cx(filter === k && 'on')} onClick={() => setFilter(k)}>
+              {l}
+            </button>
+          ))}
+        </div>
+      </div>
+      <ul className="roster">
+        {list.map((p) => (
+          <li key={p.id}>
+            <button className={cx('roster-row', day.checkIn[p.id] && 'in')} onClick={() => toggle(p)}>
+              <span className="seed">{String(p.seed).padStart(2, '0')}</span>
+              <span className="pmain">
+                <span className="pname">{p.name}</span>
+                {(isSelf(day, p.id) || onSpot.has(p.id) || p.phone || p.ign) && (
+                  <span className="pmeta">
+                    {onSpot.has(p.id) && (
+                      <span className="onspot-tag" title="Registered at the desk on the day">
+                        On spot
+                      </span>
+                    )}
+                    {isSelf(day, p.id) && (
+                      <span className="self-tag" title="Checked in by QR">
+                        Self
+                      </span>
+                    )}
+                    {p.ign && (
+                      <span className="ign" title="In-game name">
+                        {p.ign}
+                      </span>
+                    )}
+                    {p.phone && maskPhone(p.phone)}
+                  </span>
+                )}
+              </span>
+              <span className="pstate">{day.checkIn[p.id] ? `Here · ${fmtTime(day.checkIn[p.id])}` : 'Check in'}</span>
+            </button>
+          </li>
+        ))}
+        {!list.length && <li className="empty">No one matches.</li>}
+      </ul>
+        </>
+      )}
+    </section>
+  );
+}
+
+/* ---------- on-the-spot registration (walk-ins) ---------- */
+
+/**
+ * The desk form for walk-ins who aren't on HQ's list. players.onspot adds them (next seed),
+ * checks them in and records them, so HQ sees them as on the spot and adds them on Toornament.
+ * Same phone as someone on the list → it's them (check them in); same name → the admin says
+ * whether it's another person, who is then added as "Name (2)".
+ */
+function OnSpotDesk({ day, editDay, cmds, hq, startOpen }: { day: MatchDay; editDay: (fn: (d: MatchDay) => void) => void; cmds: Cmds; hq: boolean; startOpen: boolean }) {
+  const [open, setOpen] = useState(startOpen);
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [ign, setIgn] = useState('');
+  const [problem, setProblem] = useState<{ text: string; pid?: string } | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const focusName = useRef(false);
+  useEffect(() => {
+    // Not on first render (no keyboard popping up on page load) — when opened, and after each registration.
+    if (open && focusName.current) nameRef.current?.focus();
+    focusName.current = false;
+  });
+  const count = day.onSpot?.length ?? 0;
+  const pending = cmds.inFlight.filter((w) => w.cmd?.type === 'players.onspot');
+  const stuck = problem?.pid ? day.players.find((p) => p.id === problem.pid) : undefined;
+
+  const reset = () => {
+    setName('');
+    setPhone('');
+    setIgn('');
+    focusName.current = true;
+  };
+  const checkInNow = (p: Player) => {
+    editDay((d) => staffCheckIn(d, p.id, new Date().toISOString()));
+    setProblem(null);
+    setDone(`${p.name} checked in.`);
+    reset();
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (asking) return;
+    setProblem(null);
+    setDone(null);
+    const n = name.replace(/\s+/g, ' ').trim();
+    const tel = phone.trim();
+    if (!n) {
+      setProblem({ text: 'Type the player’s name.' });
+      nameRef.current?.focus();
+      return;
+    }
+    if (tel && !isPhone(tel)) return setProblem({ text: 'That phone number doesn’t look right — type 8–15 digits, or leave it empty.' });
+    const clash = onSpotClash(day, n, tel || undefined);
+    if (clash?.kind === 'phone') {
+      const p = clash.player;
+      return setProblem({ text: `The number ending ${normalizePhone(tel).slice(-4)} is already on the list as ${p.name}${day.checkIn[p.id] ? ' — already checked in.' : '.'}`, pid: p.id });
+    }
+    let shown = n;
+    let sameName: 'different' | undefined;
+    if (clash?.kind === 'name') {
+      const p = clash.player;
+      const alt = differentName(day, n);
+      setAsking(true);
+      const other = await askConfirm(
+        `${p.name} is already on the list${p.phone ? ` (number ending ${p.phone.slice(-4)})` : ''}${day.checkIn[p.id] ? ' and checked in' : ''}. Is this a different person?`,
+        { ok: `Different person → add as “${alt}”` },
+      );
+      setAsking(false);
+      if (!other) return setProblem({ text: `Not registered. If it’s ${p.name}, check them in from the list.`, pid: p.id });
+      shown = alt;
+      sameName = 'different';
+    }
+    const cmd: Command = { type: 'players.onspot', base: cmds.base, name: n, ...(tel ? { phone: tel } : {}), ...(ign.trim() ? { ign: ign.trim() } : {}), ...(sameName ? { sameName } : {}) };
+    const refused = cmds.check(cmd);
+    if (refused) return setProblem({ text: refused });
+    if (!cmds.run(cmd)) return; // couldn't be queued — the notice at the top says why
+    setDone(`${shown} registered on the spot and checked in${cmds.offline ? ' — saved on this device, it goes to the server when the connection is back' : ''}.`);
+    reset();
+  };
+
+  if (!open)
+    return (
+      <div className="onspot-bar">
+        <button
+          className="btn"
+          onClick={() => {
+            focusName.current = true;
+            setOpen(true);
+          }}
+        >
+          Register on the spot
+        </button>
+        <span className="hint">Walk-in who isn’t on the list? Register them here — they’re checked in and HQ sees them as on the spot{count ? ` · ${count} so far` : ''}.</span>
+      </div>
+    );
+
+  return (
+    <form className="onspot" onSubmit={submit} noValidate aria-labelledby="onspot-h">
+      <div className="onspot-head">
+        <h2 id="onspot-h">Register on the spot</h2>
+        <button type="button" className="link" onClick={() => setOpen(false)}>
+          Close
+        </button>
+      </div>
+      <p className="hint">For walk-ins who aren’t on HQ’s list. They join the list checked in; HQ sees them as on the spot and adds them on Toornament{count ? ` · ${count} registered here so far` : ''}.</p>
+      <label className="field">
+        <span className="label">Name</span>
+        <input ref={nameRef} value={name} onChange={(e) => setName(e.target.value)} maxLength={80} autoComplete="off" autoCapitalize="words" enterKeyHint="next" placeholder="e.g. Ravi K." />
+      </label>
+      <div className="grid2">
+        <label className="field">
+          <span className="label">Phone</span>
+          <input type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={24} autoComplete="off" placeholder="Optional — lets them use the QR" />
+        </label>
+        <label className="field">
+          <span className="label">In-game name</span>
+          <input value={ign} onChange={(e) => setIgn(e.target.value)} maxLength={MAX_IGN} autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="done" placeholder="Optional" />
+        </label>
+      </div>
+      {problem && (
+        <div className="onspot-msg problem" role="alert">
+          <span>{problem.text}</span>
+          {stuck && !day.checkIn[stuck.id] && (
+            <button type="button" className="btn ghost" onClick={() => checkInNow(stuck)}>
+              Check in {stuck.name}
+            </button>
+          )}
+        </div>
+      )}
+      {done && (
+        <div className="onspot-msg ok" role="status">
+          {done}
+        </div>
+      )}
+      <button className="btn accent onspot-go" type="submit" disabled={asking}>
+        Register and check in
+      </button>
+      {day.matches.length > 0 && (
+        <p className="hint warn">{hq ? 'The bracket is already made — add on-spot players on Toornament and rebuild it.' : 'The bracket is already made — HQ will add on-spot players on Toornament and rebuild.'}</p>
+      )}
+      {pending.length > 0 && (
+        <ul className="onspot-pending">
+          {pending.map((w) => (
+            <li key={w.id}>
+              <span>{w.cmd?.type === 'players.onspot' ? w.cmd.name : ''}</span>
+              <span className="pending-tag">{pendingLabel(w, cmds.offline)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </form>
+  );
+}
+
+/* ---------- player QR check-in ---------- */
+
+function SelfCheckInPanel({
+  day,
+  editDay,
+  names,
+  offline,
+  onUndo,
+}: {
+  day: MatchDay;
+  editDay: (fn: (d: MatchDay) => void) => void;
+  names: Record<string, string>;
+  offline: boolean;
+  onUndo: (pid: string) => void;
+}) {
+  const sc = day.selfCheckIn;
+  const open = !!sc?.open;
+  useLan(); // re-render once the Wi-Fi address is known
+  const url = sc ? checkInUrl(shareOrigin(), sc.token) : '';
+  const [copied, setCopied] = useState(false);
+  const noPhone = withoutPhone(day.players);
+  const recent = recentSelfCheckIns(day).filter((r) => names[r.pid]);
+
+  const toggle = () => editDay((d) => (open ? closeSelfCheckIn(d) : openSelfCheckIn(d, new Date().toISOString())));
+  const rotate = async () =>
+    (await askConfirm('Make a new QR? The current QR and link stop working right away — printed copies and screenshots too. The venue board switches by itself.', { ok: 'New QR', danger: true })) &&
+    editDay((d) => rotateSelfCheckIn(d));
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      prompt('Copy this check-in link', url);
+    }
+  };
+
+  return (
+    <section className="selfci" aria-labelledby="selfci-h">
+      <div>
+        <h2 id="selfci-h">
+          Player QR check-in
+          <span className="selfci-state">
+            <Chip tone={open ? 'ok' : 'muted'}>{open ? `Open${sc?.openedAt ? ` · since ${fmtTime(sc.openedAt)}` : ''}` : 'Off'}</Chip>
+          </span>
+        </h2>
+        <p className="hint">
+          {open
+            ? 'Players scan this QR — it’s on the venue board too — type the phone number HQ has for them, and appear here as checked in. Close it when check-in ends.'
+            : 'Let players check themselves in: they scan a QR at the venue and type their phone number. Each one shows up here as they arrive.'}
+        </p>
+        {noPhone > 0 && (
+          <p className="hint warn">
+            {noPhone === day.players.length
+              ? 'HQ sent no phone numbers, so the QR can’t find anyone — check players in by hand.'
+              : `${noPhone} of ${day.players.length} player${day.players.length === 1 ? '' : 's'} ha${noPhone === 1 ? 's' : 've'} no phone number from HQ — check ${noPhone === 1 ? 'them' : 'those'} in by hand.`}
+          </p>
+        )}
+        {open && offline && <p className="hint warn">This device is offline — the QR starts working once your change reaches the server.</p>}
+        <div className="row selfci-actions">
+          <button className={cx('btn', open ? 'ghost' : 'accent')} onClick={toggle}>
+            {open ? 'Close QR check-in' : 'Open QR check-in'}
+          </button>
+          {sc && (
+            <button className="link" onClick={rotate}>
+              New QR
+            </button>
+          )}
+        </div>
+        {open && (
+          <div className="selfci-link">
+            <span>{url}</span>
+            <button className="link" onClick={copy}>
+              {copied ? 'Copied' : 'Copy link'}
+            </button>
+          </div>
+        )}
+      </div>
+      {open && (
+        <div className="selfci-qr">
+          <CheckInQr value={url} />
+          <span className="label">Scan to check in</span>
+        </div>
+      )}
+      {recent.length > 0 && (
+        <div className="selfci-recent">
+          <h3 className="label">Recent QR check-ins</h3>
+          <ol>
+            {recent.map((r) => (
+              <li key={r.pid}>
+                <span>
+                  {names[r.pid]}
+                  <time>{fmtTime(r.at)}</time>
+                </span>
+                <button className="link" onClick={() => onUndo(r.pid)}>
+                  Undo
+                </button>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Toasts for QR check-ins that just arrived — any tab. */
+function JoinedNotices({ list, names, onUndo, onDismiss }: { list: SelfArrival[]; names: Record<string, string>; onUndo: (pid: string) => void; onDismiss: (pid: string) => void }) {
+  if (!list.length) return null;
+  return (
+    <div className="joined" role="status" aria-live="polite">
+      {list.map((j) => (
+        <div key={j.pid} className="joined-item">
+          <span>
+            <strong>{publicName(names[j.pid])}</strong> checked in by QR · {fmtTime(j.at)}
+          </span>
+          <span>
+            <button className="link" onClick={() => onUndo(j.pid)}>
+              Undo
+            </button>
+            <button className="link" aria-label="Dismiss" onClick={() => onDismiss(j.pid)}>
+              ×
+            </button>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ---------- the call queue ---------- */
+
+function QueueView({ day, editDay, names, igns, cmds }: { day: MatchDay; editDay: (fn: (d: MatchDay) => void) => void; names: Record<string, string>; igns: Record<string, string>; cmds: Cmds }) {
+  const q = computeQueue(day);
+  const total = roundCount(day.matches);
+  const n = (id: string | null) => (id ? names[id] : 'TBD');
+  // On the station cards only — where players are called — the in-game name goes under the name.
+  const ign = (id: string | null) => (id && igns[id] ? <small className="ign">{igns[id]}</small> : null);
+  const label = (m: Match) => `M${matchNo(m, day.matches)} · ${roundName(m.round, total)}`;
+  // Score drafts are per attempt (match + start time), so a cancelled or undone match never
+  // brings an old score back when it is played again (audit F16).
+  const [scores, setScores] = useState<Record<string, string>>({});
+  const draftKey = (m: Match) => `${m.id}@${m.startedAt ?? ''}`;
+  const dropDraft = (m: Match) =>
+    setScores((s) => {
+      const rest = { ...s };
+      delete rest[draftKey(m)];
+      return rest;
+    });
+  const call = (m: Match, station: number) => cmds.run({ type: 'match.start', base: cmds.base, matchId: m.id, station });
+  const win = (m: Match, w: string, opts: { walkover?: boolean; score?: string } = {}) => {
+    const score = opts.score?.trim();
+    if (cmds.run({ type: 'match.finish', base: cmds.base, matchId: m.id, winner: w, ...(score ? { score } : {}), ...(opts.walkover ? { walkover: true } : {}) })) dropDraft(m);
+  };
+  const cancel = (m: Match) => cmds.run({ type: 'match.undo', base: cmds.base, matchId: m.id }) && dropDraft(m);
+
+  // Station count: typed values settle for a moment before they're sent, so typing "12" doesn't send "1" first.
+  const [stDraft, setStDraft] = useState<number | null>(null);
+  useEffect(() => {
+    if (stDraft === null) return;
+    const t = setTimeout(() => {
+      if (stDraft !== day.stations) cmds.run({ type: 'stations.set', base: cmds.base, count: stDraft });
+      setStDraft(null);
+    }, 700);
+    return () => clearTimeout(t);
+  }, [stDraft]);
+
+  if (q.champion)
+    return (
+      <section className="champion">
+        <span className="label">Champion</span>
+        <h2>{names[q.champion]}</h2>
+        <p className="deck">
+          {day.matches.filter((m) => !m.bye).length} matches played. The full results are on the Bracket tab — the store report covers the recce only, not match day.
+        </p>
+      </section>
+    );
+
+  // Pair the next ready matches with free stations so the admin sees exactly what to call.
+  const suggest = new Map(q.freeStations.map((s, i) => [s, q.ready[i]?.match]));
+  // Every live match gets a card, even on a station above the current count or a doubled-up
+  // station (older data) — otherwise its result/cancel controls would vanish (audit F14).
+  const extra = [...new Set(q.live.map((m) => m.station ?? 0).filter((s) => s < 1 || s > day.stations))];
+  const stationList = [...Array.from({ length: day.stations }, (_, i) => i + 1), ...extra.sort((a, b) => a - b)];
+
+  const liveCard = (m: Match, st: number, crowd: number) => {
+    const p = cmds.pendingFor(m.id);
+    const draft = scores[draftKey(m)] ?? '';
+    return (
+      <div key={m.id} className={cx('station', 'live', (st > day.stations || st < 1 || crowd > 1) && 'odd')}>
+        <div className="station-top">
+          <span className="label">{st >= 1 ? `Station ${st}` : 'No station'}</span>
+          {p ? <span className="label pending-tag">{pendingLabel(p, cmds.offline)}</span> : <span className="label live-dot">Live · {minutesSince(m.startedAt)} min</span>}
+        </div>
+        {st > day.stations && <p className="station-warn">Station {st} is beyond the {day.stations} set up. Finish or cancel this match, or raise the station count.</p>}
+        {st < 1 && <p className="station-warn">This match is live without a station. Finish or cancel it.</p>}
+        {crowd > 1 && <p className="station-warn">{crowd} matches are live on station {st}. Cancel the one that isn’t being played here.</p>}
+        <div className="label">{label(m)}</div>
+        <div className="versus">
+          <button className="btn win" onClick={() => win(m, m.a!, { score: draft })}>
+            <span>{n(m.a)}</span>
+            {ign(m.a)}
+            <small>won</small>
+          </button>
+          <span className="vs">vs</span>
+          <button className="btn win" onClick={() => win(m, m.b!, { score: draft })}>
+            <span>{n(m.b)}</span>
+            {ign(m.b)}
+            <small>won</small>
+          </button>
+        </div>
+        <input className="score" maxLength={40} placeholder="Score (optional), e.g. 2–1" value={draft} onChange={(e) => setScores({ ...scores, [draftKey(m)]: e.target.value })} />
+        <button className="link" onClick={() => cancel(m)}>
+          Cancel — send back to queue
+        </button>
+      </div>
+    );
+  };
+
+  return (
+    <div className="queue">
+      <section>
+        <div className="qhead">
+          <h2>Stations</h2>
+          <div className="qhead-ctl">
+            <NumberField label="Stations" value={stDraft ?? day.stations} min={1} max={20} onChange={(v) => v !== null && setStDraft(v)} />
+          </div>
+        </div>
+        <div className="stations">
+          {stationList.map((st) => {
+            const lives = q.live.filter((x) => (x.station ?? 0) === st);
+            if (lives.length) return lives.map((m) => liveCard(m, st, lives.length));
+            const next = suggest.get(st);
+            const p = cmds.pendingStart(st);
+            return (
+              <div key={st} className="station">
+                <div className="station-top">
+                  <span className="label">Station {st}</span>
+                  {p ? <span className="label pending-tag">{pendingLabel(p, cmds.offline)}</span> : <span className="label">Free</span>}
+                </div>
+                {next ? (
+                  <>
+                    <div className="label">Next up · {label(next)}</div>
+                    <div className="versus quiet">
+                      <span>
+                        {n(next.a)}
+                        {ign(next.a)}
+                      </span>
+                      <span className="vs">vs</span>
+                      <span>
+                        {n(next.b)}
+                        {ign(next.b)}
+                      </span>
+                    </div>
+                    <button className="btn accent block" onClick={() => call(next, st)}>
+                      Call to station {st}
+                    </button>
+                  </>
+                ) : (
+                  <p className="empty">Nothing ready — waiting on check-ins or results.</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <section>
+        <h2>Up next</h2>
+        {q.ready.length ? (
+          <ol className="qlist">
+            {q.ready.map(({ match: m, since }, i) => (
+              <li key={m.id}>
+                <span className="qn">{String(i + 1).padStart(2, '0')}</span>
+                <span className="qmain">
+                  <span className="label">{label(m)}</span>
+                  <span className="qpair">
+                    {n(m.a)} <em>vs</em> {n(m.b)}
+                  </span>
+                </span>
+                <span className="qside">
+                  <span className="label">Both here · {minutesSince(since)} min</span>
+                  {q.freeStations[0] && (
+                    <button className="btn ghost" onClick={() => call(m, q.freeStations[0])}>
+                      Call to {q.freeStations[0]}
+                    </button>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="empty">No match has both players here yet.</p>
+        )}
+      </section>
+
+      {q.waiting.length > 0 && (
+        <section>
+          <h2>Waiting on check-in</h2>
+          <ol className="qlist">
+            {q.waiting.map(({ match: m, missing }) => {
+              const present = [m.a!, m.b!].find((p) => !missing.includes(p));
+              const p = cmds.pendingFor(m.id);
+              return (
+                <li key={m.id}>
+                  <span className="qn">—</span>
+                  <span className="qmain">
+                    <span className="label">{label(m)}</span>
+                    <span className="qpair">
+                      <span className={cx(missing.includes(m.a!) && 'absent')}>{n(m.a)}</span> <em>vs</em> <span className={cx(missing.includes(m.b!) && 'absent')}>{n(m.b)}</span>
+                    </span>
+                  </span>
+                  <span className="qside">
+                    {p && <span className="label pending-tag">{pendingLabel(p, cmds.offline)}</span>}
+                    {missing.map((pid) => (
+                      <button key={pid} className="btn ghost" onClick={() => editDay((d) => staffCheckIn(d, pid, new Date().toISOString()))}>
+                        Check in {names[pid].split(' ')[0]}
+                      </button>
+                    ))}
+                    {present ? (
+                      <button
+                        className="link"
+                        onClick={async () => (await askConfirm(`${names[missing[0]]} is a no-show? ${names[present]} advances by walkover.`, { ok: 'Walkover' })) && win(m, present, { walkover: true })}
+                      >
+                        Walkover → {names[present].split(' ')[0]}
+                      </button>
+                    ) : (
+                      // Double no-show has no agreed policy yet (audit §6.4) — no fake walkover here.
+                      <span className="label warn">Both players missing</span>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </section>
+      )}
+
+      {q.upcoming.length > 0 && (
+        <section>
+          <h2>Later</h2>
+          <ol className="qlist quiet">
+            {q.upcoming.map((m) => {
+              const feeder = (side: 0 | 1) => day.matches.find((x) => x.round === m.round - 1 && x.index === m.index * 2 + side)!;
+              const who = (id: string | null, side: 0 | 1) => (id ? names[id] : `Winner of M${matchNo(feeder(side), day.matches)}`);
+              return (
+                <li key={m.id}>
+                  <span className="qn">—</span>
+                  <span className="qmain">
+                    <span className="label">{label(m)}</span>
+                    <span className="qpair">
+                      {who(m.a, 0)} <em>vs</em> {who(m.b, 1)}
+                    </span>
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </section>
+      )}
+    </div>
+  );
+}
+
+/* ---------- bracket ---------- */
+
+function BracketView({ store, names, igns, cmds, canReset }: { store: Store; names: Record<string, string>; igns: Record<string, string>; cmds: Cmds; canReset: boolean }) {
+  const { matches, checkIn } = store.day;
+  const total = roundCount(matches);
+  const rounds = Array.from({ length: total }, (_, r) => matches.filter((m) => m.round === r).sort((a, b) => a.index - b.index));
+
+  const reset = async () => {
+    if (!(await askConfirm('Reset the bracket? Every result and live match is cleared. Players (in their order) and check-ins stay — build it again on the Players & bracket page.', { ok: 'Reset bracket', danger: true }))) return;
+    cmds.run({ type: 'bracket.reset', base: cmds.base });
+  };
+  const undo = async (m: Match) =>
+    (await askConfirm(m.status === 'live' ? 'Cancel this match and send it back to the queue?' : 'Undo this result? The score is cleared too.', { ok: m.status === 'live' ? 'Cancel match' : 'Undo result', danger: true })) &&
+    cmds.run({ type: 'match.undo', base: cmds.base, matchId: m.id });
+
+  const slot = (m: Match, id: string | null) => (
+    <div className={cx('bslot', m.winner && m.winner === id && 'won', m.winner && id && m.winner !== id && 'lost')}>
+      <span title={id && igns[id] ? `In-game name: ${igns[id]}` : undefined}>{id ? names[id] : m.round === 0 && m.bye ? 'Bye' : 'TBD'}</span>
+      {id && !checkIn[id] && m.status !== 'done' && <i title="Not checked in">○</i>}
+    </div>
+  );
+
+  return (
+    <section>
+      <div className="bracket-scroll">
+        <div className="bracket" style={{ ['--rounds' as string]: total }}>
+          {rounds.map((list, r) => (
+            <div key={r} className="bround">
+              <div className="label">{roundName(r, total)}</div>
+              <div className="bround-list">
+                {list.map((m) => {
+                  const p = cmds.pendingFor(m.id);
+                  return (
+                    <div key={m.id} className={cx('bmatch', m.status, m.bye && 'bye')}>
+                      <div className="bmatch-top">
+                        <span>M{matchNo(m, matches)}</span>
+                        {m.status === 'live' && <Chip tone="accent">Stn {m.station}</Chip>}
+                        {m.walkover && <span>W/O</span>}
+                        {m.score && <span>{m.score}</span>}
+                        {p && <span className="pending-tag">{pendingLabel(p, cmds.offline)}</span>}
+                        {canUndo(m, matches) && (
+                          <button className="link" onClick={() => undo(m)}>
+                            {m.status === 'live' ? 'cancel' : 'undo'}
+                          </button>
+                        )}
+                      </div>
+                      {slot(m, m.a)}
+                      {slot(m, m.b)}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="submit-bar">
+        <span className="label">○ = not checked in yet</span>
+        {canReset ? (
+          <span className="row tight">
+            <a className="link" href={`#/store/${store.id}/players`}>
+              Players & bracket
+            </a>
+            <button className="btn danger" onClick={reset}>
+              Reset bracket
+            </button>
+          </span>
+        ) : (
+          <span className="label">HQ owns the bracket — ask HQ to change players</span>
+        )}
+      </div>
+    </section>
+  );
+}
