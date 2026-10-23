@@ -29,3 +29,7 @@ scripts
 *.md
 Dockerfile
 .dockerignore
+
+# CI and deploy files (the server keeps its HQ code in deploy/.env)
+.github
+deploy
