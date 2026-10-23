@@ -19,6 +19,12 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 docker compose version >/dev/null
 
+# Small machines (Oracle's free AMD micro has 1 GB): add 2 GB of swap so the app's build doesn't run out of memory.
+if [ "$(awk '/MemTotal/ {print $2}' /proc/meminfo)" -lt 2000000 ] && ! swapon --show | grep -q .; then
+  fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile
+  grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >>/etc/fstab
+fi
+
 # 2. This machine's own firewall. Oracle's Ubuntu images reject everything but SSH in iptables,
 #    on top of the cloud Security List — both must allow 80 (certificate check) and 443.
 if command -v iptables >/dev/null 2>&1; then
