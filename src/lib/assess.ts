@@ -4,7 +4,7 @@ import { readRecce, reccePhotoRefs, venueRef, venueRefKind } from './recce.ts';
 import { hasDownload } from './speedtest.ts';
 import { fmtDateTime } from './util.ts';
 
-export type SectionKey = 'venue' | 'laptops' | 'network' | 'furniture' | 'collateral';
+export type SectionKey = 'venue' | 'furniture' | 'laptops' | 'network' | 'collateral';
 
 export interface SectionStatus {
   key: SectionKey;
@@ -25,9 +25,9 @@ export interface Assessment {
 
 export const SECTION_TITLES: Record<SectionKey, string> = {
   venue: 'Venue',
+  furniture: 'Setup',
   laptops: 'Laptops',
   network: 'Internet',
-  furniture: 'Setup',
   collateral: 'Collateral',
 };
 
@@ -87,6 +87,26 @@ export function assess(event: TournamentEvent, store: Store, opts: AssessOptions
   add('venue', [!r.venue.photos.length && 'Photo of the play area']);
 
   {
+    const f = r.furniture;
+    const standard = f.setup === 'standard';
+    add(
+      'furniture',
+      [
+        f.setup === null && 'Which setup is in place?',
+        !f.chairType.trim() && 'Chair type',
+        f.chairCount == null && 'Chair count',
+        standard && f.tablecloth === null && 'Tablecloth provided?',
+        !f.photos.length && 'Photo of the setup',
+      ],
+      [
+        f.setup === 'none' && 'No setup in place yet',
+        standard && f.tablecloth === 'no' && 'Standard desks without a tablecloth',
+        f.chairCount != null && f.chairCount < pol.gameReadyTarget && `Only ${f.chairCount} chairs`,
+      ],
+    );
+  }
+
+  {
     const todo: string[] = [];
     const game = r.laptops.filter((l) => l.role === 'game');
     if (!r.laptops.length) todo.push('Count the laptops');
@@ -123,26 +143,6 @@ export function assess(event: TournamentEvent, store: Store, opts: AssessOptions
         n.lan === 'no' && n.wifi !== 'no' && 'No LAN — matches will run on Wi-Fi',
         measured && n.speed!.down! < pol.minDownMbps && `Download ${n.speed!.down} Mbps is below the ${pol.minDownMbps} Mbps minimum`,
         manual && 'Speed typed in by hand, not measured by the app',
-      ],
-    );
-  }
-
-  {
-    const f = r.furniture;
-    const standard = f.setup === 'standard';
-    add(
-      'furniture',
-      [
-        f.setup === null && 'Which setup is in place?',
-        !f.chairType.trim() && 'Chair type',
-        f.chairCount == null && 'Chair count',
-        standard && f.tablecloth === null && 'Tablecloth provided?',
-        !f.photos.length && 'Photo of the setup',
-      ],
-      [
-        f.setup === 'none' && 'No setup in place yet',
-        standard && f.tablecloth === 'no' && 'Standard desks without a tablecloth',
-        f.chairCount != null && f.chairCount < pol.gameReadyTarget && `Only ${f.chairCount} chairs`,
       ],
     );
   }

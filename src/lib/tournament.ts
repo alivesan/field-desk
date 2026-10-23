@@ -6,7 +6,7 @@
  * How `base` is used:
  *   bracket.load / bracket.reset — destructive: `base` must equal the current day version,
  *     so a device that hasn't seen the latest bracket can't replace or wipe it.
- *   stations.set / match.start / match.finish / match.undo / players.onspot / onspot.mark —
+ *   stations.set / match.start / match.finish / match.undo / players.onspot / onspot.mark / onspot.remove —
  *     `base` is informational only.
  *     These are checked against the *current* state (station free, players checked in and
  *     not busy, match in the right status, nothing downstream started), which is the real
@@ -19,6 +19,7 @@
 import type { Match, MatchDay, OnSpotEntry, Player, Store } from './types.ts';
 import { CommandError, type Command, type CommandContext, type Role } from './command-types.ts';
 import { buildBracket, isPow2, matchNo, nextOf, reopened, resolve } from './bracket.ts';
+import { onSpotPlayer } from './onspot.ts';
 import { cleanIgn, isPhone, MAX_IGN, normalizePhone, playerIdFor } from './phone.ts';
 
 export const TOURNAMENT_COMMANDS: Record<string, Role[]> = {
@@ -35,6 +36,7 @@ export const TOURNAMENT_COMMANDS: Record<string, Role[]> = {
   // Walk-ins: the desk registers them (they join the list, checked in); HQ ticks them off once on Toornament.
   'players.onspot': ['super', 'admin'],
   'onspot.mark': ['super'],
+  'onspot.remove': ['super'], // HQ deletes registrations (test data, mistakes)
 };
 
 const conflict = (msg: string) => new CommandError('conflict', msg);
@@ -92,6 +94,9 @@ export function tournamentCommand(store: Store, cmd: Command, ctx: CommandContex
       break;
     case 'onspot.mark':
       next = markOnSpot(day, cmd, ctx);
+      break;
+    case 'onspot.remove':
+      next = removeOnSpot(day, cmd);
       break;
     default:
       throw invalid(`${(cmd as { type: string }).type} isn’t a tournament command`);
@@ -313,6 +318,32 @@ function markOnSpot(day: MatchDay, cmd: Extract<Command, { type: 'onspot.mark' }
   if (!cmd.done) delete next.toornament;
   else next.toornament ??= ctx.now; // marking twice keeps the first time
   return { ...day, onSpot: record.map((x) => (x.id === e.id ? next : x)) };
+}
+
+/**
+ * onspot.remove: HQ deletes registrations. By default only the record goes — the player (who may be
+ * real and checked in) stays on the list for HQ to remove there. With alsoPlayers the players those
+ * entries point at leave the list too (and their check-in), which is refused once matches are
+ * under way; a bracket that had one of them is cleared, like players.set. Unknown ids are a
+ * conflict (another HQ device removed them); a retry of the same command is deduped by id upstream.
+ */
+function removeOnSpot(day: MatchDay, cmd: Extract<Command, { type: 'onspot.remove' }>): MatchDay {
+  const record = day.onSpot ?? [];
+  const ids = [...new Set(cmd.entryIds)];
+  const unknown = ids.filter((id) => !record.some((e) => e.id === id));
+  if (unknown.length)
+    throw conflict(ids.length === 1 ? 'That on-the-spot registration isn’t on this store any more.' : `${unknown.length} of these registrations aren’t on this store any more — they were removed on another device. Refresh and try again.`);
+  const drop = new Set(ids);
+  const kept = record.filter((e) => !drop.has(e.id));
+  const next: MatchDay = { ...day, onSpot: kept };
+  if (!cmd.alsoPlayers) return next;
+  const keep = new Set(kept.flatMap((e) => onSpotPlayer(day.players, e)?.id ?? []));
+  const leaving = new Set(record.filter((e) => drop.has(e.id)).flatMap((e) => onSpotPlayer(day.players, e)?.id ?? []).filter((id) => !keep.has(id)));
+  if (!leaving.size) return next;
+  underway(day, 'removing them from the player list');
+  const players = day.players.filter((p) => !leaving.has(p.id));
+  const inBracket = day.matches.some((m) => (m.a && leaving.has(m.a)) || (m.b && leaving.has(m.b)));
+  return { ...next, ...keptCheckIns(day, players), players, matches: inBracket ? [] : day.matches };
 }
 
 /* ---------- stations.set ---------- */

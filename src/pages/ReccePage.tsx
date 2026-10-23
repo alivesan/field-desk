@@ -13,7 +13,7 @@ import { LocationCheck, PhotoSlot } from '../components/PhotoSlot.tsx';
 import { SpeedTest } from '../components/SpeedTest.tsx';
 import '../styles/evidence.css';
 
-const ORDER: SectionKey[] = ['venue', 'laptops', 'network', 'furniture', 'collateral'];
+const ORDER: SectionKey[] = ['venue', 'furniture', 'laptops', 'network', 'collateral'];
 
 export function ReccePage({ storeId }: { storeId: string }) {
   const store = useApp((s) => s.stores[storeId]);
@@ -129,27 +129,7 @@ export function ReccePage({ storeId }: { storeId: string }) {
         <PhotoSlot store={store} label="Play area" hint="A wide shot of where the tournament will happen" photos={r.venue.photos} update={photosOf((r) => r.venue.photos)} />
       </Section>
 
-      <Section {...props('laptops', 2)}>
-        <Laptops event={event} store={store} laptops={r.laptops} edit={edit} />
-      </Section>
-
-      <Section {...props('network', 3)}>
-        <div className="pair">
-          <YesNoField label="Wi-Fi" value={r.network.wifi} onChange={(v) => edit((r) => (r.network.wifi = v))} />
-          <YesNoField label="LAN cable" value={r.network.lan} onChange={(v) => edit((r) => (r.network.lan = v))} />
-        </div>
-        <SpeedTest value={r.network.speed} minDown={event.minDownMbps} onChange={(v) => edit((r) => (r.network.speed = v))} />
-        <PhotoSlot
-          store={store}
-          label="Speed result"
-          optional={r.network.speed?.method !== 'manual'}
-          hint={r.network.speed?.method === 'manual' ? 'Screenshot of the result you typed in' : 'Optional — the in-app test is already proof'}
-          photos={r.network.photos}
-          update={photosOf((r) => r.network.photos)}
-        />
-      </Section>
-
-      <Section {...props('furniture', 4)}>
+      <Section {...props('furniture', 2)}>
         <Choice
           label="Setup at the venue"
           value={r.furniture.setup}
@@ -166,6 +146,26 @@ export function ReccePage({ storeId }: { storeId: string }) {
         </div>
         {r.furniture.setup === 'standard' && <YesNoField label="Tablecloth on the desks" value={r.furniture.tablecloth} onChange={(v) => edit((r) => (r.furniture.tablecloth = v))} />}
         <PhotoSlot store={store} label="The setup" hint="Tables, chairs and laptops as they’ll be on the day" photos={r.furniture.photos} update={photosOf((r) => r.furniture.photos)} />
+      </Section>
+
+      <Section {...props('laptops', 3)}>
+        <Laptops event={event} store={store} laptops={r.laptops} edit={edit} />
+      </Section>
+
+      <Section {...props('network', 4)}>
+        <div className="pair">
+          <YesNoField label="Wi-Fi" value={r.network.wifi} onChange={(v) => edit((r) => (r.network.wifi = v))} />
+          <YesNoField label="LAN cable" value={r.network.lan} onChange={(v) => edit((r) => (r.network.lan = v))} />
+        </div>
+        <SpeedTest value={r.network.speed} minDown={event.minDownMbps} onChange={(v) => edit((r) => (r.network.speed = v))} />
+        <PhotoSlot
+          store={store}
+          label="Speed result"
+          optional={r.network.speed?.method !== 'manual'}
+          hint={r.network.speed?.method === 'manual' ? 'Screenshot of the result you typed in' : 'Optional — the in-app test is already proof'}
+          photos={r.network.photos}
+          update={photosOf((r) => r.network.photos)}
+        />
       </Section>
 
       <Section {...props('collateral', 5)}>

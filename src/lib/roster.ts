@@ -143,8 +143,8 @@ const WORDS: [ColumnKey, string[], string[]][] = [
   ['name', ['name'], ['store', 'team', 'game', 'venue', 'city', 'user', 'nick', 'first', 'last', 'father', 'parent', 'guardian', 'school', 'college', 'emergency', 'ign', 'steam', 'riot', 'epic', ...NEVER]],
 ];
 
-const headerKey = (h: string) => h.toLowerCase().replace(/\(.*?\)|\[.*?\]/g, '').replace(/[^a-z0-9]/g, '');
-const headerWords = (h: string) => h.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+export const headerKey = (h: string) => h.toLowerCase().replace(/\(.*?\)|\[.*?\]/g, '').replace(/[^a-z0-9]/g, '');
+export const headerWords = (h: string) => h.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 const hasWords = (words: string[], list: string[]) => list.some((w) => w.split(' ').every((x) => words.includes(x)));
 
 /**

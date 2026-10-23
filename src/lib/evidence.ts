@@ -35,9 +35,9 @@ export function expectedPhotos(recce: Recce, storeId?: string): ExpectedPhoto[] 
   const r = readRecce(recce);
   const groups: [string, PhotoRef[]][] = [
     ['Venue', r.venue.photos],
+    ['Setup', r.furniture.photos],
     ['Laptops', r.laptops.flatMap((l) => l.photos)],
     ['Internet', r.network.photos],
-    ['Setup', r.furniture.photos],
     ['Collateral', [...r.collateral.standeePhotos, ...r.collateral.chequePhotos]],
   ];
   const seen = new Set<string>();

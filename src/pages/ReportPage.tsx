@@ -8,10 +8,12 @@ import { buildReportFile } from '../lib/exportReport.ts';
 import { useRoute } from '../lib/router.ts';
 import { editedSince, isLegacy, revLabel, submissionIdFor, submissionsOf, submissionState, type AnySubmission } from '../lib/submission.ts';
 import { downloadBlob, fmtDateTime } from '../lib/util.ts';
-import { NotFound, notify, Shell } from '../components/ui.tsx';
+import { askConfirm, NotFound, notify, Shell } from '../components/ui.tsx';
+import { useHqCommand } from '../components/hqCommand.ts';
 import { Report } from '../components/Report.tsx';
 import { markReportSeen } from '../components/ReportsInbox.tsx';
 import '../styles/evidence.css';
+import '../styles/hq-delete.css';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const frame = () => new Promise((r) => requestAnimationFrame(() => r(null)));
@@ -36,6 +38,7 @@ export function ReportPage({ storeId }: { storeId: string }) {
   const [printBanner, setPrintBanner] = useState<EvidenceBanner | null>(null);
   const [printNote, setPrintNote] = useState<string | undefined>(undefined);
   const printing = useRef(false);
+  const send = useHqCommand();
 
   const subs = store ? submissionsOf(store) : [];
   const st = store ? submissionState(store, pending) : null;
@@ -137,6 +140,27 @@ export function ReportPage({ storeId }: { storeId: string }) {
     }
   };
 
+  // HQ's danger area: delete test data. Photos stay on the server (write-once) but nothing references them any more.
+  const removing = pending.find((w) => w.cmd?.type === 'recce.delete' || w.cmd?.type === 'recce.reset');
+  const deletable = role === 'super' && submission && !isLegacy(submission) && submission.id !== unsentId ? submission : undefined;
+  const deleteRevision = async () => {
+    if (!deletable) return;
+    const only = subs.length === 1;
+    const text = `Delete ${revLabel(deletable)} of ${store.name}, submitted ${fmtDateTime(deletable.submittedAt)}? It leaves the Recce reports for good. ${only ? 'It’s the only revision, so the store goes back to “no report yet”. ' : 'Other revisions stay. '}The admin’s working recce is not touched. Photos already uploaded stay on the server but aren’t shown.`;
+    if (!(await askConfirm(text, { ok: `Delete ${revLabel(deletable)}`, danger: true }))) return;
+    const problem = send(store.id, () => ({ type: 'recce.delete', base: submissionVersion(store), submissionId: deletable.id }));
+    if (problem) void notify(problem);
+    else setPick(null);
+  };
+  const resetRecce = async () => {
+    const n = subs.length;
+    const text = `Reset the recce for ${store.name}? This deletes ${n ? `all ${n} submitted revision${n === 1 ? '' : 's'} and ` : ''}everything the admin entered — checks, notes, speed test and photo placements. The admin will have to do the recce again. Photos already uploaded stay on the server but aren’t shown.`;
+    if (!(await askConfirm(text, { ok: 'Reset recce', danger: true }))) return;
+    const problem = send(store.id, (s) => ({ type: 'recce.reset', base: submissionVersion(s) }));
+    if (problem) void notify(problem);
+    else setPick(null);
+  };
+
   const label = (mode: Mode, text: string) => (busy === mode ? 'Checking photos…' : text);
 
   return (
@@ -202,6 +226,23 @@ export function ReportPage({ storeId }: { storeId: string }) {
       )}
 
       <Report event={event} store={store} submission={submission} src={(id) => urls[id]} generatedAt={new Date().toISOString()} banner={printBanner} evidenceNote={printNote} draftNote={draftNote} />
+
+      {role === 'super' && (
+        <section className="danger-zone no-print">
+          <h2>Delete test data</h2>
+          <p className="hint">For dummy recces and mistakes. Photos already uploaded stay on the server but aren’t shown. Field admins can’t do this.</p>
+          {removing && <p className="label">{removing.state === 'failed' || removing.state === 'conflict' ? `Not deleted — ${removing.error ?? 'try again'}` : 'Deleting…'}</p>}
+          <div className="row">
+            <button className="btn danger" onClick={deleteRevision} disabled={!deletable || !!removing} title={deletable ? undefined : 'Pick a submitted revision under “Showing” first'}>
+              {deletable ? `Delete ${revLabel(deletable)}` : 'Delete this revision'}
+            </button>
+            <button className="btn danger" onClick={resetRecce} disabled={!!removing}>
+              Reset recce for this store
+            </button>
+          </div>
+          {submission && isLegacy(submission) && <p className="hint">This report predates revisions, so it can only be removed by resetting the recce.</p>}
+        </section>
+      )}
     </Shell>
   );
 }

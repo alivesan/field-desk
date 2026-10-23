@@ -41,9 +41,9 @@ export function reccePhotoRefs(recce: Recce): PhotoRef[] {
   const r = readRecce(recce);
   return [
     ...r.venue.photos,
+    ...r.furniture.photos,
     ...r.laptops.flatMap((l) => l.photos),
     ...r.network.photos,
-    ...r.furniture.photos,
     ...r.collateral.standeePhotos,
     ...r.collateral.chequePhotos,
   ];

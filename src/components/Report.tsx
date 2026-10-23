@@ -209,6 +209,17 @@ export function Report({
 
       {block({
         n: '02',
+        title: 'Setup',
+        rows: [
+          ['Setup', r.furniture.setup ? setup[r.furniture.setup] : ''],
+          ['Chairs', r.furniture.chairCount != null ? `${r.furniture.chairCount} × ${r.furniture.chairType || 'chairs'}` : r.furniture.chairType],
+          ...(r.furniture.setup === 'standard' ? [['Tablecloth', yn(r.furniture.tablecloth)] as [string, string]] : []),
+        ],
+        photos: r.furniture.photos,
+      })}
+
+      {block({
+        n: '03',
         title: 'Laptops',
         rows: [
           ['At the store', String(r.laptops.length)],
@@ -250,7 +261,7 @@ export function Report({
       })}
 
       {block({
-        n: '03',
+        n: '04',
         title: 'Internet',
         rows: [
           ['Wi-Fi', yn(r.network.wifi)],
@@ -264,17 +275,6 @@ export function Report({
           ['Measured', r.network.speed ? `${r.network.speed.method === 'auto' ? 'In-app test' : 'Entered by hand'}, ${fmtDateTime(r.network.speed.at)}` : ''],
         ],
         photos: r.network.photos,
-      })}
-
-      {block({
-        n: '04',
-        title: 'Setup',
-        rows: [
-          ['Setup', r.furniture.setup ? setup[r.furniture.setup] : ''],
-          ['Chairs', r.furniture.chairCount != null ? `${r.furniture.chairCount} × ${r.furniture.chairType || 'chairs'}` : r.furniture.chairType],
-          ...(r.furniture.setup === 'standard' ? [['Tablecloth', yn(r.furniture.tablecloth)] as [string, string]] : []),
-        ],
-        photos: r.furniture.photos,
       })}
 
       {block({

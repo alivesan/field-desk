@@ -21,9 +21,13 @@ export type Command =
   // admin confirmed this is another person with a name already on the list → added as "Name (2)".
   | { type: 'players.onspot'; base: number; name: string; phone?: string; ign?: string; sameName?: 'different' }
   | { type: 'onspot.mark'; base: number; entryId: string; done: boolean } // HQ: added to Toornament (or not yet)
+  // HQ deletes registrations (test data, mistakes). The players stay on the list unless alsoPlayers (refused once matches are under way).
+  | { type: 'onspot.remove'; base: number; entryIds: string[]; alsoPlayers?: boolean }
   // submissions (src/lib/submission.ts)
   | { type: 'recce.submit'; base: number }
-  | { type: 'recce.review'; base: number; submissionId: string };
+  | { type: 'recce.review'; base: number; submissionId: string }
+  | { type: 'recce.delete'; base: number; submissionId: string } // HQ: drop one submitted revision; the working recce stays
+  | { type: 'recce.reset'; base: number }; // HQ: drop every revision and blank the working recce (base = revisions HQ saw)
 
 export type CommandType = Command['type'];
 

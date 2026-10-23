@@ -129,6 +129,10 @@ function validateEvent(c: C, e: Rec) {
   c.num(e.gameReadyTarget, 'gameReadyTarget', 0, 1000, true);
   c.num(e.minDownMbps, 'minDownMbps', 0, 1e6);
   c.time(e.createdAt, 'createdAt');
+  if (e.storeSheet !== undefined && c.obj(e.storeSheet, 'storeSheet')) {
+    c.str(e.storeSheet.url, 'storeSheet.url', 2000);
+    c.time(e.storeSheet.fetchedAt, 'storeSheet.fetchedAt');
+  }
 }
 
 function validateAdmin(c: C, a: Rec, ctx: ValidationContext) {
@@ -145,6 +149,8 @@ function validateStore(c: C, s: Rec, ctx: ValidationContext) {
   if (c.id(s.eventId, 'eventId') && ctx.events && !ctx.events[s.eventId as string]) c.bad('eventId', `campaign ${s.eventId} doesn’t exist`);
   c.str(s.name, 'name', 200);
   c.str(s.city, 'city', 200);
+  c.optStr(s.state, 'state', 200);
+  c.optBool(s.exclusive, 'exclusive');
   c.str(s.address, 'address', 1000);
   if (s.date !== undefined && s.date !== '') c.date(s.date, 'date'); // '' / absent = the campaign's date
   c.optStr(s.phone, 'phone', 100);

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { logout, useApp, usePendingWork, useSync } from '../lib/db.ts';
 import { assess } from '../lib/assess.ts';
 import { computeQueue } from '../lib/bracket.ts';
@@ -6,6 +7,23 @@ import { isLegacy, revLabel, submissionState } from '../lib/submission.ts';
 import type { Store, TournamentEvent } from '../lib/types.ts';
 import { cx, fmtDate, fmtDateTime } from '../lib/util.ts';
 import { PageHead, Shell, useNow } from '../components/ui.tsx';
+
+/** Whether this device last left a store's submitted recce open. A convenience only — storage may be blocked. */
+const reccePref = (storeId: string) => {
+  try {
+    return globalThis.localStorage?.getItem(`fd-recce-open:${storeId}`) === '1';
+  } catch {
+    return false;
+  }
+};
+const saveReccePref = (storeId: string, open: boolean) => {
+  try {
+    if (open) globalThis.localStorage?.setItem(`fd-recce-open:${storeId}`, '1');
+    else globalThis.localStorage?.removeItem(`fd-recce-open:${storeId}`);
+  } catch {
+    /* private mode / blocked storage — it just won't be remembered */
+  }
+};
 
 /** A field admin's whole world: their assigned stores, as a to-do list. */
 export function AdminHome() {
@@ -54,6 +72,10 @@ function StoreTasks({ store, event, now }: { store: Store; event: TournamentEven
   const r = store.recce;
   const st = submissionState(store, usePendingWork(store.id));
   const sent = st.kind === 'submitted' || st.kind === 'reviewed'; // acknowledged by the server, nothing changed since
+  // The recce folds away once HQ has it; edited-since, waiting or failed submissions still need the admin's eyes.
+  const [recceShown, setRecceShown] = useState(() => reccePref(store.id));
+  const recceOpen = !sent || recceShown;
+  const sentLine = sent ? `${isLegacy(st.acknowledged) ? 'Submitted' : `Submitted ${revLabel(st.acknowledged!)}`}${st.kind === 'reviewed' ? ' · Reviewed by HQ ✓' : ' · HQ hasn’t opened it yet'}` : '';
   const day = store.day;
   const q = day.matches.length ? computeQueue(day) : null;
   const names = Object.fromEntries(day.players.map((p) => [p.id, p.name]));
@@ -103,38 +125,61 @@ function StoreTasks({ store, event, now }: { store: Store; event: TournamentEven
         </a>
       </header>
 
-      <section>
-        <h3>
-          <span>01</span> Before the event — store recce
-        </h3>
-        <ol className="steps">
-          {a.sections.map((s) => step(s.done, s.title, s.done ? (s.issues[0] ?? 'Done') : s.todo.slice(0, 2).join(' · ') + (s.todo.length > 2 ? ` · +${s.todo.length - 2} more` : ''), s.done && s.issues.length > 0))}
-          {step(
-            sent,
-            st.kind === 'reviewed' ? 'Reviewed by HQ' : 'Submit to HQ',
-            st.kind === 'waiting'
-              ? 'Waiting to send — goes to HQ when there’s signal'
-              : st.kind === 'failed'
-                ? `Not sent — ${st.work?.error ?? 'open the recce to retry'}`
-                : sent
-                  ? `${isLegacy(st.acknowledged) ? 'Submitted' : `Submitted ${revLabel(st.acknowledged!)}`} · ${fmtDateTime(st.acknowledged!.submittedAt)}`
-                  : st.acknowledged
-                    ? `Edited since ${revLabel(st.acknowledged)} — submit the update`
-                    : 'When everything above is done',
-            st.kind === 'failed' || (st.kind === 'draft' && !!st.acknowledged),
-          )}
-        </ol>
-        <div className="row">
-          <a className="btn ghost" href={`${base}/recce`}>
-            Recce
-          </a>
-          <a className="btn ghost" href={`${base}/report`}>
-            Report
-          </a>
-        </div>
+      <section className={cx('recce-part', sent && 'sent')}>
+        {sent ? (
+          <button
+            type="button"
+            className="fold-head"
+            aria-expanded={recceOpen}
+            aria-controls={`recce-${store.id}`}
+            onClick={() => {
+              setRecceShown(!recceOpen);
+              saveReccePref(store.id, !recceOpen);
+            }}
+          >
+            <h3>
+              <span>01</span> Store recce
+            </h3>
+            <small>{sentLine}</small>
+            <em>{recceOpen ? 'Hide' : 'Show'}</em>
+          </button>
+        ) : (
+          <h3>
+            <span>01</span> Before the event — store recce
+          </h3>
+        )}
+        {recceOpen && (
+          <div id={`recce-${store.id}`}>
+            <ol className="steps">
+              {a.sections.map((s) => step(s.done, s.title, s.done ? (s.issues[0] ?? 'Done') : s.todo.slice(0, 2).join(' · ') + (s.todo.length > 2 ? ` · +${s.todo.length - 2} more` : ''), s.done && s.issues.length > 0))}
+              {step(
+                sent,
+                st.kind === 'reviewed' ? 'Reviewed by HQ' : 'Submit to HQ',
+                st.kind === 'waiting'
+                  ? 'Waiting to send — goes to HQ when there’s signal'
+                  : st.kind === 'failed'
+                    ? `Not sent — ${st.work?.error ?? 'open the recce to retry'}`
+                    : sent
+                      ? `${isLegacy(st.acknowledged) ? 'Submitted' : `Submitted ${revLabel(st.acknowledged!)}`} · ${fmtDateTime(st.acknowledged!.submittedAt)}`
+                      : st.acknowledged
+                        ? `Edited since ${revLabel(st.acknowledged)} — submit the update`
+                        : 'When everything above is done',
+                st.kind === 'failed' || (st.kind === 'draft' && !!st.acknowledged),
+              )}
+            </ol>
+            <div className="row">
+              <a className="btn ghost" href={`${base}/recce`}>
+                Recce
+              </a>
+              <a className="btn ghost" href={`${base}/report`}>
+                Report
+              </a>
+            </div>
+          </div>
+        )}
       </section>
 
-      <section>
+      <section className={cx('day-part', sent && 'main')}>
         <h3>
           <span>02</span> On the day — match day
         </h3>

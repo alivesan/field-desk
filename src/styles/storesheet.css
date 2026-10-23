@@ -1,0 +1,100 @@
+/* HQ store import — "Import stores from a sheet" on the campaign page (src/components/StoreSheetImport.tsx). Builds on roster.css. */
+
+.store-sheet {
+  margin: 0 0 32px;
+}
+.store-sheet .index-head h3 {
+  margin: 0;
+  font: 400 24px/1.2 var(--serif);
+  letter-spacing: -0.015em;
+}
+.store-sheet > .hint {
+  margin: 0 0 16px;
+  max-width: 78ch;
+}
+.store-sheet .roster-form .field + .field {
+  margin-top: 16px;
+}
+
+.ss-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 12px;
+}
+
+.ss-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--ink);
+}
+.ss-row {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.ss-row.unchanged {
+  opacity: 0.6;
+  padding: 8px 0;
+}
+.ss-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+}
+.ss-name {
+  font: 400 18px/1.25 var(--serif);
+  letter-spacing: -0.01em;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ss-line {
+  margin-left: auto;
+  font: 500 10.5px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.ss-meta {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.ss-changes {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.ss-changes li + li {
+  margin-top: 2px;
+}
+.ss-row .roster-issues {
+  margin-top: 8px;
+}
+.ss-missing {
+  margin-top: 16px;
+}
+.ss-done {
+  margin: 16px 0 0;
+  padding: 10px 12px;
+  background: var(--paper-2);
+  border-left: 3px solid var(--ok);
+  color: var(--ok);
+  font-size: 14px;
+}
+
+/* on the store row */
+.store-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+.index-head .head-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}

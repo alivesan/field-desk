@@ -215,3 +215,33 @@
   margin-top: 6px;
   text-decoration: none;
 }
+
+/* HQ deleting registrations (onspot.remove): × per row, "Remove all" per store. */
+.os-actions .os-remove-all {
+  margin-left: auto;
+}
+.os-also {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.os-remove {
+  margin-left: 10px;
+  width: 30px;
+  height: 30px;
+  font: 400 20px/1 var(--sans, inherit);
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  vertical-align: middle;
+}
+.os-remove:hover,
+.os-remove:focus-visible {
+  color: var(--accent);
+  border-color: var(--accent);
+}
