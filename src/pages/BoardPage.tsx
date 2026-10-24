@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { useApp, useSync, type SyncInfo } from '../lib/db.ts';
 import { computeQueue, matchNo, roundCount, roundName } from '../lib/bracket.ts';
 import { NotFound, useNow } from '../components/ui.tsx';
@@ -5,9 +6,13 @@ import { cx, fmtTime } from '../lib/util.ts';
 import { checkInUrl } from '../lib/checkin.ts';
 import { finalResult } from '../lib/winnerInput.ts';
 import { CheckInQr } from '../components/CheckInQr.tsx';
+import { Confetti, CONFETTI_DARK } from '../components/Confetti.tsx';
 import '../styles/day.css';
 import { shareOrigin, useLan } from '../lib/origin.ts';
 import '../styles/checkin.css';
+
+/** The champion moment repeats now and then while the screen stays up, so whoever walks past still catches it. */
+const RECHEER_MS = 30000;
 
 /**
  * Full-screen display for a TV at the venue: who's on, who's next, who still needs to check in —
@@ -19,6 +24,17 @@ export function BoardPage({ storeId }: { storeId: string }) {
   const now = useNow(5000);
   const sync = useSync();
   useLan(); // re-render once the Wi-Fi address is known
+
+  // Confetti when a champion is on the screen: at once, then every half minute. Never with reduced motion (Confetti skips itself).
+  const crowned = !!store && !!computeQueue(store.day).champion;
+  const nameRef = useRef<HTMLHeadingElement>(null);
+  const [cheer, setCheer] = useState(0);
+  useEffect(() => {
+    if (!crowned) return;
+    setCheer((c) => c + 1);
+    const t = setInterval(() => setCheer((c) => c + 1), RECHEER_MS);
+    return () => clearInterval(t);
+  }, [crowned]);
   if (!store || !event) return <NotFound />;
 
   const day = store.day;
@@ -39,7 +55,7 @@ export function BoardPage({ storeId }: { storeId: string }) {
           <h1>{store.name}</h1>
         </div>
         <div className="board-clock">
-          <time>{new Date(now).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</time>
+          <BoardClock />
           <Freshness sync={sync} now={now} />
         </div>
       </header>
@@ -48,12 +64,18 @@ export function BoardPage({ storeId }: { storeId: string }) {
         <div className="board-main">
           {q.champion ? (
             <section className="board-champ">
-              <span className="label">Champion</span>
-              <h2>{names[q.champion]}</h2>
-              {runnerUp && names[runnerUp] && <p className="board-runner">Runner-up · {names[runnerUp]}</p>}
+              <span className="label fd-enter">Champion</span>
+              <h2 ref={nameRef} className="board-champ-name">
+                {names[q.champion]}
+              </h2>
+              {runnerUp && names[runnerUp] && (
+                <p className="board-runner fd-enter" style={{ ['--fd-delay' as string]: '700ms' }}>
+                  Runner-up · {names[runnerUp]}
+                </p>
+              )}
             </section>
           ) : !day.matches.length ? (
-            <section className="board-champ">
+            <section className="board-champ waiting fd-enter">
               <span className="label">Check-in is open</span>
               <h2>Matches start soon.</h2>
             </section>
@@ -63,10 +85,13 @@ export function BoardPage({ storeId }: { storeId: string }) {
                 <h3 className="label">Now playing</h3>
                 {q.live.length ? (
                   q.live.map((m) => (
-                    <div key={m.id} className="board-live">
+                    <div key={m.id} className="board-live fd-enter">
                       <span className="board-stn">{m.station}</span>
                       <div>
-                        <span className="label">{label(m)}</span>
+                        <span className="label board-livelabel">
+                          <i className="board-dot fd-pulse" aria-hidden />
+                          Live · {label(m)}
+                        </span>
                         <div className="board-pair">
                           {names[m.a!]} <em>vs</em> {names[m.b!]}
                         </div>
@@ -74,7 +99,7 @@ export function BoardPage({ storeId }: { storeId: string }) {
                     </div>
                   ))
                 ) : (
-                  <p className="board-empty">Stations are free — next match is being called.</p>
+                  <p className="board-empty fd-enter">Stations are free — next match is being called.</p>
                 )}
               </section>
               <section>
@@ -82,7 +107,7 @@ export function BoardPage({ storeId }: { storeId: string }) {
                 {callNext.length ? (
                   <ol className="board-next">
                     {callNext.map(({ match: m }, i) => (
-                      <li key={m.id}>
+                      <li key={m.id} className="fd-enter">
                         <span className="board-qn">{i + 1}</span>
                         <div>
                           <span className="label">{label(m)}</span>
@@ -94,10 +119,10 @@ export function BoardPage({ storeId }: { storeId: string }) {
                     ))}
                   </ol>
                 ) : (
-                  <p className="board-empty">Waiting on results.</p>
+                  <p className="board-empty fd-enter">Waiting on results.</p>
                 )}
                 {needed.length > 0 && (
-                  <div className="board-needed">
+                  <div className="board-needed fd-enter">
                     <h3 className="label">{qr ? 'Please check in — scan the QR or see the desk' : 'Please check in at the desk'}</h3>
                     <p>{needed.map((id) => names[id]).join(' · ')}</p>
                   </div>
@@ -115,7 +140,41 @@ export function BoardPage({ storeId }: { storeId: string }) {
           </aside>
         )}
       </div>
+      <Confetti
+        run={cheer}
+        colors={CONFETTI_DARK}
+        count={140}
+        duration={1600}
+        origin={() => {
+          const r = nameRef.current?.getBoundingClientRect();
+          return r ? { x: r.left + Math.min(r.width, window.innerWidth * 0.6) / 2, y: Math.min(Math.max(r.top + r.height / 2, 120), window.innerHeight * 0.7) } : null;
+        }}
+      />
     </div>
+  );
+}
+
+/** The clock, big, with a colon that breathes. Its own component so a tick re-renders only this. */
+function BoardClock() {
+  const now = new Date(useNow(1000));
+  const parts = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).formatToParts(now);
+  return (
+    <>
+      <time className="board-time" dateTime={now.toISOString()}>
+        {parts.map((p, i) =>
+          p.type === 'literal' && p.value.trim() === ':' ? (
+            <span key={i} className="colon" aria-hidden>
+              :
+            </span>
+          ) : p.type === 'dayPeriod' ? (
+            <small key={i}>{p.value}</small>
+          ) : (
+            <span key={i}>{p.value.trim() === '' ? '' : p.value}</span>
+          ),
+        )}
+      </time>
+      <span className="board-date">{now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</span>
+    </>
   );
 }
 

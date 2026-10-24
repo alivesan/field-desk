@@ -207,3 +207,20 @@
   font-style: italic;
   padding: 0 4px;
 }
+
+/* a finished step shows a tick, and its section arrives with the page's usual rise */
+.setup-step.done .setup-n {
+  color: var(--ok);
+}
+.setup-step small {
+  transition: color var(--dur-2, 200ms);
+}
+.setup-step.done small {
+  color: var(--ink-2);
+}
+.setup-roster li {
+  transition: background var(--dur-1, 120ms) var(--ease-out, ease-out);
+}
+.setup-roster li:hover {
+  background: var(--paper-2);
+}

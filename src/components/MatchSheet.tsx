@@ -5,6 +5,7 @@ import { feederOf, KIND_INFO, matchState, playedFor, stationSlots, telFor, undoB
 import type { PendingWork } from '../lib/db.ts';
 import type { Match, MatchDay } from '../lib/types.ts';
 import { cx, fmtTime, minutesSince } from '../lib/util.ts';
+import { success, tap } from '../lib/haptics.ts';
 import { askConfirm, Check } from './ui.tsx';
 import { Sheet } from './Sheet.tsx';
 
@@ -21,7 +22,10 @@ export function StateTag({ kind, station }: { kind: MatchKind; station?: number 
   const i = KIND_INFO[kind];
   return (
     <span className={cx('bstate', kind)}>
-      <i aria-hidden>{i.glyph}</i>
+      {/* the live dot breathes (fd-pulse); every other state keeps its shape */}
+      <i aria-hidden className={cx(kind === 'live' && 'bdot fd-pulse')}>
+        {kind === 'live' ? '' : i.glyph}
+      </i>
       {kind === 'live' && station ? `Live · Stn ${station}` : i.label}
     </span>
   );
@@ -69,11 +73,12 @@ function MatchBody({ m, day, names, igns, hq, cmds, pendingText, onCheckIn, onCl
     const refused = cmds.attempt(cmd);
     if (refused) setError(refused);
     else onClose();
+    return !refused;
   };
-  const call = (station: number) => act({ type: 'match.start', base: cmds.base, matchId: m.id, station });
+  const call = (station: number) => act({ type: 'match.start', base: cmds.base, matchId: m.id, station }) && tap();
   const finish = (winner: string, opts: { walkover?: boolean; score?: string } = {}) => {
     const s = opts.score?.trim();
-    act({ type: 'match.finish', base: cmds.base, matchId: m.id, winner, ...(s ? { score: s } : {}), ...(opts.walkover ? { walkover: true } : {}) });
+    if (act({ type: 'match.finish', base: cmds.base, matchId: m.id, winner, ...(s ? { score: s } : {}), ...(opts.walkover ? { walkover: true } : {}) })) success();
   };
   const undo = async () => {
     const live = m.status === 'live';
@@ -237,7 +242,7 @@ function MatchBody({ m, day, names, igns, hq, cmds, pendingText, onCheckIn, onCl
               {[m.a!, m.b!].map((id, i) => (
                 <Fragment key={id}>
                   {i === 1 && <span className="vs">vs</span>}
-                  <button className={cx('btn', 'win', pick === id && 'picked')} aria-pressed={pick === id} onClick={() => (setPick(id), setError(''))}>
+                  <button className={cx('btn', 'win', pick === id && 'picked')} aria-pressed={pick === id} onClick={() => (tap(), setPick(id), setError(''))}>
                     <span>{names[id]}</span>
                     {igns[id] && <small className="ign">{igns[id]}</small>}
                     <small>{pick === id ? '✓ won' : 'tap if won'}</small>

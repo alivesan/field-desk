@@ -4,7 +4,7 @@ import { newStore, update } from '../lib/db.ts';
 import { decodeText, looksLikeHtml } from '../lib/roster.ts';
 import { applySheetFields, COLUMN_LABEL, needsResolve, parseStoreSheet, planStoreSheet, STORE_SHEET_TEMPLATE, type FieldChange, type PlanItem, type PlanStatus, type SheetColumn, type SheetFields } from '../lib/storesheet.ts';
 import { ago, cx, fmtDate } from '../lib/util.ts';
-import { askConfirm, Chip, useNow } from './ui.tsx';
+import { askConfirm, Chip, toast, useNow } from './ui.tsx';
 import { locate } from './StoreForm.tsx';
 import '../styles/roster.css';
 import '../styles/storesheet.css';
@@ -200,6 +200,7 @@ export function StoreSheetImport({ event, stores, admins, onClose }: { event: To
         }
         if (source === 'link' && input?.kind === 'link' && input.url && d.events[event.id]) d.events[event.id].storeSheet = { url: input.url, fetchedAt: input.fetchedAt };
       });
+      toast([create && `${plural(create, 'store')} added`, changed && `${plural(changed, 'store')} changed`].filter(Boolean).join(' · ') || 'Stores updated');
       const noGeo = targets.filter((i) => i.row.fields.mapsUrl && !i.row.geo && !geos.get(i.row.fields.mapsUrl));
       setDone(
         [create && `${plural(create, 'store')} added`, changed && `${plural(changed, 'store')} changed`].filter(Boolean).join(' · ') +

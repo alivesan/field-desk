@@ -4,7 +4,8 @@ import { applyCommand, dayVersion, type Command, type CommandContext } from '../
 import { copyText, csvRows, FILTER_LABEL, filterOnSpot, isAdded, onSpotCounts, onSpotOf, onSpotStates, prettyPhone, toCsv, type OnSpotFilter, type OnSpotState } from '../lib/onspot.ts';
 import type { OnSpotEntry, Store, TournamentEvent } from '../lib/types.ts';
 import { cx, downloadBlob, fmtDate, fmtTime, slug, todayLocal } from '../lib/util.ts';
-import { askConfirm, Chip } from './ui.tsx';
+import { askConfirm, Chip, toast } from './ui.tsx';
+import { EmptyCard } from './flair.tsx';
 import { useHqCommand } from './hqCommand.ts';
 import '../styles/onspot.css';
 
@@ -101,7 +102,7 @@ export function OnSpotList({ event, stores, single }: { event: TournamentEvent; 
       </p>
 
       {!total ? (
-        <p className="os-empty">None yet. When an admin adds a player at the desk, they show up here.</p>
+        <EmptyCard compact mark="walkin" title="No walk-ins yet." hint="When an admin adds a player at the desk on the day, they show up here to be added to Toornament." />
       ) : (
         <>
           <div className="seg small os-tabs" role="tablist" aria-label="Show">
@@ -114,7 +115,7 @@ export function OnSpotList({ event, stores, single }: { event: TournamentEvent; 
           {shownStores.length ? (
             shownStores.map((s) => <StoreGroup key={s.id} store={s} filter={filter} single={!!single} />)
           ) : (
-            <p className="os-empty">{filter === 'todo' ? 'Nothing to add — every walk-in is marked as added to Toornament.' : 'None marked as added to Toornament yet.'}</p>
+            <EmptyCard compact mark="walkin" title={filter === 'todo' ? 'Nothing left to add.' : 'None added yet.'} hint={filter === 'todo' ? 'Every walk-in is marked as added to Toornament.' : 'Walk-ins you tick off as added to Toornament are listed here.'} />
           )}
         </>
       )}
@@ -140,6 +141,7 @@ function StoreGroup({ store, filter, single }: { store: Store; filter: OnSpotFil
     const what = plural(entries.length, 'name') + (use === 'ign' ? ' (in-game name where given)' : '');
     if (await copyToClipboard(text)) {
       setManual('');
+      toast(`Copied ${plural(entries.length, 'name')}`);
       setNote({ text: `Copied ${what} — one per line, ready to paste into Toornament’s participant list.` });
     } else {
       setManual(text);
@@ -149,6 +151,7 @@ function StoreGroup({ store, filter, single }: { store: Store; filter: OnSpotFil
   const set = (ids: string[], done: boolean) => {
     const problem = mark(store.id, ids, done);
     setNote(problem ? { text: problem, bad: true } : null);
+    if (!problem) toast(done ? (ids.length > 1 ? `Marked ${ids.length} as added to Toornament` : 'Marked added to Toornament') : 'Marked as not added');
   };
   const markAll = async () => {
     if (!open.length) return;
@@ -174,6 +177,7 @@ function StoreGroup({ store, filter, single }: { store: Store; filter: OnSpotFil
     if (!(await askConfirm(`Delete ${who} at ${store.name}?${aftermath(list)} This can’t be undone.`, { ok: list.length === 1 ? 'Delete' : 'Delete all', danger: true }))) return;
     const problem = send(store.id, (s) => ({ type: 'onspot.remove', base: dayVersion(s), entryIds: list.map((r) => r.entry.id), ...(alsoPlayers ? { alsoPlayers: true as const } : {}) }));
     setNote(problem ? { text: problem, bad: true } : null);
+    if (!problem) toast(list.length === 1 ? 'Registration deleted' : `${list.length} registrations deleted`);
   };
 
   return (
@@ -256,7 +260,7 @@ function Row({ row, onMark, onRemove }: { row: OnSpotState; onMark: (done: boole
       <span className="os-mark">
         {isAdded(e) ? (
           <>
-            <span className="os-done">✓ Added {when(e.toornament!)}</span>{' '}
+            <span className="os-done fd-pop">✓ Added {when(e.toornament!)}</span>{' '}
             <button className="link" onClick={() => onMark(false)}>
               Undo
             </button>

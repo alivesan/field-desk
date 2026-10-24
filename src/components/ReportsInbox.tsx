@@ -5,7 +5,8 @@ import { submissionVersion } from '../lib/commands.ts';
 import { editedSince, isLegacy, latestSubmission, revLabel, submissionPolicy, submissionsOf, type AnySubmission } from '../lib/submission.ts';
 import type { Store } from '../lib/types.ts';
 import { ago, cx, todayLocal } from '../lib/util.ts';
-import { askConfirm, Chip, notify, useNow } from './ui.tsx';
+import { askConfirm, Chip, notify, toast, useNow } from './ui.tsx';
+import { EmptyCard } from './flair.tsx';
 import { useHqCommand } from './hqCommand.ts';
 import '../styles/hq-delete.css';
 
@@ -64,6 +65,7 @@ export function ReportsInbox() {
     if (problem) return void notify(problem);
     // Deleting a revision HQ had opened must not make the one before it "new" again.
     if (prev && opened[s.id] === sub.id) markReportSeen(s.id, prev.id);
+    toast(legacy ? 'Recce reset' : `${revLabel(sub)} deleted`);
   };
 
   return (
@@ -77,15 +79,15 @@ export function ReportsInbox() {
         </span>
       </div>
       {submitted.length ? (
-        <ol className="inbox-list">
-          {submitted.map(({ s, sub }) => {
+        <ol className="inbox-list fd-stagger">
+          {submitted.map(({ s, sub }, i) => {
             const ev = events[s.eventId];
             // Judged as submitted: that revision's recce, against the requirements it was sent under.
             const a = assess(ev, s, { recce: sub.recce, policy: submissionPolicy(sub) });
             const fresh = isNew(s.id, sub.id);
             const status = sub.reviewedAt ? 'Reviewed' : 'Not reviewed';
             return (
-              <li key={sub.id} className={cx(fresh && 'new')}>
+              <li key={sub.id} className={cx(fresh && 'new')} style={{ ['--i' as string]: i }}>
                 <a className="inbox-main" href={`#/store/${s.id}/report`}>
                   <span className="inbox-dot" aria-label={fresh ? 'New' : undefined} />
                   <span className="inbox-text">
@@ -109,7 +111,7 @@ export function ReportsInbox() {
           })}
         </ol>
       ) : (
-        <p className="empty">No reports yet. Each one lands here once an admin’s “Submit to HQ” reaches the server.</p>
+        <EmptyCard compact mark="inbox" title="No reports yet." hint="Each one lands here once an admin’s “Submit to HQ” reaches the server." />
       )}
     </section>
   );

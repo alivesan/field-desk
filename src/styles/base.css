@@ -107,11 +107,23 @@ dt {
   font: 500 14px/1 var(--sans);
   text-decoration: none;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition:
+    background var(--dur-1, 120ms) var(--ease-out, ease-out),
+    color var(--dur-1, 120ms) var(--ease-out, ease-out),
+    border-color var(--dur-1, 120ms) var(--ease-out, ease-out),
+    transform var(--dur-1, 120ms) var(--ease-out, ease-out),
+    filter var(--dur-1, 120ms) var(--ease-out, ease-out);
   white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
 }
 .btn:hover {
   background: var(--ink-2);
+}
+/* pressed: a 1px sink and a touch darker, so a tap reads on a phone before the result arrives */
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+  filter: brightness(0.92);
+  transition-duration: 40ms;
 }
 .btn.ghost {
   background: transparent;
@@ -120,6 +132,7 @@ dt {
 }
 .btn.ghost:hover {
   border-color: var(--ink);
+  background: var(--paper-2);
 }
 .btn.accent {
   background: var(--accent);
@@ -133,6 +146,46 @@ dt {
 }
 .btn:disabled {
   opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+  filter: none;
+}
+
+/* keyboard focus: one accent ring everywhere (mouse and touch never see it) */
+:where(a, button, summary, select, [role='button'], [role='radio'], [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.btn:focus-visible {
+  outline-offset: 3px;
+}
+
+/*
+ * Text fields: the hairline darkens and an accent underline draws in from the left.
+ * (Selectors are a notch more specific than app.css's field rules so the underline wins the cascade.)
+ */
+label.field input,
+label.field textarea,
+html input.search,
+html input.score {
+  background-image: linear-gradient(var(--accent), var(--accent));
+  background-repeat: no-repeat;
+  background-position: left bottom;
+  background-origin: border-box; /* the line covers the 1px hairline instead of sitting above it */
+  background-size: 0% 2px;
+  transition:
+    border-color var(--dur-2, 200ms) var(--ease-out, ease-out),
+    background-size var(--dur-3, 320ms) var(--ease-out, ease-out);
+}
+label.field input:focus,
+label.field textarea:focus,
+html input.search:focus,
+html input.score:focus {
+  background-size: 100% 2px;
+}
+label.field input:disabled,
+label.field textarea:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
@@ -194,4 +247,15 @@ dt {
 .btn.danger:hover {
   background: var(--accent);
   color: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn,
+  label.field input,
+  label.field textarea {
+    transition: none;
+  }
+  .btn:active:not(:disabled) {
+    transform: none;
+  }
 }

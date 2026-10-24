@@ -3,12 +3,14 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App.tsx';
 import { ErrorBoundary, StartupFailure } from './components/ErrorBoundary.tsx';
 import { CheckInPage } from './pages/CheckInPage.tsx';
-import { ConfirmHost } from './components/ui.tsx';
+import { ConfirmHost, ToastHost } from './components/ui.tsx';
 import { loadState } from './lib/db.ts';
 import './styles/base.css';
+import './styles/motion.css';
 import './styles/app.css';
 import './styles/report.css';
 import './styles/sync.css';
+import './styles/flair.css';
 
 const root = createRoot(document.getElementById('root')!);
 
@@ -36,6 +38,7 @@ if (checkInToken) {
           <ErrorBoundary>
             <App />
             <ConfirmHost />
+            <ToastHost />
           </ErrorBoundary>
         </StrictMode>,
       ),

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { discardWork, resizeLaptops, retryWork, sendCommand, updateStore, useApp, usePendingWork, useSync } from '../lib/db.ts';
 import { storeCrumbs } from '../lib/admins.ts';
 import { assess, type SectionKey, type SectionStatus } from '../lib/assess.ts';
@@ -6,9 +6,10 @@ import { submissionVersion } from '../lib/commands.ts';
 import { ensureRecce, laptopsLostOnResize, readRecce } from '../lib/recce.ts';
 import { isLegacy, revLabel, submissionLabel, submissionState } from '../lib/submission.ts';
 import type { Laptop, PhotoRef, Recce, Store, TournamentEvent } from '../lib/types.ts';
-import { go } from '../lib/router.ts';
+import { success, warn } from '../lib/haptics.ts';
 import { cx, fmtDateTime } from '../lib/util.ts';
-import { askConfirm, Check, Choice, Field, notify, NotFound, NumberField, PageHead, Progress, Shell, YesNoField } from '../components/ui.tsx';
+import { askConfirm, Check, Choice, Field, notify, NotFound, NumberField, PageHead, Shell, YesNoField } from '../components/ui.tsx';
+import { BigTick, SegBar } from '../components/flair.tsx';
 import { LocationCheck, PhotoSlot } from '../components/PhotoSlot.tsx';
 import { SpeedTest } from '../components/SpeedTest.tsx';
 import '../styles/evidence.css';
@@ -20,6 +21,7 @@ export function ReccePage({ storeId }: { storeId: string }) {
   const { role } = useSync();
   const event = useApp((s) => (store ? s.events[store.eventId] : undefined));
   const [open, setOpen] = useState<SectionKey | 'notes' | null | undefined>(undefined);
+  const [sentBase, setSentBase] = useState<number | null>(null); // the revision count when Submit was pressed here: shows the "sent" card
   const pending = usePendingWork(storeId);
   if (!store || !event) return <NotFound />;
 
@@ -61,7 +63,8 @@ export function ReccePage({ storeId }: { storeId: string }) {
       void notify(`Couldn’t queue the submission: ${(e as Error).message}`);
       return;
     }
-    go(`/store/${store.id}/report`);
+    setSentBase(submissionVersion(store));
+    window.scrollTo({ top: 0 });
   };
   const submitText =
     st.kind === 'waiting'
@@ -77,6 +80,14 @@ export function ReccePage({ storeId }: { storeId: string }) {
             : 'Submit to HQ';
 
   const props = (k: SectionKey, n: number) => ({ n, s: sec(k), open: current === k, onToggle: () => toggle(k), onNext: () => toggle(nextOf(k)) });
+
+  if (sentBase !== null)
+    return (
+      <Shell crumbs={storeCrumbs(role, event, store, { label: 'Recce' })}>
+        <PageHead kicker={`Store recce · ${event.name}`} title={store.name} />
+        <SentCard store={store} st={st} base={sentBase} home={role === 'super' ? `#/event/${event.id}` : '#/'} onEdit={() => setSentBase(null)} />
+      </Shell>
+    );
 
   return (
     <Shell crumbs={storeCrumbs(role, event, store, { label: 'Recce' })}>
@@ -121,7 +132,7 @@ export function ReccePage({ storeId }: { storeId: string }) {
           </span>
           <SubmitStatus st={st} />
         </div>
-        <Progress value={a.progress} tone={a.verdict === 'ready' ? 'ok' : undefined} />
+        <SegBar segments={ORDER.map((k) => ({ key: k, label: sec(k).title, done: sec(k).done, current: current === k, onPick: () => toggle(k) }))} />
       </nav>
 
       <Section {...props('venue', 1)}>
@@ -213,6 +224,57 @@ export function ReccePage({ storeId }: { storeId: string }) {
         </button>
       </div>
     </Shell>
+  );
+}
+
+/** After Submit: the big "sent" moment. It says "Sent to HQ" only once the server has the revision; until then it says it is sending, or why it isn't. */
+function SentCard({ store, st, base, home, onEdit }: { store: Store; st: ReturnType<typeof submissionState>; base: number; home: string; onEdit: () => void }) {
+  const acked = (st.kind === 'submitted' || st.kind === 'reviewed') && submissionVersion(store) > base;
+  const failed = st.kind === 'failed';
+  useEffect(() => {
+    if (acked) success();
+    else if (failed) warn();
+  }, [acked, failed]);
+  const a = st.acknowledged;
+  return (
+    <section className={cx('sent-card', failed && 'warn', !acked && !failed && 'wait')} role="status">
+      {acked ? <BigTick /> : failed ? <BigTick tone="warn" /> : <span className="sending-dot fd-pulse" aria-hidden />}
+      {acked ? (
+        <>
+          <h2>Sent to HQ{a && !isLegacy(a) ? <span className="sent-rev"> · {revLabel(a)}</span> : null}</h2>
+          <p>HQ will check it and open match day for you. If you change anything later, the recce shows “edited since” until you send the update.</p>
+        </>
+      ) : failed ? (
+        <>
+          <h2>Not sent</h2>
+          <p>{st.work?.state === 'conflict' ? 'It was submitted from another device meanwhile. Check the recce and submit again.' : `${st.work?.error ?? 'The server refused it.'} Your answers are safe on this device.`}</p>
+        </>
+      ) : (
+        <>
+          <h2>Sending to HQ…</h2>
+          <p>Saved on this device. It goes the moment there’s signal.</p>
+        </>
+      )}
+      <div className="row">
+        {acked ? (
+          <>
+            <a className="btn accent" href={home}>
+              {home === '#/' ? 'Back to my stores' : 'Back to the campaign'}
+            </a>
+            <a className="btn ghost" href={`#/store/${store.id}/report`}>
+              View the report
+            </a>
+          </>
+        ) : failed && st.work && st.work.state !== 'conflict' ? (
+          <button className="btn accent" onClick={() => retryWork(st.work!.id)}>
+            Retry
+          </button>
+        ) : null}
+        <button className="link" onClick={onEdit}>
+          {acked ? 'Keep editing' : 'Back to the recce'}
+        </button>
+      </div>
+    </section>
   );
 }
 

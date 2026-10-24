@@ -1,11 +1,33 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { matchNo } from '../lib/bracket.ts';
 import type { WinnerInput } from '../lib/command-types.ts';
 import type { MatchDay, WinnerDetails } from '../lib/types.ts';
 import { FIELD_LABEL, finalResult, missingFields, winnersState } from '../lib/winnerInput.ts';
 import { cx, fmtTime } from '../lib/util.ts';
+import { success } from '../lib/haptics.ts';
+import { Confetti } from './Confetti.tsx';
 import { WinnersSheet } from './WinnersForm.tsx';
 import '../styles/winners-form.css';
+
+/** Finals already celebrated on this device (a backstop for browsers that refuse storage). */
+const cheered = new Set<string>();
+
+/**
+ * True once per recorded final per device: the first time this device shows it. A final that was
+ * recorded while the page was open, and one that was already there when it opened, both count the
+ * first time; reopening the page later, or switching tabs, does not cheer again.
+ */
+function firstSight(key: string): boolean {
+  if (cheered.has(key)) return false;
+  cheered.add(key);
+  try {
+    if (localStorage.getItem(key)) return false;
+    localStorage.setItem(key, '1');
+  } catch {
+    /* storage blocked — the in-memory set still stops repeats while this page is open */
+  }
+  return true;
+}
 
 /**
  * Match day's winners card: once the final is recorded it names the champion and the runner-up and
@@ -30,8 +52,18 @@ export function WinnersBanner({
 }) {
   const [open, setOpen] = useState(false);
   const ws = winnersState(day);
-  if (ws.kind === 'none') return null;
   const result = finalResult(day.matches);
+  // The champion moment: a short confetti burst, the name rising into place, one buzz. Once per final per device.
+  const nameRef = useRef<HTMLHeadingElement>(null);
+  const [cheer, setCheer] = useState(0);
+  const cheerKey = result ? `fd.cheered.${result.match.id}.${result.match.endedAt ?? ''}.${result.winner}` : null;
+  useLayoutEffect(() => {
+    if (cheerKey && firstSight(cheerKey)) {
+      setCheer((c) => c + 1);
+      success();
+    }
+  }, [cheerKey]);
+  if (ws.kind === 'none') return null;
   const w = day.winners;
   const name = (id: string) => names[id] ?? 'Unknown player';
   const matchLabel = result ? `M${matchNo(result.match, day.matches)}` : 'the final';
@@ -54,7 +86,9 @@ export function WinnersBanner({
           <span className="label wb-kicker">
             <span aria-hidden>🏆</span> Champion
           </span>
-          <h2 className="wb-champ">{name(result.winner)}</h2>
+          <h2 ref={nameRef} className={cx('wb-champ', cheer > 0 && 'reveal')}>
+            {name(result.winner)}
+          </h2>
           <p className="wb-line">
             Runner-up: <strong>{name(result.runnerUp)}</strong>
           </p>
@@ -112,6 +146,13 @@ export function WinnersBanner({
           </div>
         </div>
       )}
+      <Confetti
+        run={cheer}
+        origin={() => {
+          const r = nameRef.current?.getBoundingClientRect();
+          return r ? { x: Math.min(Math.max(r.left + r.width / 2, 40), window.innerWidth - 40), y: Math.min(Math.max(r.top + r.height / 2, 80), window.innerHeight * 0.6) } : null;
+        }}
+      />
       <WinnersSheet open={open} onClose={() => setOpen(false)} day={day} result={result} matchLabel={matchLabel} save={save} />
     </section>
   );

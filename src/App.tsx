@@ -4,7 +4,7 @@ import { loadLan } from './lib/origin.ts';
 import { useApp, useSync } from './lib/db.ts';
 import { matchDayOpen } from './lib/gate.ts';
 import { todayLocal } from './lib/util.ts';
-import { AccessGate, NotFound, PageHead, Shell, useNow } from './components/ui.tsx';
+import { AccessGate, NotFound, Shell, Skeleton, useNow } from './components/ui.tsx';
 import { MatchDayGate } from './components/MatchDayGate.tsx';
 import { Home } from './pages/Home.tsx';
 import { AdminHome } from './pages/AdminHome.tsx';
@@ -27,7 +27,12 @@ export function App() {
   if (!role)
     return (
       <Shell>
-        <PageHead kicker="Field Desk" title="Connecting…" deck="Reaching the server to check who you are." />
+        <div className="phead connecting fd-enter" role="status" aria-busy="true">
+          <span className="sr-only">Connecting… reaching the server to check who you are.</span>
+          <Skeleton w={84} h={11} />
+          <Skeleton w="min(360px, 72%)" h={48} className="sk-title" />
+          <Skeleton w="min(300px, 60%)" h={14} />
+        </div>
       </Shell>
     );
 

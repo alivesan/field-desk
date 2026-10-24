@@ -7,7 +7,8 @@ import { prettyPhone } from '../lib/onspot.ts';
 import { FIELD_LABEL } from '../lib/winnerInput.ts';
 import { STATUS_LABEL, summarize, winnerRows, winnersCsv, type WinnerRow, type WinnerStatus } from '../lib/winners.ts';
 import { cx, downloadBlob, fmtDate, slug, todayLocal } from '../lib/util.ts';
-import { askConfirm, Chip, notify, PageHead, Shell } from '../components/ui.tsx';
+import { askConfirm, Chip, notify, PageHead, Shell, toast } from '../components/ui.tsx';
+import { CountUp, EmptyCard } from '../components/flair.tsx';
 import { useHqCommand } from '../components/hqCommand.ts';
 import '../styles/winners.css';
 
@@ -17,7 +18,7 @@ const FILTER_LABEL: Record<StatusFilter, string> = { all: 'All', ...STATUS_LABEL
 const TONE: Record<WinnerStatus, 'ok' | 'warn' | 'accent' | 'muted'> = { complete: 'ok', partial: 'warn', 'no-details': 'warn', 'no-final': 'muted', mismatch: 'accent' };
 
 const savedAt = (iso: string) => new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-const plural =(n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** One store's two rows (Winner, Runner-up), kept together for the card. */
 interface StoreRows {
@@ -77,9 +78,9 @@ export function WinnersPage({ eventId }: { eventId?: string }) {
         {summary.stores ? (
           <>
             <strong>
-              {summary.played} of {plural(summary.stores, 'store')}
+              <CountUp value={summary.played} /> of {plural(summary.stores, 'store')}
             </strong>{' '}
-            {summary.played === 1 ? 'has' : 'have'} a winner · <strong>{summary.full}</strong> with full details
+            {summary.played === 1 ? 'has' : 'have'} a winner · <strong><CountUp value={summary.full} /></strong> with full details
             {summary.check > 0 && <span className="wn-check"> · {summary.check} to check</span>}
           </>
         ) : (
@@ -96,7 +97,19 @@ export function WinnersPage({ eventId }: { eventId?: string }) {
       {shown.length > 0 && status !== 'all' && <p className="hint">Download CSV has the {plural(groups.length, 'store')} shown here, winner and runner-up for each.</p>}
 
       {!groups.length ? (
-        <p className="wn-empty">{summary.stores ? 'No stores with that status.' : 'Stores and their winners appear here once campaigns have stores.'}</p>
+        summary.stores ? (
+          <EmptyCard mark="winners" title="No stores with that status." hint="Pick another filter to see the rest.">
+            <button className="link" onClick={() => setStatus('all')}>
+              Show all stores →
+            </button>
+          </EmptyCard>
+        ) : (
+          <EmptyCard mark="winners" title="No winners yet." hint="Stores and their winners appear here once campaigns have stores and the finals are played.">
+            <a className="link" href="#/">
+              Go to the campaigns →
+            </a>
+          </EmptyCard>
+        )
       ) : (
         [...byCampaign.values()].map((list) => (
           <section className="wn-campaign-group" key={list[0].rows[0].eventId}>
@@ -106,9 +119,9 @@ export function WinnersPage({ eventId }: { eventId?: string }) {
               </h2>
               <span className="label">{plural(list.length, 'store')}</span>
             </div>
-            <div className="wn-stores">
-              {list.map((g) => (
-                <StoreCard key={g.storeId} rows={g.rows} />
+            <div className="wn-stores fd-stagger">
+              {list.map((g, i) => (
+                <StoreCard key={g.storeId} rows={g.rows} index={i} />
               ))}
             </div>
           </section>
@@ -118,12 +131,12 @@ export function WinnersPage({ eventId }: { eventId?: string }) {
   );
 }
 
-function StoreCard({ rows }: { rows: WinnerRow[] }) {
+function StoreCard({ rows, index }: { rows: WinnerRow[]; index: number }) {
   const first = rows[0];
   const store = useApp((s) => s.stores[first.storeId]);
   const open = !first.finalDone && rows.every((r) => r.status === 'no-final');
   return (
-    <article className="wn-store">
+    <article className="wn-store" style={{ ['--i' as string]: index }}>
       <header className="wn-store-head">
         <h3>{first.store}</h3>
         <div className="wn-where">
@@ -147,6 +160,7 @@ export function ResetWinners({ store, link }: { store: Store; link?: boolean }) 
     if (!(await askConfirm(`Clear the winner and runner-up details saved for ${store.name}? Who won stays in the bracket; the admin can collect the details again.`, { ok: 'Reset winner details', danger: true }))) return;
     const problem = send(store.id, (s) => ({ type: 'winners.clear', base: dayVersion(s) }));
     if (problem) void notify(problem);
+    else toast('Winner details reset');
   };
   if (link)
     return (
@@ -166,8 +180,11 @@ export function ResetWinners({ store, link }: { store: Store; link?: boolean }) 
 function Person({ row: r }: { row: WinnerRow }) {
   const name = r.realName || r.listName;
   return (
-    <section className={cx('wn-person', r.status)}>
+    <section className={cx('wn-person', r.status, r.place === 'Winner' ? 'first' : 'second')}>
       <div className="wn-place">
+        <span className="wn-rank" aria-hidden>
+          {r.place === 'Winner' ? '1' : '2'}
+        </span>
         <span className="label">{r.place}</span>
         <Chip tone={TONE[r.status]}>{STATUS_LABEL[r.status]}</Chip>
       </div>

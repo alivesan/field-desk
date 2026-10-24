@@ -6,7 +6,8 @@ import { cleanIgn, isPhone, MAX_IGN, normalizePhone, playerIdFor } from '../lib/
 import { storeDate } from '../lib/recce.ts';
 import type { Match, MatchDay, OnSpotEntry, Player, Store, TournamentEvent } from '../lib/types.ts';
 import { cx, fmtDate } from '../lib/util.ts';
-import { askConfirm, Chip, NotFound, NumberField, PageHead, Shell } from '../components/ui.tsx';
+import { askConfirm, Chip, NotFound, NumberField, PageHead, Shell, toast } from '../components/ui.tsx';
+import { EmptyCard } from '../components/flair.tsx';
 import { AutoCheck, ToornamentImport } from '../components/ToornamentImport.tsx';
 import { RosterImport } from '../components/RosterImport.tsx';
 import { OnSpotList } from '../components/OnSpotList.tsx';
@@ -43,9 +44,9 @@ export function StoreSetupPage({ storeId }: { storeId: string }) {
   const day = store.day;
   const started = underway(day);
   const current: Step = step ?? (day.matches.length ? 'bracket' : 'players');
-  const steps: { key: Step; n: string; title: string; status: string }[] = [
-    { key: 'players', n: '01', title: 'Players', status: day.players.length ? `${day.players.length} players` : 'None yet' },
-    { key: 'bracket', n: '02', title: 'Bracket', status: day.players.length < 2 ? 'Needs players' : !day.matches.length ? 'Not built' : started ? 'Under way' : 'Built · not started' },
+  const steps: { key: Step; n: string; title: string; status: string; done: boolean }[] = [
+    { key: 'players', n: '01', title: 'Players', done: day.players.length > 0, status: day.players.length ? `${day.players.length} players` : 'None yet' },
+    { key: 'bracket', n: '02', title: 'Bracket', done: day.matches.length > 0, status: day.players.length < 2 ? 'Needs players' : !day.matches.length ? 'Not built' : started ? 'Under way' : 'Built · not started' },
   ];
 
   return (
@@ -60,8 +61,8 @@ export function StoreSetupPage({ storeId }: { storeId: string }) {
 
       <nav className="setup-steps" role="tablist">
         {steps.map((s) => (
-          <button key={s.key} role="tab" aria-selected={current === s.key} className={cx('setup-step', current === s.key && 'on')} onClick={() => setStep(s.key)}>
-            <span className="setup-n">{s.n}</span>
+          <button key={s.key} role="tab" aria-selected={current === s.key} className={cx('setup-step', current === s.key && 'on', s.done && 'done')} onClick={() => setStep(s.key)}>
+            <span className="setup-n">{s.done ? '✓' : s.n}</span>
             <span className="setup-title">{s.title}</span>
             <small>{s.status}</small>
           </button>
@@ -80,7 +81,7 @@ export function StoreSetupPage({ storeId }: { storeId: string }) {
 function useRun(store: Store, event: TournamentEvent) {
   const sync = useSync();
   const [problem, setProblem] = useState('');
-  const run = (cmd: Command) => {
+  const run = (cmd: Command, done?: string) => {
     setProblem('');
     const ctx: CommandContext = { commandId: 'hq-precheck', now: new Date().toISOString(), actor: { principal: sync.principal ?? 'super', name: sync.name ?? 'HQ', role: 'super' }, event };
     try {
@@ -91,6 +92,7 @@ function useRun(store: Store, event: TournamentEvent) {
     }
     try {
       sendCommand(store.id, cmd);
+      if (done) toast(done);
       return true;
     } catch (e) {
       setProblem(`Couldn’t queue this on the device: ${(e as Error).message}`);
@@ -148,7 +150,7 @@ function PlayersStep({ store, event, campaign, onNext }: { store: Store; event: 
   const [importing, setImporting] = useState(!players.length);
   const showImport = !locked && (importing || !players.length);
 
-  const setPlayers = (next: Player[]) => run({ type: 'players.set', base: dayVersion(store), players: next.map((p, i) => ({ ...p, seed: i + 1 })) });
+  const setPlayers = (next: Player[], done: string) => run({ type: 'players.set', base: dayVersion(store), players: next.map((p, i) => ({ ...p, seed: i + 1 })) }, done);
 
   const add = (how: 'new' | 'replace' | 'both' = 'new') => {
     const n = name.replace(/\s+/g, ' ').trim();
@@ -175,7 +177,7 @@ function PlayersStep({ store, event, campaign, onNext }: { store: Store; event: 
       const at = players.findIndex((x) => x.id === ask.existing.id);
       list = [...players.slice(0, at), p, ...players.slice(at + 1)];
     } else list = [...list, p];
-    if (setPlayers(list)) {
+    if (setPlayers(list, 'Player added')) {
       setName('');
       setPhone('');
       setIgn('');
@@ -185,27 +187,34 @@ function PlayersStep({ store, event, campaign, onNext }: { store: Store; event: 
 
   const remove = async (p: Player) => {
     if (day.checkIn[p.id] && !(await askConfirm(`${p.name} is checked in. Remove them anyway?`, { ok: 'Remove', danger: true }))) return;
-    setPlayers(players.filter((x) => x.id !== p.id));
+    setPlayers(
+      players.filter((x) => x.id !== p.id),
+      'Player removed',
+    );
   };
   const removeAll = async () => {
-    if (await askConfirm(`Remove all ${players.length} players from ${store.name}?`, { ok: 'Remove all', danger: true })) setPlayers([]);
+    if (await askConfirm(`Remove all ${players.length} players from ${store.name}?`, { ok: 'Remove all', danger: true })) setPlayers([], 'All players removed');
   };
 
   return (
-    <section className="setup-section">
+    <section className="setup-section fd-enter">
       {notice}
       {locked && <p className="setup-lock">Matches are under way, so the players are locked. Reset the bracket (step 2) to change them.</p>}
       {day.matches.length > 0 && !locked && <p className="hint">Changing the players clears the bracket (it hasn’t started) — build it again in step 2.</p>}
       {onSpotOf(day).length > 0 && <OnSpotList event={event} stores={[store]} single />}
 
-      <div className="setup-head">
-        <h2>{players.length ? `${players.length} players` : 'No players yet'}</h2>
-        {!locked && players.length > 0 && (
-          <button className="btn ghost" onClick={() => setImporting((v) => !v)}>
-            {showImport ? 'Hide import' : 'Replace from a CSV / sheet'}
-          </button>
-        )}
-      </div>
+      {players.length ? (
+        <div className="setup-head">
+          <h2>{players.length} players</h2>
+          {!locked && (
+            <button className="btn ghost" onClick={() => setImporting((v) => !v)}>
+              {showImport ? 'Hide import' : 'Replace from a CSV / sheet'}
+            </button>
+          )}
+        </div>
+      ) : (
+        <EmptyCard compact mark="players" title="No players yet." hint="Upload a CSV, link a published sheet or paste the list below — or add one player at a time further down." />
+      )}
 
       {showImport && <RosterImport event={event} stores={[store]} campaign={campaign} single onLoaded={() => setImporting(false)} />}
       {players.length > 1 && <p className="hint">The list order is the seed order (the file’s order, or its Seed column): seed 1 is the strongest, top seeds get the byes.</p>}
@@ -327,15 +336,19 @@ function BracketStep({ store, event, onBack }: { store: Store; event: Tournament
     const lost = [played && `${played} result${played === 1 ? '' : 's'}`, live && `${live} live match${live === 1 ? '' : 'es'}`].filter(Boolean).join(' and ');
     const what = lost ? `${lost} will be cleared. ` : '';
     if (!(await askConfirm(`Reset the bracket at ${store.name}? ${what}Players (in their order) and check-ins stay — you can change them and build again.`, { ok: 'Reset bracket', danger: true }))) return;
-    run({ type: 'bracket.reset', base: dayVersion(store) });
+    run({ type: 'bracket.reset', base: dayVersion(store) }, 'Bracket reset');
   };
 
   if (!day.matches.length && day.players.length < 2)
     return (
       <>
         <ToornamentImport store={store} event={event} />
-        <section className="setup-section">
-          <p className="setup-lock">Or add at least 2 players in step 1 and build the bracket from that list.</p>
+        <section className="setup-section fd-enter">
+          <EmptyCard compact mark="bracket" title="No bracket yet." hint="Fetch it from Toornament above, or add at least 2 players in step 1 and build it from that list.">
+            <button className="btn ghost" onClick={onBack}>
+              Go to players
+            </button>
+          </EmptyCard>
         </section>
       </>
     );
@@ -345,7 +358,7 @@ function BracketStep({ store, event, onBack }: { store: Store; event: Tournament
     return (
       <>
         <ToornamentImport store={store} event={event} />
-        <section className="setup-section">
+        <section className="setup-section fd-enter">
           {notice}
           <div className="setup-head">
             <h2>Or build it from the player list</h2>
@@ -369,7 +382,7 @@ function BracketStep({ store, event, onBack }: { store: Store; event: Tournament
           <NumberField label="Stations (matches at once)" value={stations} min={1} max={64} onChange={setStations} />
           <div className="submit-bar">
             <span />
-            <button className="btn accent" onClick={() => run({ type: 'bracket.build', base: dayVersion(store), stations: stations ?? day.stations })}>
+            <button className="btn accent" onClick={() => run({ type: 'bracket.build', base: dayVersion(store), stations: stations ?? day.stations }, 'Bracket created')}>
               Create bracket
             </button>
           </div>
@@ -379,7 +392,7 @@ function BracketStep({ store, event, onBack }: { store: Store; event: Tournament
   }
 
   return (
-    <section className="setup-section">
+    <section className="setup-section fd-enter">
       {notice}
       <div className="setup-head">
         <h2>Bracket</h2>

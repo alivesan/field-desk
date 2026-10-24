@@ -8,7 +8,7 @@ import { buildReportFile } from '../lib/exportReport.ts';
 import { useRoute } from '../lib/router.ts';
 import { editedSince, isLegacy, revLabel, submissionIdFor, submissionsOf, submissionState, type AnySubmission } from '../lib/submission.ts';
 import { downloadBlob, fmtDateTime } from '../lib/util.ts';
-import { askConfirm, NotFound, notify, Shell } from '../components/ui.tsx';
+import { askConfirm, NotFound, notify, Shell, toast } from '../components/ui.tsx';
 import { useHqCommand } from '../components/hqCommand.ts';
 import { Report } from '../components/Report.tsx';
 import { markReportSeen } from '../components/ReportsInbox.tsx';
@@ -137,7 +137,9 @@ export function ReportPage({ storeId }: { storeId: string }) {
       sendCommand(store.id, { type: 'recce.review', base: submissionVersion(store), submissionId: submission.id });
     } catch (e) {
       void notify(`Couldn’t mark it reviewed: ${(e as Error).message}`);
+      return;
     }
+    toast(`${revLabel(submission)} marked reviewed`);
   };
 
   // HQ's danger area: delete test data. Photos stay on the server (write-once) but nothing references them any more.
@@ -150,7 +152,10 @@ export function ReportPage({ storeId }: { storeId: string }) {
     if (!(await askConfirm(text, { ok: `Delete ${revLabel(deletable)}`, danger: true }))) return;
     const problem = send(store.id, () => ({ type: 'recce.delete', base: submissionVersion(store), submissionId: deletable.id }));
     if (problem) void notify(problem);
-    else setPick(null);
+    else {
+      setPick(null);
+      toast(`${revLabel(deletable)} deleted`);
+    }
   };
   const resetRecce = async () => {
     const n = subs.length;
@@ -158,7 +163,10 @@ export function ReportPage({ storeId }: { storeId: string }) {
     if (!(await askConfirm(text, { ok: 'Reset recce', danger: true }))) return;
     const problem = send(store.id, (s) => ({ type: 'recce.reset', base: submissionVersion(s) }));
     if (problem) void notify(problem);
-    else setPick(null);
+    else {
+      setPick(null);
+      toast('Recce reset');
+    }
   };
 
   const label = (mode: Mode, text: string) => (busy === mode ? 'Checking photos…' : text);

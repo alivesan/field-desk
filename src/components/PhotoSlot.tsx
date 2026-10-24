@@ -50,6 +50,13 @@ export function PhotoSlot({
   const urls = usePhotoUrls(photos.map((p) => p.id));
   const flagged = photos.filter((p) => photoFlags(p, store).length).length;
   const done = photos.length > 0;
+  // A photo arriving gives the slot's tick a gentle pop (a remount of the dot restarts the animation).
+  const had = useRef(photos.length);
+  const [pops, setPops] = useState(0);
+  useEffect(() => {
+    if (photos.length > had.current) setPops((n) => n + 1);
+    had.current = photos.length;
+  }, [photos.length]);
 
   const takePhoto = () => {
     fix.current = getTimedFix().catch((e: Error) => e); // warm up GPS while the camera is open
@@ -137,7 +144,7 @@ export function PhotoSlot({
     <div className={cx('slot', done ? 'done' : optional ? 'optional' : 'needed', open && 'open', flagged > 0 && 'flagged')}>
       <div className="slot-row">
         <button type="button" className="slot-main" onClick={() => done && setOpen((o) => !o)} aria-expanded={done ? open : undefined} disabled={!done}>
-          <span className="slot-dot" aria-hidden />
+          <span key={pops} className={cx('slot-dot', pops > 0 && 'fd-pop')} aria-hidden />
           <span className="slot-text">
             <strong>{label}</strong>
             <small>{summary}</small>

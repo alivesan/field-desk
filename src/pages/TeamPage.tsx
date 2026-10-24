@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { logout, useApp } from '../lib/db.ts';
 import { addAdmin, adminLink, regenerateCode, removeAdmin, renameAdmin, storesFor } from '../lib/admins.ts';
-import { askConfirm, Field, PageHead, Shell } from '../components/ui.tsx';
+import { askConfirm, Field, notify, PageHead, Shell, toast } from '../components/ui.tsx';
+import { EmptyCard } from '../components/flair.tsx';
 
 /** Super admin: the field team, their personal links, and what each one is assigned. */
 export function TeamPage() {
@@ -16,8 +17,9 @@ export function TeamPage() {
       await navigator.clipboard.writeText(link);
       setCopied(id);
       setTimeout(() => setCopied(''), 1800);
+      toast('Link copied');
     } catch {
-      prompt('Copy this link:', link);
+      void notify(`Copy this link: ${link}`);
     }
   };
   const share = async (name: string, code: string) => {
@@ -57,6 +59,7 @@ export function TeamPage() {
                 disabled={!form.name.trim()}
                 onClick={() => {
                   addAdmin(form.name, form.phone);
+                  toast(`${form.name.trim()} added`);
                   setForm(null);
                 }}
               >
@@ -66,11 +69,11 @@ export function TeamPage() {
           </div>
         )}
 
-        <ol className="team">
-          {admins.map((a) => {
+        <ol className="team fd-stagger">
+          {admins.map((a, i) => {
             const stores = storesFor(state, a.id);
             return (
-              <li key={a.id} className="member">
+              <li key={a.id} className="member" style={{ ['--i' as string]: i }}>
                 <div className="member-name">
                   <input aria-label="Name" value={a.name} onChange={(e) => renameAdmin(a.id, e.target.value)} />
                   <div className="label">{a.phone || 'No phone'}</div>
@@ -98,7 +101,15 @@ export function TeamPage() {
               </li>
             );
           })}
-          {!admins.length && !form && <li className="empty">No admins yet. Add one to get their link.</li>}
+          {!admins.length && !form && (
+            <li className="empty-li">
+              <EmptyCard mark="team" title="No admins yet." hint="Add a field admin to get their personal link, then assign stores to them from a campaign’s page.">
+                <button className="btn accent" onClick={() => setForm({ name: '', phone: '' })}>
+                  Add admin
+                </button>
+              </EmptyCard>
+            </li>
+          )}
         </ol>
       </section>
 

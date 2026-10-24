@@ -122,3 +122,26 @@ export function playedFor(m: Match): string {
 export function stationSlots(day: Pick<MatchDay, 'stations' | 'matches'>): { station: number; live?: Match }[] {
   return Array.from({ length: day.stations }, (_, i) => ({ station: i + 1, live: day.matches.find((x) => x.status === 'live' && x.station === i + 1) }));
 }
+
+/* ---------- the bracket chart: round picker, connector lines, following a player ---------- */
+
+/** Short round names for the picker chips: R1, R2… then QF, SF, Final. */
+export function roundShort(r: number, total: number): string {
+  const left = total - r;
+  return left === 1 ? 'Final' : left === 2 ? 'SF' : left === 3 ? 'QF' : `R${r + 1}`;
+}
+
+/** The round the day is in: where a match is live, else the first round with an unplayed real match, else the last round. */
+export function roundInPlay(matches: Match[]): number {
+  const live = matches.find((m) => m.status === 'live');
+  if (live) return live.round;
+  const open = matches.filter((m) => m.status !== 'done' && !m.bye);
+  return open.length ? Math.min(...open.map((m) => m.round)) : Math.max(0, ...matches.map((m) => m.round));
+}
+
+/** Every match a player is in — the ones to light up when following them. */
+export const pathOf = (matches: Match[], pid: string): Set<string> => new Set(matches.filter((m) => m.a === pid || m.b === pid).map((m) => m.id));
+
+/** How the line leaving a match toward the next round is drawn: accent while it is being played, ink once decided, faint until then (a bye decides nothing). */
+export type WireTone = 'rule' | 'ink' | 'live';
+export const wireTone = (m: Match): WireTone => (m.bye ? 'rule' : m.status === 'live' ? 'live' : m.status === 'done' ? 'ink' : 'rule');
