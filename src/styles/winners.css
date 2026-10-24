@@ -248,6 +248,42 @@
   padding: 0 12px;
 }
 
+/* desktop: the store (name, place, links) on the left, winner and runner-up beside it */
+@media (min-width: 1000px) {
+  .wn-store {
+    display: grid;
+    grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+    grid-template-areas:
+      'head places'
+      'head reset';
+    gap: 8px 40px;
+    align-items: start;
+    padding: 26px 0 28px;
+  }
+  .wn-store-head {
+    grid-area: head;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .wn-store-head h3 {
+    font-size: 28px;
+  }
+  .wn-where {
+    flex: none;
+    min-width: 0;
+  }
+  .wn-places,
+  .wn-open {
+    grid-area: places;
+    margin-top: 0;
+  }
+  .wn-store > .wn-reset {
+    grid-area: reset;
+    margin-top: 4px;
+  }
+}
+
 @media (max-width: 640px) {
   .wn-places {
     grid-template-columns: minmax(0, 1fr);

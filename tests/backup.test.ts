@@ -26,6 +26,7 @@ const current = (): AppState => ({
   events: { e1: fixtureEvent('e1') as never },
   stores: { s1: fixtureStore('s1', 'e1', 'a1', { updatedAt: '2026-10-22T00:00:00.000Z', city: 'Elsewhere' }) as never },
   admins: { a1: fixtureAdmin('a1', 'NEW3') as never },
+  accounts: {},
 });
 
 const parsed = (text = file()): ParsedBackup => {
@@ -57,7 +58,7 @@ test('malformed files are rejected whole, with no plan', () => {
 
 test('a store whose campaign is missing fails validation: no edits, no photos', () => {
   const b = parsed(file({}, { events: {} }));
-  const plan = planImport(b, { version: 1, events: {}, stores: {}, admins: {} });
+  const plan = planImport(b, { version: 1, events: {}, stores: {}, admins: {}, accounts: {} });
   assert.equal(plan.ok, false);
   assert.ok(plan.errors.some((e) => e.includes('campaign')));
   assert.deepEqual(plan.edits, []);
@@ -152,4 +153,25 @@ test('the parse result is not mutated by planning', () => {
   const before = JSON.stringify(b);
   planImport(b, current(), { includeAdmins: true, keepNewerLocal: false });
   assert.equal(JSON.stringify(b), before);
+});
+
+test('Steam accounts come in with the file; a store assigned one needs it to exist; a team’s computed login is never imported', () => {
+  const acct = { id: 'x', username: 'test_rog_x', password: 'fake-pass-123', createdAt: '2026-10-20T00:00:00.000Z' };
+  const assigned = { ...fixtureStore('s9', 'e1', null), steam: { accountId: 'x', purpose: 'play', assignedAt: '2026-10-22T00:00:00.000Z' }, steamLogin: { username: 'test_rog_x', password: 'fake-pass-123', purpose: 'play' } };
+  const withAccount = parsed(file({}, { accounts: { x: acct }, stores: { s9: assigned } }));
+  const plan = planImport(withAccount, current());
+  assert.equal(plan.ok, true, plan.errors.join('\n'));
+  assert.deepEqual(plan.counts.accounts, { create: 1, replace: 0, same: 0, keptNewer: 0, skipped: 0 });
+  assert.match(planSummary(plan), /1 new Steam account/);
+  const store = plan.edits.find((e) => e.kind === 'stores' && e.id === 's9')!.doc as { steamLogin?: unknown };
+  assert.equal(store.steamLogin, undefined);
+  // already on the server: nothing to do, and the store may point at it
+  const here = { ...current(), accounts: { x: structuredClone(acct) } };
+  assert.equal(planImport(withAccount, here).counts.accounts.same, 1);
+  // a file without the account the store points at can't be imported
+  const dangling = planImport(parsed(file({}, { stores: { s9: assigned } })), current());
+  assert.equal(dangling.ok, false);
+  assert.ok(dangling.errors.some((e) => /Steam account x doesn’t exist/.test(e)), dangling.errors.join('\n'));
+  // a file from before accounts existed imports as before
+  assert.equal(parsed().state.accounts && Object.keys(parsed().state.accounts).length, 0);
 });

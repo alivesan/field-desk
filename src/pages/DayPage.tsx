@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { SteamCard } from '../components/SteamCard.tsx';
 import { discardWork, retryWork, sendCommand, updateStore, useApp, usePendingWork, useSync, type PendingWork } from '../lib/db.ts';
 import { storeCrumbs } from '../lib/admins.ts';
 import { computeQueue, matchNo, roundCount, roundName } from '../lib/bracket.ts';
@@ -26,6 +27,7 @@ import { success, tap } from '../lib/haptics.ts';
 import type { Match, MatchDay, Player, Store, TournamentEvent } from '../lib/types.ts';
 import { cx, fmtTime, minutesSince, uid } from '../lib/util.ts';
 import { askConfirm, Chip, NotFound, notify, NumberField, PageHead, Shell, toast, useNow } from '../components/ui.tsx';
+import { useStoreName } from '../components/useStoreName.ts';
 import { MatchSheet, StateTag } from '../components/MatchSheet.tsx';
 import { PlayerSheet } from '../components/PlayerSheet.tsx';
 import { CheckInQr } from '../components/CheckInQr.tsx';
@@ -61,6 +63,7 @@ interface Cmds {
 
 export function DayPage({ storeId }: { storeId: string }) {
   const store = useApp((s) => s.stores[storeId]);
+  const { short: storeName } = useStoreName(store);
   const { role, status } = useSync();
   const event = useApp((s) => (store ? s.events[store.eventId] : undefined));
   const [tab, setTab] = useState<Tab>(store?.day.matches.length ? 'queue' : 'checkin');
@@ -162,7 +165,7 @@ export function DayPage({ storeId }: { storeId: string }) {
 
   return (
     <Shell wide crumbs={storeCrumbs(role, event, store, { label: 'Match day' })}>
-      <PageHead kicker={`Match day · ${event.name}`} title={store.name}>
+      <PageHead kicker={`Match day · ${event.name}`} title={storeName}>
         <div className="day-stats">
           <div>
             <strong>
@@ -204,6 +207,7 @@ export function DayPage({ storeId }: { storeId: string }) {
       </div>
 
       <WorkNotices day={day} work={work} local={local} offline={cmds.offline} onDismissLocal={(id) => setLocal((l) => l.filter((x) => x.id !== id))} />
+      <SteamCard store={store} />
 
       {!day.players.length && hq ? (
         <section className="feed-wait">

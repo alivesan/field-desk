@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { YesNo } from '../lib/types.ts';
-import { login, SIGNED_OUT_KEY, useSync } from '../lib/db.ts';
+import { askName, login, setMyName, SIGNED_OUT_KEY, useSync } from '../lib/db.ts';
 import { cx } from '../lib/util.ts';
 import { useRoute } from '../lib/router.ts';
 import { SyncStatus } from './SyncStatus.tsx';
 
 /**
- * What a signed-out visitor sees — and all they see. "/" is the field admins' door
- * (4-character code only); HQ signs in at "/hq". Neither reveals anything behind it.
+ * What a signed-out visitor sees — and all they see. "/" is the field team's door (a
+ * 4-character code: a person's own, or their store's); HQ signs in at "/hq". Neither reveals anything behind it.
  */
 export function AccessGate() {
   const sync = useSync();
@@ -43,7 +43,7 @@ export function AccessGate() {
         <div className="mast-mark">Field Desk</div>
         {signedOut && <p className="gate-note">You’re signed out on this device.</p>}
         <h1>{hq ? 'HQ sign-in.' : 'Open your link from HQ.'}</h1>
-        <p className="deck">{hq ? 'For the super admin only.' : 'Your personal link signs you in. Or type the 4-character code from it.'}</p>
+        <p className="deck">{hq ? 'For the super admin only.' : 'Open your store’s link, or type its 4-character code.'}</p>
         <label className="field">
           <span className="label">{hq ? 'HQ code' : 'Your code'}</span>
           {hq ? (
@@ -72,11 +72,52 @@ export function AccessGate() {
   );
 }
 
+/**
+ * A store team's code signs a phone in to the store, not to a person — so the first time (and on
+ * "Change name") it asks who is holding this phone. The name is kept on the device and goes next
+ * to what they do ("Rhea (San Infotech team)"). Shown instead of the app until it's answered.
+ */
+export function NamePrompt() {
+  const { team, name } = useSync();
+  const [value, setValue] = useState(name ?? '');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    const err = await setMyName(value);
+    setError(err ?? '');
+    setBusy(false);
+  };
+  return (
+    <div className="gate">
+      <form onSubmit={submit}>
+        <div className="mast-mark">Field Desk</div>
+        <h1>You’re signed in to {team ?? 'your store'}.</h1>
+        <p className="deck">What’s your name? It goes next to what you do here, so HQ can tell who did what.</p>
+        <label className="field">
+          <span className="label">Your name</span>
+          <input autoFocus autoComplete="given-name" autoCapitalize="words" maxLength={40} value={value} onChange={(e) => setValue(e.target.value)} />
+        </label>
+        {error && <p className="hint warn">{error}</p>}
+        <button className="btn accent block" disabled={!value.trim() || busy}>
+          {busy ? 'Saving…' : 'Continue'}
+        </button>
+        {name && (
+          <button type="button" className="link" onClick={() => askName(false)}>
+            Keep “{name}”
+          </button>
+        )}
+      </form>
+    </div>
+  );
+}
+
 /** From package.json via vite.config.ts `define`; tests that import this file outside Vite get a stand-in. */
 export const APP_VERSION = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : 'dev';
 
 export function Shell({ crumbs = [], children, wide }: { crumbs?: { label: string; href?: string }[]; children: ReactNode; wide?: boolean }) {
-  const { role } = useSync();
+  const { role, team, name } = useSync();
   return (
     <div className="shell">
       <header className="mast">
@@ -103,6 +144,9 @@ export function Shell({ crumbs = [], children, wide }: { crumbs?: { label: strin
               <a href="#/winners" className="mast-link">
                 Winners
               </a>
+              <a href="#/steam" className="mast-link">
+                Steam
+              </a>
               <a href="#/team" className="mast-link">
                 Team
               </a>
@@ -116,6 +160,11 @@ export function Shell({ crumbs = [], children, wide }: { crumbs?: { label: strin
         <span>Field Desk</span>
         <span>{/^\d/.test(APP_VERSION) ? `v${APP_VERSION}` : APP_VERSION}</span>
         <span className="beta-note">beta</span>
+        {team && name && (
+          <button type="button" className="link foot-who" onClick={() => askName()}>
+            {name} · {team} team — change name
+          </button>
+        )}
       </footer>
     </div>
   );

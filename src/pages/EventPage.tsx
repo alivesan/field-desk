@@ -12,6 +12,7 @@ import { dateSpan, storeDate } from '../lib/recce.ts';
 import { askConfirm, Chip, Field, NotFound, NumberField, PageHead, Progress, Shell, toast, useNow } from '../components/ui.tsx';
 import { EmptyCard, StageTrack } from '../components/flair.tsx';
 import { storeStages } from '../lib/stages.ts';
+import { sharedPrefix, storePrefix, storeShortName } from '../lib/names.ts';
 import { detailsOf, StoreForm, type StoreDetails } from '../components/StoreForm.tsx';
 import { applyToornamentLink, HH_MM } from '../lib/toornament.ts';
 import { autoFrom } from '../lib/toornament-auto.ts';
@@ -20,6 +21,8 @@ import { StoreSheetImport } from '../components/StoreSheetImport.tsx';
 import { OnSpotList } from '../components/OnSpotList.tsx';
 import { EventWinners } from './WinnersPage.tsx';
 import { onSpotCounts } from '../lib/onspot.ts';
+import { StoreTeamLink } from '../components/StoreTeamLink.tsx';
+import { SteamAssign } from '../components/SteamAssign.tsx';
 import '../styles/evidence.css';
 import '../styles/storesheet.css';
 
@@ -40,6 +43,9 @@ export function EventPage({ eventId }: { eventId: string }) {
     .filter((s) => s.eventId === eventId)
     .sort((a, b) => storeDate(a, event).localeCompare(storeDate(b, event)) || a.name.localeCompare(b.name));
   const edit = (fn: (e: typeof event) => void) => update((d) => fn(d.events[eventId]));
+  // Stores go by their short name; what they all share ("ASUS ROG Exclusive Store") is said once, above the list.
+  const storeNames = stores.map((s) => s.name);
+  const shared = sharedPrefix(storeNames);
 
   const save = (storeId: string | null, d: StoreDetails) => {
     const fields = { name: d.name, city: d.city.trim(), state: d.state.trim(), exclusive: d.exclusive, date: d.date, phone: d.phone.trim(), address: d.address.trim(), mapsUrl: d.mapsUrl.trim(), venue: d.venue.trim(), geo: d.geo };
@@ -72,11 +78,15 @@ export function EventPage({ eventId }: { eventId: string }) {
 
   return (
     <Shell crumbs={[{ label: 'Campaigns', href: '#/' }, { label: event.name }]}>
+      <i className="hq-wide" hidden />
       <PageHead kicker={`Campaign · ${dateSpan(event, stores)}`} title={event.name} deck={event.games.length ? event.games.join(' · ') : 'No games set yet — add them in settings.'} />
 
       <section className="index">
         <div className="index-head">
-          <h2>Stores</h2>
+          <div className="index-title">
+            <h2>Stores</h2>
+            {shared && <span className="label">{shared}</span>}
+          </div>
           <div className="head-actions">
             <button className="btn ghost" onClick={() => setImporting((v) => !v)}>
               {importing ? 'Hide import' : 'Import from a sheet'}
@@ -101,14 +111,20 @@ export function EventPage({ eventId }: { eventId: string }) {
             return (
               <li key={s.id} className="store-row" style={{ ['--i' as string]: i }}>
                 <div className="store-main">
-                  <h3>{s.name}</h3>
+                  {!shared && storePrefix(s.name, storeNames) && <span className="label store-kicker">{storePrefix(s.name, storeNames)}</span>}
+                  <h3>{storeShortName(s.name, storeNames)}</h3>
                   <span className="label">{[fmtDate(storeDate(s, event), { weekday: 'short', day: 'numeric', month: 'short' }), [s.city, s.state].filter(Boolean).join(', ')].filter(Boolean).join(' · ')}</span>
                   {s.exclusive && (
                     <div className="store-tags">
                       <Chip>ROG Exclusive</Chip>
                     </div>
                   )}
-                  <AdminSelect admins={admins} value={s.adminId && adminsById[s.adminId] ? s.adminId : ''} onChange={(v) => assignStore(s.id, v || null)} />
+                  <div className="store-people">
+                    {/* The store team's shared link comes first; a named admin is optional (someone covering several stores). */}
+                    <StoreTeamLink store={s} />
+                    <AdminSelect admins={admins} value={s.adminId && adminsById[s.adminId] ? s.adminId : ''} onChange={(v) => assignStore(s.id, v || null)} />
+                    <SteamAssign store={s} />
+                  </div>
                   {s.updatedAt && <span className="label updated">Updated {ago(s.updatedAt, now)}</span>}
                   <button className="link" onClick={() => setEditing(editing === s.id ? null : s.id)}>
                     {!s.address || !s.mapsUrl ? 'Add address & Maps link' : 'Edit details'}
@@ -269,9 +285,11 @@ function GamesField({ games, onCommit }: { games: string[]; onCommit: (games: st
 }
 
 function AdminSelect({ admins, value, onChange }: { admins: Admin[]; value: string; onChange: (adminId: string) => void }) {
+  // Optional since store team links: only for someone covering several stores. Not a warning when empty.
+  if (!admins.length && !value) return null;
   return (
-    <select className={'assign' + (value ? '' : ' none')} aria-label="Assigned admin" value={value} onChange={(e) => onChange(e.target.value)}>
-      <option value="">{admins.length ? 'Assign an admin…' : 'No admins yet — add them in Team'}</option>
+    <select className="assign" aria-label="Also assign a person (optional)" value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">Also assign a person (optional)</option>
       {admins.map((a) => (
         <option key={a.id} value={a.id}>
           {a.name} · {a.code}

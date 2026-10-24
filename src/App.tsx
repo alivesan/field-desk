@@ -4,7 +4,7 @@ import { loadLan } from './lib/origin.ts';
 import { useApp, useSync } from './lib/db.ts';
 import { matchDayOpen } from './lib/gate.ts';
 import { todayLocal } from './lib/util.ts';
-import { AccessGate, NotFound, Shell, Skeleton, useNow } from './components/ui.tsx';
+import { AccessGate, NamePrompt, NotFound, Shell, Skeleton, useNow } from './components/ui.tsx';
 import { MatchDayGate } from './components/MatchDayGate.tsx';
 import { Home } from './pages/Home.tsx';
 import { AdminHome } from './pages/AdminHome.tsx';
@@ -16,10 +16,11 @@ import { DayPage } from './pages/DayPage.tsx';
 import { BoardPage } from './pages/BoardPage.tsx';
 import { StoreSetupPage } from './pages/StoreSetupPage.tsx';
 import { WinnersPage } from './pages/WinnersPage.tsx';
+import { SteamPage } from './pages/SteamPage.tsx';
 
 export function App() {
   const [a, id, view] = useRoute();
-  const { status, role } = useSync();
+  const { status, role, needsName } = useSync();
   useEffect(() => {
     if (role) loadLan();
   }, [role]);
@@ -36,6 +37,8 @@ export function App() {
       </Shell>
     );
 
+  if (needsName) return <NamePrompt />; // a store team's code: who is on this phone?
+
   if (a === 'store' && id) {
     if (view === 'recce') return <ReccePage key={id} storeId={id} />;
     if (view === 'report') return <ReportPage key={id} storeId={id} />;
@@ -44,11 +47,12 @@ export function App() {
   }
 
   // A field admin has one home and their own stores — nothing else exists for them.
-  if (role === 'admin') return a === 'store' || a === 'winners' ? <NotFound /> : <AdminHome />;
+  if (role === 'admin') return a === 'store' || a === 'winners' || a === 'steam' ? <NotFound /> : <AdminHome />;
 
   if (!a) return <Home />;
   if (a === 'team') return <TeamPage />;
   if (a === 'winners') return <WinnersPage eventId={id} />;
+  if (a === 'steam') return <SteamPage />;
   if (a === 'event' && id) return <EventPage key={id} eventId={id} />;
   return <NotFound />;
 }

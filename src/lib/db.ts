@@ -57,6 +57,10 @@ const subscribe = (l: () => void) => E().subscribe(l);
 export const connect = () => E().connect();
 export const login = (code: string) => E().login(code);
 export const useSync = () => useSyncExternalStore(subscribe, () => E().getSync());
+/** A store team member says who they are (once per phone). Returns an error message, or null. */
+export const setMyName = (name: string) => E().setMyName(name);
+/** Shows the "your name" question again ("Change name"); `false` puts it away. */
+export const askName = (ask = true) => E().askName(ask);
 
 /** Set on sign-out so the sign-in page can say so. */
 export const SIGNED_OUT_KEY = 'fd-signed-out';
@@ -75,7 +79,7 @@ export async function logout() {
   location.replace(role === 'super' ? '/hq' : '/');
 }
 
-/** `code` comes from a personal link (https://host/K7Q2): sign in with it before connecting. */
+/** `code` comes from a personal or store-team link (https://host/K7Q2): sign in with it before connecting. */
 export async function loadState(code?: string) {
   await E().start(code);
   window.addEventListener('online', () => E().nudge());
@@ -113,6 +117,7 @@ export function replaceState(next: AppState) {
     d.events = next.events;
     d.stores = next.stores;
     d.admins = next.admins ?? d.admins;
+    d.accounts = next.accounts ?? d.accounts;
   });
 }
 

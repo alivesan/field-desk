@@ -1,0 +1,403 @@
+/*
+ * Steam accounts: HQ's page (#/steam, pages/SteamPage.tsx), the picker on a store's row
+ * (components/SteamAssign.tsx) and the login card a store team sees (components/SteamCard.tsx).
+ * Tokens come from base.css.
+ */
+
+/* ---------- HQ: the page ---------- */
+
+.sa-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  margin-top: 4px;
+}
+.sa-summary {
+  min-height: 1.4em;
+  margin: 14px 0 12px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.sa-summary strong {
+  font-weight: 500;
+}
+
+.sa-table {
+  width: 100%;
+  border-collapse: collapse;
+  border-top: 1px solid var(--ink);
+}
+.sa-table th {
+  padding: 10px 14px 10px 0;
+  text-align: left;
+  font: 500 10.5px/1.3 var(--mono);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--rule);
+}
+.sa-table td {
+  padding: 14px 14px 14px 0;
+  vertical-align: top;
+  border-bottom: 1px solid var(--rule);
+}
+.sa-label {
+  display: block;
+  margin-bottom: 4px;
+  font: 400 20px/1.2 var(--serif);
+  overflow-wrap: anywhere;
+}
+.sa-notes {
+  margin-top: 6px;
+  max-width: 34ch;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.sa-email {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.sa-none {
+  color: var(--muted);
+  font-size: 13px;
+}
+.sa-status {
+  margin-bottom: 6px;
+}
+.sa-uses {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.sa-uses li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 14px;
+}
+.sa-uses a {
+  font-weight: 500;
+}
+.sa-use-meta {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--muted);
+}
+.sa-x {
+  appearance: none;
+  margin-left: auto;
+  min-width: 32px;
+  min-height: 32px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: 300 22px/1 var(--sans);
+  cursor: pointer;
+}
+.sa-x:hover {
+  color: var(--accent);
+}
+.sa-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+.sa-actions .link {
+  display: inline-block;
+  min-height: 32px;
+  margin-left: 14px;
+}
+
+.sa-tips {
+  margin-top: 48px;
+  max-width: 62ch;
+}
+.sa-tips h2 {
+  font-size: 24px;
+  margin-bottom: 10px;
+}
+.sa-tips ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+/* a phone: each account is a card, every cell says what it is */
+@media (max-width: 760px) {
+  .sa-table,
+  .sa-table tbody,
+  .sa-table tr,
+  .sa-table td {
+    display: block;
+  }
+  .sa-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .sa-table tr {
+    padding: 14px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .sa-table td {
+    padding: 6px 0;
+    border: 0;
+  }
+  .sa-table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 4px;
+    font: 500 10.5px/1.3 var(--mono);
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .sa-table td.sa-actions {
+    text-align: left;
+  }
+  .sa-table td.blank {
+    display: none;
+  }
+  .sa-actions .link {
+    margin: 0 18px 0 0;
+  }
+}
+
+/* ---------- a value with Copy (shared by the page and the store's card) ---------- */
+
+.sc-value {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 100%;
+}
+.sc-text {
+  appearance: none;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ink);
+  font: 500 16px/1 var(--mono);
+  letter-spacing: 0.02em;
+  text-align: left;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  cursor: pointer;
+}
+.sc-text.static {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  border-color: transparent;
+  background: transparent;
+  padding-left: 0;
+  cursor: default;
+  user-select: all;
+}
+.sc-text.shown {
+  border-color: var(--ink);
+}
+button.sc-text:not(.shown) {
+  white-space: nowrap;
+  word-break: normal;
+  letter-spacing: 0.1em;
+}
+button.sc-text:hover {
+  border-color: var(--ink);
+}
+.sc-copy {
+  min-height: 40px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+/* ---------- HQ: the picker (a sheet) ---------- */
+
+.sa {
+  min-width: 0;
+}
+.sa-given {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+.sa-name {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.sa-sub {
+  margin: 4px 0 8px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.sa-refused {
+  margin: 10px 0 16px;
+  padding: 14px 16px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+}
+.sa-refused p {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+.sa-picks {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--ink);
+}
+.sa-pick {
+  appearance: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sa-pick:hover {
+  background: var(--paper-2);
+}
+.sa-pick.mine {
+  background: var(--ok-soft);
+}
+.sa-pick.blocked .sa-pick-name {
+  opacity: 0.6;
+}
+.sa-pick-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.sa-pick-name strong {
+  font: 400 18px/1.2 var(--serif);
+  overflow-wrap: anywhere;
+}
+.sa-pick-name small {
+  font: 400 12px/1.4 var(--mono);
+  color: var(--muted);
+}
+.sa-pick-state {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.sa-pick-state .chip {
+  height: auto;
+  min-height: 22px;
+  padding-block: 4px;
+  white-space: normal;
+}
+
+/* ---------- the store team's card ---------- */
+
+.sc {
+  margin: 0 0 24px;
+  padding: 18px 18px 16px;
+  background: var(--paper-2);
+  border-top: 3px solid var(--ink);
+}
+.sc-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+.sc-title {
+  font: 500 11px/1.3 var(--mono);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.sc-fields {
+  margin: 14px 0 4px;
+  display: grid;
+  gap: 14px;
+}
+.sc-fields > div {
+  display: grid;
+  gap: 6px;
+}
+.sc-fields dd {
+  margin: 0;
+}
+.sc-fields .sc-text {
+  font-size: 18px;
+}
+.sc-tips {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--rule);
+  display: grid;
+  gap: 8px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.sc-tips li.lead {
+  color: var(--ink);
+  font-weight: 500;
+}
+.sc-otp {
+  margin: 12px 0 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+.sc-call {
+  font-family: var(--mono);
+}
+
+@media (max-width: 480px) {
+  .sc {
+    padding: 16px 14px 14px;
+  }
+  .sc-value {
+    width: 100%;
+  }
+  .sc-text:not(.static) {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .sc-copy {
+    min-width: 72px;
+  }
+}
+
+/* ---------- HQ header: three links (Winners · Steam · Team) have to fit a phone ---------- */
+
+@media (max-width: 480px) {
+  .mast .mast-inner:has(.mast-link + .mast-link + .mast-link) {
+    gap: 8px;
+    padding: 0 12px;
+  }
+  .mast .mast-inner:has(.mast-link + .mast-link + .mast-link) .beta {
+    display: none; /* the footer says it too */
+  }
+  .mast .mast-inner .mast-link + .mast-link {
+    margin-left: 0;
+  }
+}

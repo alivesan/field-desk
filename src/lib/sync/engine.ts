@@ -19,7 +19,7 @@
  *   Once queued, a command is always sent — if later remote changes make it inapplicable on
  *   this device it is only annotated ("note"); the server is the authority.
  *
- * Storage per principal ("super" | "admin:<id>"), F05:
+ * Storage per principal ("super" | "admin:<id>" | "store:<id>" — a store team's shared code), F05:
  *   field-desk:<principal>         state  { server: snapshot, w:<id>: entry, u:<photoId>: upload }
  *   field-desk-photos:<principal>  photos { <photoId>: Blob }
  *   localStorage fd-principal / fd-name (last verified identity), fd-epoch (bumped on every
@@ -38,6 +38,7 @@ import { applyOps, compactInto, diffDocs, type DocKind, type Docs, type Op } fro
 import { applyCommand, CommandError, type Command, type CommandContext } from '../commands.ts';
 import { allPhotoRefs } from '../recce.ts';
 import { uid } from '../util.ts';
+import { cleanPersonName, teamActorName } from '../teams.ts';
 import type { KV, Locks, Prefs, StorageFactory } from './storage.ts';
 
 export type Role = 'super' | 'admin';
@@ -51,9 +52,11 @@ export interface SyncInfo {
   failed: number; // failed + conflict — the user must act on these
   held: number; // work from before the update, waiting for an explicit decision
   role: Role | null; // null until known
-  name?: string;
+  name?: string; // the person; on a store team's code, what they typed ("Rhea")
+  team?: string; // store team's code only: the store's short name, "San Infotech"
+  needsName?: boolean; // store team's code only: nobody has said who is on this phone yet (or they asked to change it)
   error?: string; // why sign-in is needed / failed
-  principal?: string | null; // "super" | "admin:<id>"
+  principal?: string | null; // "super" | "admin:<id>" | "store:<id>"
   lastSyncAt?: string | null; // last snapshot or stream message from the server
   storageError?: string | null; // why this device can't save right now
 }
@@ -160,6 +163,7 @@ interface Session {
   principal: string;
   role: Role;
   name?: string;
+  team?: string; // store team's code: the store's short name
   verified: boolean; // confirmed by /api/me in this generation — nothing is sent before
   epoch: string | null; // fd-epoch when it was verified
   state: KV;
@@ -168,6 +172,8 @@ interface Session {
 
 export const PREF_PRINCIPAL = 'fd-principal';
 export const PREF_NAME = 'fd-name';
+export const PREF_TEAM = 'fd-team'; // the store a team code belongs to (short name), for the name shown before /api/me answers
+export const PREF_PERSON = 'fd-person'; // a store team member's name, kept so the next team link needs no question; cleared by sign-out
 export const PREF_EPOCH = 'fd-epoch';
 export const PREF_LEGACY = 'fd-legacy-migrated';
 export const stateDbName = (principal: string) => `field-desk:${principal}`;
@@ -178,10 +184,12 @@ class AuthLost extends Error {}
 class IdentityChanged extends Error {}
 class Transient extends Error {}
 
-const emptySnapshot = (): Snapshot => ({ seq: 0, events: {}, stores: {}, admins: {} });
+const emptySnapshot = (): Snapshot => ({ seq: 0, events: {}, stores: {}, admins: {}, accounts: {} });
 const roleOf = (principal: string): Role => (principal === 'super' ? 'super' : 'admin');
 const isObj = (x: unknown): x is Record<string, any> => typeof x === 'object' && x !== null && !Array.isArray(x);
 const validSnapshot = (x: unknown): x is Snapshot => isObj(x) && typeof x.seq === 'number' && isObj(x.events) && isObj(x.stores);
+
+export const isTeamPrincipal = (principal: string | null | undefined) => !!principal?.startsWith('store:');
 
 export function principalOf(me: { role?: string | null; principal?: unknown; id?: unknown; name?: unknown }) {
   if (typeof me.principal === 'string' && me.principal) return me.principal;
@@ -270,7 +278,7 @@ export function createEngine(deps: EngineDeps) {
   const aborts = new Set<AbortController>();
   const timers = new Set<unknown>();
 
-  let state: AppState = { version: 1, events: {}, stores: {}, admins: {} };
+  let state: AppState = { version: 1, events: {}, stores: {}, admins: {}, accounts: {} };
   let sync: SyncInfo = { status: 'connecting', connection: 'connecting', pending: 0, failed: 0, held: 0, role: null, principal: null, lastSyncAt: null, storageError: null };
   let pendingList: PendingWork[] = [];
   let pendingKey = '';
@@ -386,7 +394,7 @@ export function createEngine(deps: EngineDeps) {
   const setConnection = (connection: Connection) => connection !== sync.connection && setSync({ connection });
 
   function rebuild() {
-    const view: Docs = structuredClone({ events: server.events, stores: server.stores, admins: server.admins ?? {} });
+    const view: Docs = structuredClone({ events: server.events, stores: server.stores, admins: server.admins ?? {}, accounts: server.accounts ?? {} });
     notes.clear();
     for (const e of entries) {
       if (!active(e)) continue;
@@ -405,14 +413,17 @@ export function createEngine(deps: EngineDeps) {
         }
       }
     }
-    state = { version: 1, events: view.events, stores: view.stores, admins: view.admins };
+    state = { version: 1, events: view.events, stores: view.stores, admins: view.admins, accounts: view.accounts };
     changed(true);
   }
+
+  // Mirrors the server: a store team member is "Rhea (San Infotech team)", HQ is "HQ".
+  const actorName = (s: Session) => (isTeamPrincipal(s.principal) ? teamActorName(s.name ?? '', s.team ?? '') : (s.name ?? (s.role === 'super' ? 'HQ' : '')));
 
   const cmdContext = (commandId: string, createdAt: string, event: any): CommandContext => ({
     commandId,
     now: createdAt,
-    actor: { principal: session!.principal, name: session!.name ?? (session!.role === 'super' ? 'HQ' : ''), role: session!.role },
+    actor: { principal: session!.principal, name: actorName(session!), role: session!.role },
     event,
   });
 
@@ -515,7 +526,7 @@ export function createEngine(deps: EngineDeps) {
     }
     if (g !== gen || s !== session) return false;
     const srv = all.get('server');
-    server = validSnapshot(srv) ? { ...srv, admins: srv.admins ?? {} } : emptySnapshot();
+    server = validSnapshot(srv) ? { ...srv, admins: srv.admins ?? {}, accounts: srv.accounts ?? {} } : emptySnapshot();
     entries = [];
     uploads.clear();
     for (const [k, v] of all) {
@@ -837,7 +848,7 @@ export function createEngine(deps: EngineDeps) {
     if (!validSnapshot(snap)) throw new Transient('bad snapshot');
     const who = (snap as { principal?: unknown }).principal;
     if (typeof who === 'string' && who !== session?.principal) throw new IdentityChanged();
-    return { seq: snap.seq, events: snap.events, stores: snap.stores, admins: snap.admins ?? {} };
+    return { seq: snap.seq, events: snap.events, stores: snap.stores, admins: snap.admins ?? {}, accounts: snap.accounts ?? {} };
   }
 
   /** false = gap in the sequence or a structural change: refetch the snapshot. */
@@ -1013,7 +1024,8 @@ export function createEngine(deps: EngineDeps) {
     if (!me.role) return signedOut();
     const principal = principalOf(me);
     const role: Role = me.role === 'super' ? 'super' : 'admin';
-    const name = typeof me.name === 'string' ? me.name : undefined;
+    const name = typeof me.name === 'string' && me.name ? me.name : undefined;
+    const team = isTeamPrincipal(principal) && typeof me.team === 'string' ? me.team : undefined;
     if (!session || session.principal !== principal) {
       if (!(await switchTo(principal, role, name)) || my !== connectSeq) return;
     } else {
@@ -1022,12 +1034,19 @@ export function createEngine(deps: EngineDeps) {
     const s = session!;
     s.role = role;
     s.name = name;
+    s.team = team;
     s.verified = true;
     s.epoch = epochBefore;
     prefs.set(PREF_PRINCIPAL, principal);
     if (name) prefs.set(PREF_NAME, name);
     else prefs.remove(PREF_NAME);
-    setSync({ role, name, principal, connection: sync.connection === 'locked' ? 'connecting' : sync.connection });
+    if (team) prefs.set(PREF_TEAM, team);
+    if (name && team) prefs.set(PREF_PERSON, name);
+    // A team code's first sign-in on a phone asks "your name" once. A name remembered on this device normally went with the login; if not, send it now.
+    const remembered = prefs.get(PREF_PERSON);
+    const resend = !!team && me.needsName === true && !!remembered;
+    setSync({ role, name, team, needsName: team ? me.needsName === true && !resend : undefined, principal, connection: sync.connection === 'locked' ? 'connecting' : sync.connection });
+    if (resend) void setMyName(remembered!).then((err) => err && session === s && setSync({ needsName: true }));
     const g = gen;
     await migrateLegacy(s, g);
     if (g !== gen) return;
@@ -1067,7 +1086,7 @@ export function createEngine(deps: EngineDeps) {
     rebuild();
     const error =
       message ?? (s && unsent ? `You’re signed out. ${unsent} unsent change${unsent > 1 ? 's are' : ' is'} kept on this device and will be sent after you sign in again as the same person.` : sync.error);
-    setSync({ connection: 'locked', role: null, name: undefined, principal: null, error });
+    setSync({ connection: 'locked', role: null, name: undefined, team: undefined, needsName: undefined, principal: null, error });
     const prev = s?.principal ?? prefs.get(PREF_PRINCIPAL);
     prefs.remove(PREF_PRINCIPAL);
     prefs.remove(PREF_NAME);
@@ -1086,7 +1105,7 @@ export function createEngine(deps: EngineDeps) {
     let r: Response;
     try {
       r = await withLock('fd-session', 'exclusive', async () => {
-        const res = await rawFetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) }, 20000);
+        const res = await rawFetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, name: prefs.get(PREF_PERSON) ?? undefined }) }, 20000);
         if (res.ok) bumpEpoch();
         return res;
       });
@@ -1141,9 +1160,37 @@ export function createEngine(deps: EngineDeps) {
     storageError = null;
     prefs.remove(PREF_PRINCIPAL);
     prefs.remove(PREF_NAME);
+    prefs.remove(PREF_TEAM);
+    prefs.remove(PREF_PERSON); // signing out is "this isn't my phone any more"
     rebuild();
-    setSync({ connection: 'locked', role: null, name: undefined, principal: null, error: undefined });
+    setSync({ connection: 'locked', role: null, name: undefined, team: undefined, needsName: undefined, principal: null, error: undefined });
     return true;
+  }
+
+  /** A store team member says who they are. Returns an error message, or null. Also how "Change name" saves. */
+  async function setMyName(raw: string): Promise<string | null> {
+    const s = session;
+    const name = cleanPersonName(raw);
+    if (!s || !s.verified || !isTeamPrincipal(s.principal)) return 'Sign in with your store link first.';
+    if (!name) return 'Type your name.';
+    try {
+      const r = await request(gen, '/api/me/name', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }, 15000);
+      if (!r.ok) return ((await readJson(r))?.error as string | undefined) ?? 'Couldn’t save your name.';
+    } catch {
+      return 'No connection to the server — try again.';
+    }
+    if (session !== s) return null;
+    s.name = name;
+    prefs.set(PREF_PERSON, name);
+    prefs.set(PREF_NAME, name);
+    setSync({ name, needsName: false });
+    rebuild(); // optimistic work now reads "Name (Team)"
+    return null;
+  }
+
+  /** "Change name": shows the question again, without touching the session. */
+  function askName(ask = true) {
+    if (session && isTeamPrincipal(session.principal)) setSync({ needsName: ask });
   }
 
   /* ---------- legacy (unscoped) storage from the previous version ---------- */
@@ -1170,7 +1217,7 @@ export function createEngine(deps: EngineDeps) {
 
     const batches = outbox.filter((b) => typeof b.id === 'string' && !b.sentSeq && Array.isArray(b.ops) && b.ops.length) as { id: string; ops: Op[] }[];
     if (app?.version === 1 && !srv) {
-      const ops = diffDocs({ events: {}, stores: {}, admins: {} }, { events: app.events ?? {}, stores: app.stores ?? {}, admins: app.admins ?? {} });
+      const ops = diffDocs({ events: {}, stores: {}, admins: {}, accounts: {} }, { events: app.events ?? {}, stores: app.stores ?? {}, admins: app.admins ?? {}, accounts: app.accounts ?? {} });
       if (ops.length) batches.push({ id: 'legacy-local-data', ops });
     }
     const photoStore = new Map<string, string>();
@@ -1472,9 +1519,10 @@ export function createEngine(deps: EngineDeps) {
     if (cached && !code) {
       // Show the last verified principal's copy while we confirm who this is; nothing is sent until then.
       session = openSession(cached, roleOf(cached), prefs.get(PREF_NAME) ?? undefined, false);
+      if (isTeamPrincipal(cached)) session.team = prefs.get(PREF_TEAM) ?? undefined;
       await loadNamespace(session, gen);
       rebuild();
-      setSync({ role: roleOf(cached), name: session.name, principal: cached, connection: 'connecting' });
+      setSync({ role: roleOf(cached), name: session.name, team: session.team, needsName: isTeamPrincipal(cached) ? !session.name : undefined, principal: cached, connection: 'connecting' });
     }
     if (code) {
       const error = await login(code);
@@ -1501,6 +1549,8 @@ export function createEngine(deps: EngineDeps) {
     connect,
     login,
     logout,
+    setMyName,
+    askName,
     nudge,
     flush,
     update,

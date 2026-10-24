@@ -1,18 +1,46 @@
 # Field Desk
 
-**Beta — 1.0.0-beta.1.** The whole flow works and is tested, but it hasn't run a live event yet. See [CHANGELOG.md](CHANGELOG.md).
+**Beta — 1.0.0-beta.2.** The whole flow works and is tested, but it hasn't run a live event yet. See [CHANGELOG.md](CHANGELOG.md).
 
-Internal tool for in-store tournaments. HQ (the super admin) runs campaigns, stores, the team and every bracket; each field admin gets a personal link that shows only their own stores and what's left to do; players check themselves in with a QR at the venue.
+Internal tool for in-store tournaments. HQ (the super admin) runs campaigns, stores, the team and every bracket; each store gets one **team link** that the 2–4 people working it share (it shows only that store and what's left to do), or a field admin who covers several stores gets a personal link; players check themselves in with a QR at the venue.
 
 ## Who does what
 
-| | HQ (super admin) | Field admin | Player |
-|---|---|---|---|
-| Signs in at | `https://<host>/hq` with `SUPER_ADMIN_CODE` | personal link `https://<host>/K7Q2` (4 characters) | the venue QR → `https://<host>/c/<token>`, no account |
-| Sees | every campaign, store, report, the team | only the stores assigned to them (and those campaigns) | the store's name and their own first name + initial — nothing else |
-| Does | campaigns, stores, assignments, admins and codes; **players and brackets** per store (CSV upload, sheet link with Refresh, paste, or one at a time; build and reset); reviews recce reports | the recce (photos, checks, submit); on match day: check-ins, calling matches to stations, results, undo, station count, opening QR check-in | types their phone number to check in |
+| | HQ (super admin) | Store team (2–4 people per store) | Field admin (optional, personal) | Player |
+|---|---|---|---|---|
+| Signs in at | `https://<host>/hq` with `SUPER_ADMIN_CODE` | the store's team link `https://<host>/K7Q2` (4 characters), shared by everyone there | their personal link `https://<host>/M4P9` | the venue QR → `https://<host>/c/<token>`, no account |
+| Sees | every campaign, store, report, the team | only that store (and its campaign) | only the stores assigned to them (and those campaigns) | the store's name and their own first name + initial — nothing else |
+| Does | campaigns, stores, team links, admins and codes; **players and brackets** per store (CSV upload, sheet link with Refresh, paste, or one at a time; build and reset); reviews recce reports | the same as a field admin, for that one store: the recce (photos, checks, submit); on match day: check-ins, calling matches to stations, results, undo, station count, opening QR check-in, walk-ins, winner details | the same, for each of their stores | types their phone number to check in |
 
-The server enforces all of this — an admin's device never receives other stores, other admins or codes, and the server refuses any write outside the caller's scope. The player check-in endpoint only ever sets *that player's* check-in.
+The server enforces all of this — an admin's or a store team's device never receives other stores, other admins or any codes, and the server refuses any write outside the caller's scope.
+
+## Store team links
+
+Most stores have two to four people on the day, and a login per person (ten logins for five events) isn't needed: HQ gives each **store** one code.
+
+- **Make it.** Campaign page → the store row → **Create team link** (or the **Store team links** list on the Team page, which shows every store of every campaign). It shows the 4-character code and the link (on `localhost` it uses the PC's Wi-Fi address). **Copy**, **Share** ("Field Desk link for <store> — open it on your phone: <link>"; the phone's share sheet, else WhatsApp), **New code** and **Turn off**.
+- **Use it.** Everyone on the team opens the same link (or types the 4 characters on the sign-in page). The first time on a phone it asks **"What's your name?"** — kept on that phone, so the next link (after a new code) doesn't ask again; "change name" is in the page footer; signing out forgets it. Everything the team does is recorded as the person plus the team: **Rhea (San Infotech team)** — on walk-ins, winner details and recce submissions — so HQ can tell it was the store team and who. Until someone has typed a name it reads "San Infotech team". Each phone has its own name; two people on one code never overwrite each other.
+- **Scope.** A team code signs a phone in as the principal `store:<id>`: it sees and may write exactly that store (and its campaign) — the same powers as a field admin assigned to it, no more. It never receives the code itself, other stores or the team list, and can't change the store's name, assignment or code. If a personal admin is also assigned to the store, both work.
+- **Rotate or turn off.** A **new code** (even one with the same letters) or **Turn off** ends every session of that store at once — open pages sign out within a moment; the old link says it isn't valid any more. Work still queued on a signed-out phone is kept and sent after signing in again.
+- **Uniqueness.** A code is unique across every admin's and every store's; HQ's screen picks a free one and the server refuses a batch that would repeat one ("access.code: is already used by another store" / "…by an admin"). Wrong store codes count in the same sign-in limits as admin codes (below).
+- **Personal admins** (Team page → *Admins (optional)*) still work as before — useful for someone who covers several stores, or who should be named on every report. Assign stores to them from the campaign page. The player check-in endpoint only ever sets *that player's* check-in.
+
+## Steam accounts
+
+HQ keeps the Steam IDs it gives out in one list, and assigns each store one for its weekend — before the recce, since people ask HQ for the login. The store's team then sees which Steam ID and password to use, and how Steam lets several PCs share it.
+
+- **The list** (HQ → **Steam** in the header, `#/steam`): a table with the name you gave it, the Steam ID, the password (dots until tapped, with Copy), email, notes and **where it's assigned** (store, campaign, date, *Play* or *Downloads*). **Add account** / **Edit** / **Delete**; a Steam ID can be listed once. Filter by **This weekend**, **Next weekend** or **All**: for a weekend each account says *Free* or *In use*, with the summary "5 free to play, 2 in use". An account that is still given to a store can't be deleted — the × next to each store unassigns it.
+- **Assign it** (campaign page → the store row → **Assign Steam account**; the `SteamAssign` component): pick **Play** or **Downloads**, then the account. The list says per account who holds it that weekend — *Free*, *Playing at …* (downloads only), *Downloads at …*. **Change** and **Unassign** are on the row.
+- **The rule.** One PC can be online with an account at a time, so a **Play** assignment is exclusive per **weekend**: two stores whose event dates fall in the same Saturday–Sunday can't both play with it. A weekend is the Saturday of the Monday–Sunday week the store's date falls in (an event on a weekday counts with its own week). HQ's screen refuses a second play — "Already playing at Incredible Technologies this weekend — assign it for downloads only, or pick another account" — and offers **Assign for downloads**. **Downloads** never clash: any number of stores, and a recce, can share one (many PCs can download at once). The rule lives in `src/lib/steam.ts` (`steamConflicts`); it is HQ's screen that enforces it, the server only checks that the account exists.
+- **What the store team sees.** `SteamCard` (`store.steamLogin`): **Steam account for this store**, the Steam ID and password (tap to show, Copy), a badge — *For playing* / *For downloads only* — and the tips: *Downloading: many PCs can download at once with this account.* · *Playing: only one PC can be online with it at a time. To play on all PCs, start the game once online, then turn off Wi-Fi and play offline.* · *For the Steam Guard code (OTP), call HQ.* (Sending the code automatically comes later; for now the team phones HQ.)
+- **Who gets what.** Accounts are an HQ-only kind of document (`accounts`): a field admin or store team never receives the list, and the server refuses their writes (403). The assignment (`store.steam`) is HQ's too. Each request, the server works out for the store's own team (and an admin assigned to the store) `store.steamLogin = { username, password, purpose, email? }` from the assigned account — never stored, never written — and drops `steam` (the account id) from their copy. A new password, a changed purpose or an unassign reaches the team's open pages at once (an account edit is sent to the teams of the stores that hold it, and to nobody else).
+- **Security.** Passwords are stored in the server database as typed (not hashed — HQ and the team need to read them), shown to HQ, and to the team of the one store an account is given to. They are in the database file, in server backups (`node server/backup.ts`) and in the JSON "Export backup" from HQ's home page: keep those private. Use accounts made for this, not anyone's personal Steam account.
+
+## HQ screens on a big display
+
+- **Width.** HQ's pages (home, campaign, players & bracket, winners, team, match day) use up to 1240 px on a desktop screen; phones and anything narrower than ~880 px are laid out as before. A page asks for the wide column with a hidden `<i class="hq-wide">` marker (the shell's width is a CSS variable, `--page-max`, in `base.css`).
+- **Store names.** Stores are entered as "ASUS ROG Exclusive Store — Incredible Technologies"; screens lead with the short name ("Incredible Technologies") and say the shared part once (`src/lib/names.ts`: the known prefix, plus any leading part every store of the campaign shares). Stored names are never changed; CSVs and reports keep the full name.
+- **Campaigns on HQ's home** are grouped by their stores' dates (`src/lib/weekends.ts`): **This weekend** (Sat–Sun of the current Mon–Sun week, plus today or what is left of the week when an event is on a weekday), **Upcoming** under each weekend ("Sat 31 Oct – Sun 1 Nov"), then **Past**. A campaign spanning several weekends is listed once, where its next store date falls, with every event day and the cities playing.
 
 ## Campaign flow
 
@@ -83,7 +111,7 @@ Walk-ins register until about 12:30–1 pm; HQ then adds them on Toornament and 
 ## On-spot registrations (walk-ins)
 
 - **At the desk** (admin, match day): a player who isn't on HQ's list is added on the spot (name, phone, optional in-game name). They join the store's players already checked in, and the registration is recorded as **on-spot** (when, by which admin). It never touches the bracket.
-- **HQ sees them** in **On-spot registrations** — on the campaign page (every store, grouped by store; each store row also shows "2 on-spot to add"; the campaign on HQ's home page says so too) and on the store's **Players & bracket → 01 Players** (that store only; the walk-ins carry an **On spot** tag in the player list). Tabs: **To add to Toornament** (default) / **Added** / **All**. Each row: name, IGN, full phone, time, admin, checked in, and **In bracket** / **Not in bracket yet**.
+- **HQ sees them** in **On-spot registrations** (a section that only appears once somebody has been registered — on the campaign page when any of its stores has a walk-in, on a store's page when that store has) — on the campaign page (every store, grouped by store; each store row also shows "2 on-spot to add"; the campaign on HQ's home page says so too) and on the store's **Players & bracket → 01 Players** (that store only; the walk-ins carry an **On spot** tag in the player list). Tabs: **To add to Toornament** (default) / **Added** / **All**. Each row: name, IGN, full phone, time, admin, checked in, and **In bracket** / **Not in bracket yet**.
 - **The Toornament round trip**: **Copy names** (one per line, for Toornament's participant add; **Copy in-game names** uses the IGN where given) or **Download CSV** (Name, Phone, In-game name, Store, Registered at, By, Added to Toornament) → add them on Toornament → tick **Added to Toornament** per player (or **Mark all as added**; **Undo** to clear) → Players & bracket → Bracket → **Refresh** from Toornament. Walk-ins match by name or IGN and keep their phone, IGN and check-in; once the bracket is used, HQ is offered **Mark N as added to Toornament** for any not ticked yet. **In bracket** is the proof.
 - **Not lost when HQ replaces the list**: a CSV / sheet / paste load keeps walk-ins who aren't in the file (after the file's players, check-in kept) and says so in the preview, with **Drop them** as the choice; a walk-in who is in the file is the file's row (same phone + name → same player, check-in kept). A Toornament bracket that doesn't have a walk-in yet names them in the preview ("aren't on Toornament yet — add them there first, then Refresh"); using it anyway takes them off the player list for now (a bracket here holds only Toornament's players), and the Refresh after they're added brings them back with phone and IGN. The registration itself is never removed, so the list keeps showing who still has to go into Toornament.
 
@@ -171,12 +199,12 @@ docker run -p 8080:8080 -e SUPER_ADMIN_CODE=<long secret> -v field-desk-data:/da
 | `SUPER_ADMIN_CODE` | — (required) | HQ sign-in; 16+ characters. Changing it signs HQ out everywhere. |
 | `DATA_DIR` / `PORT` / `DIST_DIR` | `data` / `8080` / `dist` | |
 | `TRUST_PROXY` | `0` | Number of trusted reverse proxies in front. `0` ignores `X-Forwarded-For` (otherwise anyone could fake their address). Set to `1` behind one proxy (Caddy, Fly, Render…) so rate limits see real client addresses. |
-| `SESSION_DAYS_ADMIN` / `SESSION_DAYS_SUPER` | `30` / `7` | Sessions expire server-side; sign-out revokes; a new admin code revokes that admin's sessions. |
+| `SESSION_DAYS_ADMIN` / `SESSION_DAYS_SUPER` | `30` / `7` | Sessions expire server-side (store teams count as admins); sign-out revokes; a new admin code revokes that admin's sessions, a new store team code that store's. |
 | `MAX_PHOTO_MB` / `MAX_PHOTOS_PER_STORE` | `15` / `500` | |
 | `COOKIE_NAME` | `fd_session` | |
 | `TOORNAMENT_AUTO` / `EVENT_TZ` | on / `Asia/Kolkata` | The Toornament auto-check (above): `0` switches it off; the zone the store's day and the 12:30 start are read in. |
 
-Sign-in rate limits: 10 wrong codes per address per 15 min (separately for admin codes and HQ), plus a global ceiling of 300 wrong admin codes per hour that never blocks HQ. 429 responses carry `Retry-After`.
+Sign-in rate limits: 10 wrong codes per address per 15 min (separately for admin / store team codes and HQ), plus a global ceiling of 300 wrong admin or store codes per hour that never blocks HQ. 429 responses carry `Retry-After`.
 
 ### Free server: Oracle Cloud Always Free (or any Ubuntu VPS)
 
@@ -197,7 +225,7 @@ node server/backup.ts --verify <backupDir>               # counts + sha256 again
 node server/backup.ts --restore <backupDir> <emptyDir>   # verify, then restore into a new data dir
 ```
 
-Restore = stop the server, restore into an empty directory, point `DATA_DIR` at it, start. This round trip is covered by `tests/server-ops.test.ts`. A backup contains admin codes and session hashes: store it like the data itself. The JSON "Export backup" on the home page is a portable copy for moving data between installs, not a disaster-recovery backup.
+Restore = stop the server, restore into an empty directory, point `DATA_DIR` at it, start. This round trip is covered by `tests/server-ops.test.ts`. A backup contains admin codes, session hashes and the Steam accounts' passwords: store it like the data itself. The JSON "Export backup" on the home page is a portable copy for moving data between installs, not a disaster-recovery backup.
 
 ## Upgrading
 
@@ -218,12 +246,15 @@ Built with a default; change the default if it's wrong:
 - **Venue board** uses the admin's session; a separate read-only TV login is not built.
 - **Evidence retention** — photos are kept indefinitely; proposal: keep submitted evidence for the campaign + 90 days.
 - **Tournament website brackets** — **Toornament** works (below); other platforms (Challonge, start.gg, Battlefy…) would each need their own reader.
+- **Names on a store team link are typed, not verified** — anyone with the link can type any name; the team part of "Rhea (San Infotech team)" is always the server's. Alternative: a personal admin per person.
 - **Full phone numbers reach the admin's device** (shown masked); stripping them from admin data is possible if staff never need them.
 
 ## Code map
 
 - `server/api.ts` — routes, scoping, validation-before-commit, batches & commands, SSE; `server/sessions.ts`, `ratelimit.ts`, `photos.ts`, `migrate.ts`, `backup.ts`, `lock.ts`, `log.ts`; `server/index.ts` — production server
 - `src/lib/schema.ts` — document validation (server + backup import)
+- `src/lib/steam.ts` — Steam accounts: the weekend rule (`steamConflicts`), availability, what a store's team may see (`steamLoginFor`); `pages/SteamPage.tsx` — HQ's list; `components/SteamAssign.tsx` — HQ's picker on a store row; `components/SteamCard.tsx` — the store team's login card
+- `src/lib/teams.ts` — store team helpers (short store name, "Rhea (San Infotech team)", codes in use); `components/StoreTeamLink.tsx` — HQ's team link controls; the name screen is `NamePrompt` in `components/ui.tsx`
 - `src/lib/ops.ts` — id-aware diff / apply shared by app and server
 - `src/lib/commands.ts`, `tournament.ts`, `submission.ts` — server-authoritative commands (bracket, matches, stations, winners, recce submit/review); `src/lib/winnerInput.ts` — winner-details cleaning and state; `components/WinnersBanner.tsx` + `WinnersForm.tsx` — the match-day winners card and form
 - `src/lib/sync/engine.ts` — outbox, per-person storage, retries, failed work; `src/lib/db.ts` — the app's state API

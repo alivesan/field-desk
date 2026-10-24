@@ -12,6 +12,7 @@ import { AutoCheck, ToornamentImport } from '../components/ToornamentImport.tsx'
 import { RosterImport } from '../components/RosterImport.tsx';
 import { OnSpotList } from '../components/OnSpotList.tsx';
 import { ResetWinners } from './WinnersPage.tsx';
+import { useStoreName } from '../components/useStoreName.ts';
 import { onSpotByPlayer, onSpotOf, prettyPhone } from '../lib/onspot.ts';
 import '../styles/day.css';
 import '../styles/setup.css';
@@ -35,6 +36,7 @@ export function StoreSetupPage({ storeId }: { storeId: string }) {
   const event = useApp((s) => (store ? s.events[store.eventId] : undefined));
   const all = useApp((s) => s.stores);
   const campaign = useMemo(() => Object.values(all).filter((s) => s.eventId === store?.eventId), [all, store?.eventId]);
+  const { short, prefix } = useStoreName(store);
   const { role } = useSync();
   // Opens on the bracket once there is one, else the players — then stays put (a load or a reset
   // doesn't move the page to another step).
@@ -50,9 +52,11 @@ export function StoreSetupPage({ storeId }: { storeId: string }) {
   ];
 
   return (
-    <Shell crumbs={[{ label: 'Campaigns', href: '#/' }, { label: event.name, href: `#/event/${event.id}` }, { label: store.name }, { label: 'Players & bracket' }]}>
-      <PageHead kicker={`Players & bracket · ${event.name}`} title={store.name}>
+    <Shell crumbs={[{ label: 'Campaigns', href: '#/' }, { label: event.name, href: `#/event/${event.id}` }, { label: short }, { label: 'Players & bracket' }]}>
+      <i className="hq-wide" hidden />
+      <PageHead kicker={`Players & bracket · ${event.name}`} title={short}>
         <p className="deck setup-meta">
+          {prefix && <>{prefix} · </>}
           {fmtDate(storeDate(store, event), { weekday: 'long', day: 'numeric', month: 'long' })}
           {store.city && ` · ${store.city}`}
           {store.admin ? ` · admin ${store.admin}` : ' · no admin assigned'} · <a href={`#/store/${store.id}/day`}>Match day →</a>

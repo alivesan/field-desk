@@ -8,6 +8,7 @@ import { ago, cx, todayLocal } from '../lib/util.ts';
 import { askConfirm, Chip, notify, toast, useNow } from './ui.tsx';
 import { EmptyCard } from './flair.tsx';
 import { useHqCommand } from './hqCommand.ts';
+import { campaignStoreNames, storeShortName } from '../lib/names.ts';
 import '../styles/hq-delete.css';
 
 /*
@@ -91,7 +92,7 @@ export function ReportsInbox() {
                 <a className="inbox-main" href={`#/store/${s.id}/report`}>
                   <span className="inbox-dot" aria-label={fresh ? 'New' : undefined} />
                   <span className="inbox-text">
-                    <strong>{s.name}</strong>
+                    <strong>{storeShortName(s.name, campaignStoreNames(all, s.eventId))}</strong>
                     <small>
                       {ev.name} · {sub.byName || s.admin || 'No admin'} · {isLegacy(sub) ? '' : `${revLabel(sub)} · `}
                       {ago(sub.submittedAt, now)} · {status}

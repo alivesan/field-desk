@@ -4,6 +4,7 @@ import { applyCommand, dayVersion, type Command, type CommandContext } from '../
 import { copyText, csvRows, FILTER_LABEL, filterOnSpot, isAdded, onSpotCounts, onSpotOf, onSpotStates, prettyPhone, toCsv, type OnSpotFilter, type OnSpotState } from '../lib/onspot.ts';
 import type { OnSpotEntry, Store, TournamentEvent } from '../lib/types.ts';
 import { cx, downloadBlob, fmtDate, fmtTime, slug, todayLocal } from '../lib/util.ts';
+import { storeShortName } from '../lib/names.ts';
 import { askConfirm, Chip, toast } from './ui.tsx';
 import { EmptyCard } from './flair.tsx';
 import { useHqCommand } from './hqCommand.ts';
@@ -16,6 +17,10 @@ import '../styles/onspot.css';
  * Toornament sees "In bracket" — the proof the round trip worked. HQ can also delete registrations
  * (onspot.remove — test data, mistakes): the record only, or with "also take them off the player
  * list" the players too. Pure logic: src/lib/onspot.ts.
+ *
+ * It only shows once somebody has been registered — walk-ins happen on each store's day, and when
+ * one does, the section appears (on the campaign page for any of its stores, on a store's page for
+ * that store). No empty "No walk-ins yet" card in between.
  */
 
 /** onspot.mark for each entry, checked here first like the server will. Returns '' or what went wrong. */
@@ -78,6 +83,7 @@ export function OnSpotList({ event, stores, single }: { event: TournamentEvent; 
   const { total, todo } = onSpotCounts(stores);
   const shownStores = stores.filter((s) => filterOnSpot(onSpotOf(s.day), filter).length);
   const counts: Record<OnSpotFilter, number> = { todo, done: total - todo, all: total };
+  if (!total) return null;
 
   const download = () => {
     const csv = toCsv(csvRows(stores, filter));
@@ -89,41 +95,33 @@ export function OnSpotList({ event, stores, single }: { event: TournamentEvent; 
     <section className={cx('hq-onspot', single && 'single')} id="on-spot">
       <div className="os-head">
         <h2>
-          On-spot registrations <span className={cx('os-count', todo > 0 && 'os-due')}>{total ? (todo ? `${todo} to add` : 'all added') : ''}</span>
+          On-spot registrations <span className={cx('os-count', todo > 0 && 'os-due')}>{todo ? `${todo} to add` : 'all added'}</span>
         </h2>
-        {total > 0 && (
-          <button className="btn ghost" disabled={!counts[filter]} onClick={download}>
-            Download CSV
-          </button>
-        )}
+        <button className="btn ghost" disabled={!counts[filter]} onClick={download}>
+          Download CSV
+        </button>
       </div>
       <p className="hint">
         Walk-ins the admin registered at the desk on the day — not on your list. Add them to {single ? 'this store’s' : 'the store’s'} tournament on Toornament, tick them off here, then Refresh the bracket from Toornament (Players &amp; bracket → Bracket).
       </p>
 
-      {!total ? (
-        <EmptyCard compact mark="walkin" title="No walk-ins yet." hint="When an admin adds a player at the desk on the day, they show up here to be added to Toornament." />
+      <div className="seg small os-tabs" role="tablist" aria-label="Show">
+        {(['todo', 'done', 'all'] as OnSpotFilter[]).map((f) => (
+          <button key={f} type="button" role="tab" aria-selected={filter === f} className={cx(filter === f && 'on')} onClick={() => setFilter(f)}>
+            {FILTER_LABEL[f]} <span className="os-n">{counts[f]}</span>
+          </button>
+        ))}
+      </div>
+      {shownStores.length ? (
+        shownStores.map((s) => <StoreGroup key={s.id} store={s} filter={filter} single={!!single} names={stores.map((x) => x.name)} />)
       ) : (
-        <>
-          <div className="seg small os-tabs" role="tablist" aria-label="Show">
-            {(['todo', 'done', 'all'] as OnSpotFilter[]).map((f) => (
-              <button key={f} type="button" role="tab" aria-selected={filter === f} className={cx(filter === f && 'on')} onClick={() => setFilter(f)}>
-                {FILTER_LABEL[f]} <span className="os-n">{counts[f]}</span>
-              </button>
-            ))}
-          </div>
-          {shownStores.length ? (
-            shownStores.map((s) => <StoreGroup key={s.id} store={s} filter={filter} single={!!single} />)
-          ) : (
-            <EmptyCard compact mark="walkin" title={filter === 'todo' ? 'Nothing left to add.' : 'None added yet.'} hint={filter === 'todo' ? 'Every walk-in is marked as added to Toornament.' : 'Walk-ins you tick off as added to Toornament are listed here.'} />
-          )}
-        </>
+        <EmptyCard compact mark="walkin" title={filter === 'todo' ? 'Nothing left to add.' : 'None added yet.'} hint={filter === 'todo' ? 'Every walk-in is marked as added to Toornament.' : 'Walk-ins you tick off as added to Toornament are listed here.'} />
       )}
     </section>
   );
 }
 
-function StoreGroup({ store, filter, single }: { store: Store; filter: OnSpotFilter; single: boolean }) {
+function StoreGroup({ store, filter, single, names }: { store: Store; filter: OnSpotFilter; single: boolean; names: string[] }) {
   const mark = useMarkOnSpot();
   const send = useHqCommand();
   const [alsoPlayers, setAlsoPlayers] = useState(false); // remove: take the players off the list too
@@ -185,7 +183,7 @@ function StoreGroup({ store, filter, single }: { store: Store; filter: OnSpotFil
       <div className="os-store-head">
         {!single && (
           <h3>
-            <a href={`#/store/${store.id}/players`}>{store.name}</a>
+            <a href={`#/store/${store.id}/players`}>{storeShortName(store.name, names)}</a>
           </h3>
         )}
         <span className="label">
