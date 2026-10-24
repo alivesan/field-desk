@@ -33,6 +33,7 @@ export type Command =
   // HQ deletes registrations (test data, mistakes). The players stay on the list unless alsoPlayers (refused once matches are under way).
   | { type: 'onspot.remove'; base: number; entryIds: string[]; alsoPlayers?: boolean }
   | { type: 'winners.set'; base: number; winner: WinnerInput; runnerUp: WinnerInput } // admin or HQ, once the final is done; who won comes from the final
+  | { type: 'winners.clear'; base: number } // HQ: drop the saved winner + runner-up details (test data, or a final that was reset); the bracket stays
   // submissions (src/lib/submission.ts)
   | { type: 'recce.submit'; base: number }
   | { type: 'recce.review'; base: number; submissionId: string }

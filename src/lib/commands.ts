@@ -99,6 +99,8 @@ export function validateCommand(input: unknown): Command {
           if (w[f] !== undefined && (typeof w[f] !== 'string' || (w[f] as string).length > 400)) throw new CommandError('invalid', `${k}.${f} must be short text`);
       }
       break;
+    case 'winners.clear':
+      break; // base only
     case 'recce.review':
     case 'recce.delete':
       str('submissionId');
