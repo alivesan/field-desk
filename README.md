@@ -16,6 +16,7 @@ The server enforces all of this — an admin's device never receives other store
 
 1. **HQ** creates the campaign, admins (Team page) and stores (one by one, or all at once from a sheet — see *Stores from a sheet*: name, ROG Exclusive, city, state, Google Maps link, Toornament link, date, admin).
 2. **Recce** (admin, days before): venue, setup (what is in place when you walk in), laptops (each game *Installed* + *Launched*, drivers, Windows), internet (in-app speed test or typed figures + screenshot), collateral — each with time/GPS-stamped photo proof. **Submit** creates a numbered revision; HQ sees it in **Recce reports** (New until opened), views exactly what was submitted against the requirements of that moment, marks it reviewed, and can save it as PDF/HTML. Later edits show as "edited since rev N" until resubmitted.
+   - **Match day opens for the admin when HQ marks the recce reviewed** — or automatically on the store's event date (and after), so a forgotten review never blocks a tournament. Until then the admin sees only the recce ("Sent — waiting for HQ to check it"), and the match-day / venue-board links show a short "not open yet" page. Editing the recce after review keeps it open; HQ is never gated.
 3. **Players & bracket** (HQ, per store): on the campaign page each store row has **Players & bracket**, two steps:
    - **01 Players** — upload a CSV, link a published sheet (Refresh pulls the latest), paste, or add one player at a time; remove one or all. Same number or same name twice → HQ is asked *"which one is it?"* (keep one, or both). The list order is the seed order: the file's row order, or its Seed column if it has one (seed 1 is the strongest; top seeds get the byes).
    - **02 Bracket** — first-round preview, **Create bracket** (stations set here), see it, **Reset bracket**. Reset clears results and live matches only; players (in their order) and check-ins stay.
@@ -64,6 +65,18 @@ Each store can carry its Toornament link (store details, or pasted on the store'
 - **Single elimination only.** Double elimination, groups, leagues, Swiss and free-for-all stages are named and refused.
 - Byes come across as byes. A first-round match with nobody in it (stage bigger than its field) can't be held here: set the stage size on Toornament, or use the players as a seeded list.
 - Results and the 3rd-place match aren't copied; the bracket starts fresh and is run here.
+
+## Toornament auto-check (the server)
+
+Walk-ins register until about 12:30–1 pm; HQ then adds them on Toornament and Toornament publishes the bracket. So nobody has to press **Fetch from Toornament** → **Use this bracket** at every store, the **server** does it (it works with nobody signed in):
+
+- **When.** Stores with a Toornament link, switched on (default on), on **their own day** (the store's date, else the campaign's), in **India time** (`EVENT_TZ`, default `Asia/Kolkata`): from **12:30** — the campaign page → *Campaign settings* → *Check Toornament for the bracket from* changes it — every **5 minutes**, until it succeeds or the day ends (midnight). One store at a time with a short pause between stores; a 429 from Toornament pauses everyone for 10, 20, 30 minutes.
+- **What counts as "the bracket is there".** A **single-elimination** stage whose players are **placed** in Toornament's first round (not the "registered only → seeded list" fallback), with no empty first-round match. No bracket generated → *waiting*; a bracket but nobody (or one player) placed, or an empty slot → *not-placed*; a stage that can't be used (double elimination, groups…) or Toornament not answering → *error* (tried again in 5 minutes).
+- **What it does.** The same `bracket.load` as **Use this bracket** (players matched to the store's list keep phone, in-game name and check-in; walk-ins not on Toornament yet stay on the list outside the bracket; others not on Toornament are removed), committed as the system actor *Toornament auto-check* through the normal command path — one version bump, versions, dedupe and live updates as usual. The load and its record are one commit. Then it **stops** for that store for the day.
+- **What it never does.** Replace a bracket **under way** (any real match called or played) — *skipped-underway*, or one **built by hand** (anything not built by a Toornament load, which the store remembers by the load's id) — *skipped-manual*; both end the day's checking. A bracket from an earlier Toornament load that hasn't started *may* be replaced. If HQ already pressed **Use this bracket** that day and nothing was touched since, it just stops ("Loaded by HQ").
+- **Status for HQ** (`store.toornament.auto`, written by the server, shown on the store's *Players & bracket → 02 Bracket*): "Auto-check: on — from 12:30 on 24 Oct, every 5 min · last checked 12:45: no bracket on Toornament yet", then "Applied automatically at 12:50 ✓". The tick box switches it off for that store (changing the link keeps it off); **Check again** (after it applied or stopped) clears the day's result so it looks again. Field admins can't write any of it.
+- **Settings.** `TOORNAMENT_AUTO=0` turns it off for the whole server; `EVENT_TZ` sets the zone. The dev server (`npm run dev`) doesn't run it unless `TOORNAMENT_AUTO=1`. Logs: one `toornament-auto` line per check (store id and result, never the link).
+- **Not done for you:** marking walk-ins as *added to Toornament* (HQ is still offered that), and results are never copied.
 
 ## On-spot registrations (walk-ins)
 
@@ -158,6 +171,7 @@ docker run -p 8080:8080 -e SUPER_ADMIN_CODE=<long secret> -v field-desk-data:/da
 | `SESSION_DAYS_ADMIN` / `SESSION_DAYS_SUPER` | `30` / `7` | Sessions expire server-side; sign-out revokes; a new admin code revokes that admin's sessions. |
 | `MAX_PHOTO_MB` / `MAX_PHOTOS_PER_STORE` | `15` / `500` | |
 | `COOKIE_NAME` | `fd_session` | |
+| `TOORNAMENT_AUTO` / `EVENT_TZ` | on / `Asia/Kolkata` | The Toornament auto-check (above): `0` switches it off; the zone the store's day and the 12:30 start are read in. |
 
 Sign-in rate limits: 10 wrong codes per address per 15 min (separately for admin codes and HQ), plus a global ceiling of 300 wrong admin codes per hour that never blocks HQ. 429 responses carry `Retry-After`.
 
@@ -212,6 +226,6 @@ Built with a default; change the default if it's wrong:
 - `src/lib/sync/engine.ts` — outbox, per-person storage, retries, failed work; `src/lib/db.ts` — the app's state API
 - `src/lib/bracket.ts` — seeding, byes, queue; `src/lib/assess.ts` — recce assessment and photo flags
 - `src/lib/phone.ts` — phone normalization, stable player ids; `src/lib/roster.ts` + `components/RosterImport.tsx` — HQ player import; `src/lib/storesheet.ts` + `components/StoreSheetImport.tsx` — HQ store import from a sheet; `src/lib/toornament.ts` + `components/ToornamentImport.tsx` — brackets from Toornament; `src/lib/onspot.ts` + `components/OnSpotList.tsx` — HQ's on-spot registrations list; `src/lib/winners.ts` + `pages/WinnersPage.tsx` — HQ's winners list and CSV
-- `server/public.ts` — player QR check-in (public); `server/roster-fetch.ts` — HQ sheet-link fetch (private / internal addresses refused on every redirect); `server/toornament-fetch.ts` — the same, for Toornament (toornament.com only)
+- `server/public.ts` — player QR check-in (public); `server/roster-fetch.ts` — HQ sheet-link fetch (private / internal addresses refused on every redirect); `server/toornament-fetch.ts` — the same, for Toornament (toornament.com only); `server/toornament-auto.ts` + `src/lib/toornament-auto.ts` — the timed check that loads the bracket (rules, status line)
 - `src/pages/CheckInPage.tsx` — the player's page; `src/lib/checkin.ts`, `src/lib/qr.ts` — check-in helpers, QR drawing
 - `tests/` — `npm test`

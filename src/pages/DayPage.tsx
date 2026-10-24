@@ -17,10 +17,10 @@ import {
   type SelfArrival,
 } from '../lib/checkin.ts';
 import { dayVersion, type Command } from '../lib/commands.ts';
-import { isPhone, maskPhone, MAX_IGN, normalizePhone, publicName } from '../lib/phone.ts';
+import { isPhone, MAX_IGN, normalizePhone, publicName } from '../lib/phone.ts';
 import { differentName, onSpotClash, tournamentCommand } from '../lib/tournament.ts';
 import { onSpotByPlayer } from '../lib/onspot.ts';
-import { feederOf, KIND_INFO, KIND_ORDER, matchState, slotKind, type MatchKind, type SlotKind } from '../lib/day-ui.ts';
+import { feederOf, KIND_INFO, KIND_ORDER, matchState, maskedPhone, phoneTail, slotKind, type MatchKind, type SlotKind } from '../lib/day-ui.ts';
 import type { Match, MatchDay, Player, Store, TournamentEvent } from '../lib/types.ts';
 import { cx, fmtTime, minutesSince, uid } from '../lib/util.ts';
 import { askConfirm, Chip, NotFound, notify, NumberField, PageHead, Shell, useNow } from '../components/ui.tsx';
@@ -226,7 +226,7 @@ export function DayPage({ storeId }: { storeId: string }) {
       ) : (
         <>
           {banner()}
-          <BracketView store={store} names={names} igns={igns} cmds={cmds} canReset={hq} onCheckIn={(pid) => editDay((d) => staffCheckIn(d, pid, new Date().toISOString()))} />
+          <BracketView store={store} names={names} igns={igns} cmds={cmds} canReset={hq} hq={hq} onCheckIn={(pid) => editDay((d) => staffCheckIn(d, pid, new Date().toISOString()))} />
         </>
       )}
 
@@ -416,7 +416,7 @@ function CheckIn({
               <span className="seed">{String(p.seed).padStart(2, '0')}</span>
               <button className="pmain" onClick={() => setOpen(p.id)} aria-haspopup="dialog" title="Name, number and Call">
                 <span className="pname">{p.name}</span>
-                {(isSelf(day, p.id) || onSpot.has(p.id) || p.phone || p.ign) && (
+                {(isSelf(day, p.id) || onSpot.has(p.id) || phoneTail(p) || p.ign) && (
                   <span className="pmeta">
                     {onSpot.has(p.id) && (
                       <span className="onspot-tag" title="Registered at the desk on the day">
@@ -433,7 +433,7 @@ function CheckIn({
                         {p.ign}
                       </span>
                     )}
-                    {p.phone && maskPhone(p.phone)}
+                    {maskedPhone(p)}
                   </span>
                 )}
               </button>
@@ -448,8 +448,13 @@ function CheckIn({
       <PlayerSheet
         player={day.players.find((x) => x.id === open) ?? null}
         day={day}
+        hq={hq}
         onSpot={open ? onSpot.get(open) : undefined}
-        onToggle={async (p) => (await toggle(p)) && setOpen(null)}
+        // An admin checking someone in stays on the sheet: the number arrives with the server's confirmation.
+        onToggle={async (p) => {
+          const wasIn = !!day.checkIn[p.id];
+          if ((await toggle(p)) && (hq || wasIn)) setOpen(null);
+        }}
         onClose={() => setOpen(null)}
       />
         </>
@@ -523,13 +528,20 @@ function OnSpotDesk({ day, editDay, cmds, hq, startOpen }: { day: MatchDay; edit
       const alt = differentName(day, n);
       setAsking(true);
       const other = await askConfirm(
-        `${p.name} is already on the list${p.phone ? ` (number ending ${p.phone.slice(-4)})` : ''}${day.checkIn[p.id] ? ' and checked in' : ''}. Is this a different person?`,
+        `${p.name} is already on the list${phoneTail(p) ? ` (number ending ${phoneTail(p)})` : ''}${day.checkIn[p.id] ? ' and checked in' : ''}. Is this a different person?`,
         { ok: `Different person → add as “${alt}”` },
       );
       setAsking(false);
       if (!other) return setProblem({ text: `Not registered. If it’s ${p.name}, check them in from the list.`, pid: p.id });
       shown = alt;
       sameName = 'different';
+    } else if (clash?.kind === 'phone-end') {
+      // Only the last 4 digits of this player are on this device, so it may or may not be them: ask, don't block. The server has every number and refuses a real duplicate.
+      const p = clash.player;
+      setAsking(true);
+      const other = await askConfirm(`${p.name} on the list has a number ending ${p.phoneEnd}${day.checkIn[p.id] ? ' and is checked in' : ''} — the same last digits. Is this a different person?`, { ok: 'Different person → register' });
+      setAsking(false);
+      if (!other) return setProblem({ text: `Not registered. If it’s ${p.name}, check them in from the list.`, pid: p.id });
     }
     const cmd: Command = { type: 'players.onspot', base: cmds.base, name: n, ...(tel ? { phone: tel } : {}), ...(ign.trim() ? { ign: ign.trim() } : {}), ...(sameName ? { sameName } : {}) };
     const refused = cmds.check(cmd);
@@ -1058,7 +1070,7 @@ function BracketLegend() {
 const SLOT_MARK: Record<SlotKind, string> = { here: '✓', away: '○', won: '', lost: '', adv: '', tbd: '', bye: '', open: '' };
 const SLOT_TAG: Partial<Record<SlotKind, string>> = { away: 'Not here', won: 'Won' };
 
-function BracketView({ store, names, igns, cmds, canReset, onCheckIn }: { store: Store; names: Record<string, string>; igns: Record<string, string>; cmds: Cmds; canReset: boolean; onCheckIn: (pid: string) => void }) {
+function BracketView({ store, names, igns, cmds, canReset, hq, onCheckIn }: { store: Store; names: Record<string, string>; igns: Record<string, string>; cmds: Cmds; canReset: boolean; hq: boolean; onCheckIn: (pid: string) => void }) {
   const { matches, checkIn } = store.day;
   const total = roundCount(matches);
   const rounds = Array.from({ length: total }, (_, r) => matches.filter((m) => m.round === r).sort((a, b) => a.index - b.index));
@@ -1166,7 +1178,7 @@ function BracketView({ store, names, igns, cmds, canReset, onCheckIn }: { store:
           <span className="label">HQ owns the bracket — ask HQ to change players</span>
         )}
       </div>
-      <MatchSheet matchId={open} day={store.day} names={names} igns={igns} cmds={cmds} pendingText={(w) => pendingLabel(w, cmds.offline)} onCheckIn={onCheckIn} onClose={() => setOpen(null)} />
+      <MatchSheet matchId={open} day={store.day} names={names} igns={igns} hq={hq} cmds={cmds} pendingText={(w) => pendingLabel(w, cmds.offline)} onCheckIn={onCheckIn} onClose={() => setOpen(null)} />
     </section>
   );
 }

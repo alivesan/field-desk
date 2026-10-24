@@ -17,7 +17,7 @@
  */
 import type { Admin, Recce, Store, TournamentEvent } from './types.ts';
 import { ensureRecce } from './recce.ts';
-import { toornamentLinkProblem } from './toornament.ts';
+import { HH_MM, toornamentLinkProblem } from './toornament.ts';
 import { MAX_IGN } from './phone.ts';
 import { INSTAGRAM_HANDLE } from './winnerInput.ts';
 
@@ -134,6 +134,9 @@ function validateEvent(c: C, e: Rec) {
     c.str(e.storeSheet.url, 'storeSheet.url', 2000);
     c.time(e.storeSheet.fetchedAt, 'storeSheet.fetchedAt');
   }
+  if (e.toornamentAuto !== undefined && c.obj(e.toornamentAuto, 'toornamentAuto')) {
+    if (typeof e.toornamentAuto.from !== 'string' || !HH_MM.test(e.toornamentAuto.from)) c.bad('toornamentAuto.from', 'must be a time of day, HH:MM (24-hour)');
+  }
 }
 
 function validateAdmin(c: C, a: Rec, ctx: ValidationContext) {
@@ -188,6 +191,15 @@ function validateStore(c: C, s: Rec, ctx: ValidationContext) {
     c.optStr(t.stageName, 'toornament.stageName', 200);
     c.optTime(t.appliedAt, 'toornament.appliedAt');
     c.optStr(t.by, 'toornament.by', 100);
+    c.optStr(t.loadId, 'toornament.loadId', 64);
+    if (t.auto !== undefined && c.obj(t.auto, 'toornament.auto')) {
+      const a = t.auto;
+      c.bool(a.enabled, 'toornament.auto.enabled');
+      c.optTime(a.lastCheckAt, 'toornament.auto.lastCheckAt');
+      if (a.lastResult !== undefined) c.oneOf(a.lastResult, 'toornament.auto.lastResult', ['waiting', 'not-placed', 'applied', 'skipped-underway', 'skipped-manual', 'error']);
+      c.optStr(a.message, 'toornament.auto.message', 400);
+      c.optTime(a.appliedAt, 'toornament.auto.appliedAt');
+    }
   }
   c.optTime(s.updatedAt, 'updatedAt');
   if (s.submissions !== undefined) {
@@ -309,6 +321,7 @@ function validateDay(c: C, d: unknown, path: string) {
     c.num(p.seed, `${pp}.seed`, 0, 100000);
     if (p.phone !== undefined && (typeof p.phone !== 'string' || !PHONE_DIGITS.test(p.phone))) c.bad(`${pp}.phone`, 'must be 6–15 digits');
     c.optStr(p.ign, `${pp}.ign`, MAX_IGN);
+    if (p.phoneEnd !== undefined && (typeof p.phoneEnd !== 'string' || !/^\d{4}$/.test(p.phoneEnd))) c.bad(`${pp}.phoneEnd`, 'must be 4 digits');
   }
 
   if (c.obj(d.checkIn, `${path}.checkIn`)) {

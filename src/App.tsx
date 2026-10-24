@@ -1,8 +1,11 @@
 import { useEffect } from 'react';
 import { useRoute } from './lib/router.ts';
 import { loadLan } from './lib/origin.ts';
-import { useSync } from './lib/db.ts';
-import { AccessGate, NotFound, PageHead, Shell } from './components/ui.tsx';
+import { useApp, useSync } from './lib/db.ts';
+import { matchDayOpen } from './lib/gate.ts';
+import { todayLocal } from './lib/util.ts';
+import { AccessGate, NotFound, PageHead, Shell, useNow } from './components/ui.tsx';
+import { MatchDayGate } from './components/MatchDayGate.tsx';
 import { Home } from './pages/Home.tsx';
 import { AdminHome } from './pages/AdminHome.tsx';
 import { TeamPage } from './pages/TeamPage.tsx';
@@ -31,8 +34,7 @@ export function App() {
   if (a === 'store' && id) {
     if (view === 'recce') return <ReccePage key={id} storeId={id} />;
     if (view === 'report') return <ReportPage key={id} storeId={id} />;
-    if (view === 'day') return <DayPage key={id} storeId={id} />;
-    if (view === 'board') return <BoardPage key={id} storeId={id} />;
+    if (view === 'day' || view === 'board') return <MatchDayRoute key={id} storeId={id} view={view} role={role} />;
     if (view === 'players') return role === 'super' ? <StoreSetupPage key={id} storeId={id} /> : <NotFound />;
   }
 
@@ -44,4 +46,13 @@ export function App() {
   if (a === 'winners') return <WinnersPage eventId={id} />;
   if (a === 'event' && id) return <EventPage key={id} eventId={id} />;
   return <NotFound />;
+}
+
+/** Match day and the venue board: a field admin gets a gate page until HQ has checked the recce (or the event date comes). */
+function MatchDayRoute({ storeId, view, role }: { storeId: string; view: 'day' | 'board'; role: 'super' | 'admin' }) {
+  const store = useApp((s) => s.stores[storeId]);
+  const event = useApp((s) => (store ? s.events[store.eventId] : undefined));
+  const now = useNow(60000);
+  if (store && event && !matchDayOpen(store, event, todayLocal(new Date(now)), role).open) return <MatchDayGate store={store} event={event} view={view} />;
+  return view === 'day' ? <DayPage storeId={storeId} /> : <BoardPage storeId={storeId} />;
 }

@@ -30,6 +30,7 @@ const asInput = (d: Draft): WinnerInput => ({ realName: d.realName, ign: d.ign, 
 /** What the form starts with: the saved record for this very person, else the player list. */
 function initial(saved: WinnerDetails | undefined, id: string, p: Player | undefined): Draft {
   if (saved && saved.playerId === id) return { realName: saved.realName, ign: saved.ign ?? '', phone: prettyPhone(saved.phone), email: saved.email ?? '', instagram: saved.instagram ?? '' };
+  // A finalist is checked in, so an admin has the number by now; if it hasn't arrived yet the field just starts empty.
   return { realName: p?.name ?? '', ign: p?.ign ?? '', phone: prettyPhone(p?.phone), email: '', instagram: '' };
 }
 

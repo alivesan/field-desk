@@ -11,6 +11,8 @@ import { consoleLogger as log, errorFields } from './log.ts';
  *   DATA_DIR          database + photos, default ./data — one server process per directory
  *   DIST_DIR          the built app, default ./dist
  *   SUPER_ADMIN_CODE  HQ's sign-in code (required)
+ *   TOORNAMENT_AUTO   0 = don't check Toornament for the bracket on the event day (default: check; see server/toornament-auto.ts)
+ *   EVENT_TZ          the time zone of the event day, default Asia/Kolkata
  *   plus the API's own settings: TRUST_PROXY, COOKIE_NAME, SESSION_DAYS_ADMIN, SESSION_DAYS_SUPER,
  *   MAX_PHOTO_MB, MAX_PHOTOS_PER_STORE (see server/api.ts)
  *
@@ -36,7 +38,7 @@ if (!fs.existsSync(indexFile)) {
 
 let api: ReturnType<typeof createApi>;
 try {
-  api = createApi({ dataDir, superCode });
+  api = createApi({ dataDir, superCode, toornamentAuto: { enabled: process.env.TOORNAMENT_AUTO?.trim() !== '0' } });
 } catch (e) {
   log('error', 'startup-failed', errorFields(e));
   process.exit(1);

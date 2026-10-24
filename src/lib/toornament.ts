@@ -39,6 +39,8 @@ export const PAGE = { stages: 50, participants: 50, nodes: 128 } as const;
 export const MAX_PLAYERS = 256;
 const MAX_NAME = 80;
 const TOORNAMENT_ID = /^\d{1,24}$/;
+/** A time of day, 24-hour 'HH:MM' (the campaign's auto-check start). */
+export const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 export interface ToornamentLink {
   tournamentId: string;
@@ -101,7 +103,7 @@ export const toornamentApi = {
 export function applyToornamentLink(store: Store, raw: string) {
   const url = raw.trim();
   if (!url) delete store.toornament;
-  else if (store.toornament?.url !== url) store.toornament = { url };
+  else if (store.toornament?.url !== url) store.toornament = store.toornament?.auto?.enabled === false ? { url, auto: { enabled: false } } : { url }; // a new link starts over; a switched-off auto-check stays off
 }
 
 /* ---------- reading Toornament's JSON ---------- */
@@ -243,6 +245,8 @@ export interface StageBracket {
   pairs: [string | null, string | null][] | null;
   /** Why it's 'seeded' / can't be used, in HQ's words. Absent when the pairings are usable as they are. */
   problem?: string;
+  /** What Toornament is missing when it isn't 'pairs': no bracket generated yet / nobody (or one player) placed in it / a shape that can't be used here. */
+  why?: 'not-generated' | 'unplaced' | 'unusable';
   /** Things worth knowing that don't block (renamed duplicates, results not copied, 3rd-place match…). */
   notes: string[];
   /** Matches Toornament already has results for. They are not copied: matches are run here. */
@@ -278,10 +282,10 @@ function readNodes(items: unknown[]): Node[] {
   }));
 }
 
-const seededFrom = (names: string[], problem: string, notes: string[], played: number): StageBracket => {
+const seededFrom = (names: string[], problem: string, why: StageBracket['why'], notes: string[], played: number): StageBracket => {
   const u = uniqueNames(names);
   if (u.renamed.length) notes.push(renamedNote(u.renamed));
-  return { mode: 'seeded', players: u.names, pairs: null, problem, notes, played };
+  return { mode: 'seeded', players: u.names, pairs: null, problem, why, notes, played };
 };
 const renamedNote = (names: string[]) => `${names.map((n) => `“${n}”`).join(', ')} ${names.length === 1 ? 'appears' : 'appear'} more than once on Toornament — the repeats are numbered “(2)”. Rename them there if they’re different people.`;
 
@@ -297,18 +301,18 @@ export function bracketFromNodes(nodeItems: unknown[], registered: ToornamentPar
   if (played) notes.push(`Toornament already has ${played} result${played === 1 ? '' : 's'} for this stage. Results aren’t copied — the bracket starts fresh here and matches are recorded on match day.`);
   const wb = nodes.filter((n) => n.branch !== 'lb');
   if (nodes.some((n) => n.branch === 'lb')) notes.push('Toornament’s 3rd-place match isn’t part of the bracket here.');
-  const fallback = (problem: string) => {
+  const fallback = (problem: string, why: StageBracket['why']) => {
     const placed = leafOrder(wb);
-    return placed.length ? seededFrom(placed, `${problem} You can still use the ${placed.length} placed players, seeded in Toornament’s bracket order.`, notes, played) : seededFrom(registered.map((p) => p.name), `${problem}${registered.length ? ` You can use the ${registered.length} registered participants instead, seeded in Toornament’s list order.` : ''}`, notes, played);
+    return placed.length ? seededFrom(placed, `${problem} You can still use the ${placed.length} placed players, seeded in Toornament’s bracket order.`, why, notes, played) : seededFrom(registered.map((p) => p.name), `${problem}${registered.length ? ` You can use the ${registered.length} registered participants instead, seeded in Toornament’s list order.` : ''}`, why, notes, played);
   };
 
-  if (!wb.length) return fallback('Toornament hasn’t generated this stage’s bracket yet.');
+  if (!wb.length) return fallback('Toornament hasn’t generated this stage’s bracket yet.', 'not-generated');
   const groups = new Set(wb.map((n) => n.group));
-  if (groups.size > 1) return fallback(`This stage has ${groups.size} separate brackets — Field Desk runs one per store.`);
+  if (groups.size > 1) return fallback(`This stage has ${groups.size} separate brackets — Field Desk runs one per store.`, 'unusable');
   const byId = new Map(wb.map((n) => [n.id, n]));
   const fed = new Set(wb.flatMap((n) => n.opponents.filter((o) => o.sourceType === 'winner').map((o) => o.sourceNode)));
   const roots = wb.filter((n) => !fed.has(n.id));
-  if (roots.length !== 1) return fallback('Toornament’s bracket for this stage isn’t one knockout tree.');
+  if (roots.length !== 1) return fallback('Toornament’s bracket for this stage isn’t one knockout tree.', 'unusable');
 
   // Walk from the final down, top opponent first (the order Toornament draws them in — see
   // readNodes), so first-round match i here is the i-th match from the top on Toornament's page
@@ -335,15 +339,15 @@ export function bracketFromNodes(nodeItems: unknown[], registered: ToornamentPar
   };
   const root = roots[0];
   const slots = expand(root, root.round);
-  if (shape || !isPow2(slots.length) || slots.length < 2 || visited.size !== wb.length) return fallback('Toornament’s bracket for this stage has a shape Field Desk can’t copy.');
+  if (shape || !isPow2(slots.length) || slots.length < 2 || visited.size !== wb.length) return fallback('Toornament’s bracket for this stage has a shape Field Desk can’t copy.', 'unusable');
 
   const placedCount = slots.filter(Boolean).length;
   if (!placedCount) {
     const later = stage && stage.number > 1 ? ' If they come from an earlier stage, Refresh once that stage is finished.' : '';
-    return fallback(`Nobody is placed in this stage on Toornament yet.${later}`);
+    return fallback(`Nobody is placed in this stage on Toornament yet.${later}`, 'unplaced');
   }
-  if (placedCount < 2) return fallback('Only one player is placed in this stage on Toornament.');
-  if (placedCount > MAX_PLAYERS) return { mode: 'seeded', players: [], pairs: null, problem: `${placedCount} players — Field Desk brackets hold up to ${MAX_PLAYERS}.`, notes, played };
+  if (placedCount < 2) return fallback('Only one player is placed in this stage on Toornament.', 'unplaced');
+  if (placedCount > MAX_PLAYERS) return { mode: 'seeded', players: [], pairs: null, problem: `${placedCount} players — Field Desk brackets hold up to ${MAX_PLAYERS}.`, why: 'unusable', notes, played };
 
   const u = uniqueNames(slots.filter((p): p is ToornamentParticipant => !!p).map((p) => p.name));
   if (u.renamed.length) notes.push(renamedNote(u.renamed));
@@ -367,6 +371,7 @@ export function bracketFromNodes(nodeItems: unknown[], registered: ToornamentPar
       players,
       pairs: null,
       problem: `First-round match ${empty + 1} on Toornament has nobody in it (an empty slot — the stage has ${slots.length} slots for ${placedCount} players). A bracket here can’t hold an empty match: on Toornament, set the stage size to ${placedCount} or fill the slot, then Refresh — or use the ${placedCount} players seeded in Toornament’s bracket order.`,
+      why: 'unusable',
       notes,
       played,
     };

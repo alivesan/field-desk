@@ -18,7 +18,7 @@ WORKDIR /app
 COPY package.json ./
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/server ./server
-COPY --from=build /app/src/lib/ops.ts /app/src/lib/phone.ts /app/src/lib/schema.ts /app/src/lib/recce.ts /app/src/lib/commands.ts /app/src/lib/command-types.ts /app/src/lib/tournament.ts /app/src/lib/bracket.ts /app/src/lib/submission.ts /app/src/lib/toornament.ts /app/src/lib/onspot.ts /app/src/lib/util.ts /app/src/lib/winnerInput.ts ./src/lib/
+COPY --from=build /app/src/lib/ops.ts /app/src/lib/phone.ts /app/src/lib/schema.ts /app/src/lib/recce.ts /app/src/lib/commands.ts /app/src/lib/command-types.ts /app/src/lib/tournament.ts /app/src/lib/bracket.ts /app/src/lib/submission.ts /app/src/lib/toornament.ts /app/src/lib/toornament-auto.ts /app/src/lib/onspot.ts /app/src/lib/util.ts /app/src/lib/winnerInput.ts ./src/lib/
 # Mount a persistent volume at /data — it holds the database and every proof photo.
 # One container per volume: the server takes a lock on /data/.lock.
 RUN mkdir -p /data && chown node:node /data

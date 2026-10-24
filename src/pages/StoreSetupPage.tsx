@@ -7,7 +7,7 @@ import { storeDate } from '../lib/recce.ts';
 import type { Match, MatchDay, OnSpotEntry, Player, Store, TournamentEvent } from '../lib/types.ts';
 import { cx, fmtDate } from '../lib/util.ts';
 import { askConfirm, Chip, NotFound, NumberField, PageHead, Shell } from '../components/ui.tsx';
-import { ToornamentImport } from '../components/ToornamentImport.tsx';
+import { AutoCheck, ToornamentImport } from '../components/ToornamentImport.tsx';
 import { RosterImport } from '../components/RosterImport.tsx';
 import { OnSpotList } from '../components/OnSpotList.tsx';
 import { onSpotByPlayer, onSpotOf, prettyPhone } from '../lib/onspot.ts';
@@ -384,6 +384,7 @@ function BracketStep({ store, event, onBack }: { store: Store; event: Tournament
         <h2>Bracket</h2>
         <Chip tone={played || live ? 'accent' : 'ok'}>{played || live ? `${played} played · ${live} live` : 'Not started'}</Chip>
       </div>
+      <AutoCheck store={store} event={event} />
       <BracketChart day={day} />
       <div className="submit-bar">
         <a className="btn ghost" href={`#/store/${store.id}/day`}>

@@ -3,8 +3,9 @@
  * src/components): what state a bracket match is in, how a slot reads, and the phone link for
  * "Call". No browser APIs, explicit .ts imports only, so Node tests can load it.
  */
-import type { Match, MatchDay } from './types.ts';
+import type { Match, MatchDay, Player } from './types.ts';
 import { nextOf } from './bracket.ts';
+import { maskPhone } from './phone.ts';
 
 /** `tel:` link for a stored number, or null when there is nothing dialable. 10-digit Indian mobiles get +91; longer numbers are already international (+); anything else is dialled as stored. */
 export function telHref(phone: string | undefined): string | null {
@@ -14,6 +15,36 @@ export function telHref(phone: string | undefined): string | null {
   if (d.length > 10) return `tel:+${d}`;
   return `tel:${d}`;
 }
+
+/*
+ * The phone rule: a field admin gets a player's full number only once the player is checked in (the
+ * server sends `phoneEnd`, the last 4 digits, until then); HQ always has the full number.
+ */
+
+/** Last 4 digits of a player's number, from the full number or the admin-side `phoneEnd` ('' = no number on the list). */
+export const phoneTail = (p: Pick<Player, 'phone' | 'phoneEnd'>): string => (p.phone ? p.phone.slice(-4) : (p.phoneEnd ?? ''));
+
+/** "•••• •• 1111" for the lists — all anyone gets to see there — or '' when the player has no number. */
+export const maskedPhone = (p: Pick<Player, 'phone' | 'phoneEnd'>): string => maskPhone(phoneTail(p));
+
+/**
+ * What a screen may show of a player's number:
+ * 'open' — the full number is here (HQ, or the player is checked in);
+ * 'after-check-in' — an admin and the player isn't checked in yet: only the last 4;
+ * 'loading' — checked in just now, the full number arrives with the server's next sync;
+ * 'none' — there is no number on the list.
+ */
+export type NumberAccess = 'open' | 'after-check-in' | 'loading' | 'none';
+
+export function numberAccess(p: Pick<Player, 'phone' | 'phoneEnd'>, checkedIn: boolean, hq: boolean): NumberAccess {
+  if (hq) return p.phone ? 'open' : 'none';
+  // Not checked in: hidden even if this device still holds the number (an undo not yet synced).
+  if (!checkedIn) return p.phone || p.phoneEnd ? 'after-check-in' : 'none';
+  return p.phone ? 'open' : p.phoneEnd ? 'loading' : 'none';
+}
+
+/** The `tel:` link for Call, only when the rule lets this person see the number. */
+export const telFor = (p: Pick<Player, 'phone' | 'phoneEnd'>, checkedIn: boolean, hq: boolean): string | null => (numberAccess(p, checkedIn, hq) === 'open' ? telHref(p.phone) : null);
 
 /* ---------- a match ---------- */
 

@@ -11,7 +11,8 @@ import { ago, fmtDate } from '../lib/util.ts';
 import { dateSpan, storeDate } from '../lib/recce.ts';
 import { askConfirm, Chip, Field, NotFound, NumberField, PageHead, Progress, Shell, useNow } from '../components/ui.tsx';
 import { detailsOf, StoreForm, type StoreDetails } from '../components/StoreForm.tsx';
-import { applyToornamentLink } from '../lib/toornament.ts';
+import { applyToornamentLink, HH_MM } from '../lib/toornament.ts';
+import { autoFrom } from '../lib/toornament-auto.ts';
 import { RosterImport } from '../components/RosterImport.tsx';
 import { StoreSheetImport } from '../components/StoreSheetImport.tsx';
 import { OnSpotList } from '../components/OnSpotList.tsx';
@@ -186,6 +187,20 @@ export function EventPage({ eventId }: { eventId: string }) {
               <NumberField label="Minimum download (Mbps)" value={event.minDownMbps} max={1000} onChange={(v) => edit((e) => (e.minDownMbps = v ?? 0))} />
             </div>
             <p className="hint">Changing the laptop target applies to laptop lists the next time their count is edited.</p>
+            <div className="grid2">
+              <Field
+                label="Check Toornament for the bracket from (India time)"
+                type="time"
+                value={autoFrom(event)}
+                onChange={(v) =>
+                  edit((e) => {
+                    if (HH_MM.test(v)) e.toornamentAuto = { from: v };
+                    else if (!v) delete e.toornamentAuto;
+                  })
+                }
+              />
+            </div>
+            <p className="hint">On each store’s day, from this time the server looks at the store’s Toornament link every 5 minutes. Once the players are placed in a single-elimination bracket it loads it into the store (unless matches are under way or the bracket was built by hand), then stops. Each store has its own on/off under Players &amp; bracket.</p>
             <div className="row end">
               <button className="link warn" onClick={remove}>
                 Delete campaign
