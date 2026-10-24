@@ -1,0 +1,114 @@
+{
+  "name": "Steam OTP - signed request webhook",
+  "active": false,
+  "nodes": [
+    {
+      "id": "steam-request-webhook",
+      "name": "Steam request webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "steam-request",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "webhookId": "fielddesk-steam-request"
+    },
+    {
+      "id": "forward-raw-signed-request",
+      "name": "Forward raw signed request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://otp-worker:8787/webhook",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-FieldDesk-Signature",
+              "value": "={{ $(\"Steam request webhook\").item.json.headers[\"x-fielddesk-signature\"] }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "OTP Worker"
+        }
+      }
+    },
+    {
+      "id": "return-worker-response",
+      "name": "Return worker response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Steam request webhook": {
+      "main": [
+        [
+          {
+            "node": "Forward raw signed request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Forward raw signed request": {
+      "main": [
+        [
+          {
+            "node": "Return worker response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false
+  }
+}
