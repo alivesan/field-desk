@@ -246,13 +246,17 @@ const nameKey = (name: string) => name.replace(/\s+/g, ' ').trim().toLowerCase()
  * instead) or the same name (maybe the same person; the admin decides). The desk form asks
  * before it sends; the handler refuses an unconfirmed clash, e.g. from another desk meanwhile.
  */
-export function onSpotClash(day: MatchDay, name: string, phone?: string): { kind: 'phone' | 'name'; player: Player } | null {
+export function onSpotClash(day: MatchDay, name: string, phone?: string): { kind: 'phone' | 'name' | 'phone-end'; player: Player } | null {
   const tel = phone ? normalizePhone(phone) : '';
   const byPhone = tel ? day.players.find((p) => p.phone === tel) : undefined;
   if (byPhone) return { kind: 'phone', player: byPhone };
   const key = nameKey(name);
   const byName = key ? day.players.find((p) => nameKey(p.name) === key) : undefined;
-  return byName ? { kind: 'name', player: byName } : null;
+  if (byName) return { kind: 'name', player: byName };
+  // A field admin's device holds only the last 4 digits of players not checked in yet (Player.phoneEnd):
+  // a match there is "might be on the list already", never proof — the server, which has every number, decides.
+  const byEnd = tel ? day.players.find((p) => !p.phone && p.phoneEnd && tel.endsWith(p.phoneEnd)) : undefined;
+  return byEnd ? { kind: 'phone-end', player: byEnd } : null;
 }
 
 /** "Asha R. (2)", or (3)… — the first that's free on the list, within the name length limit. */

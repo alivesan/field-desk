@@ -580,3 +580,26 @@ ul.roster .roster-row .pmain:focus-visible .pname {
 .roster-row .pmeta > * {
   white-space: nowrap;
 }
+.sheet-locked {
+  margin: 0;
+  padding: 16px;
+  display: grid;
+  gap: 8px;
+  background: var(--paper-2);
+}
+.sheet-locked strong {
+  font: 600 13px/1.2 var(--sans);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.sheet-locked span {
+  color: var(--muted);
+  font: 500 18px/1.2 var(--mono);
+  letter-spacing: 0.04em;
+}
+.btn.sheet-checkin {
+  width: 100%;
+  min-height: 64px;
+  margin-top: 10px;
+  font-size: 17px;
+}

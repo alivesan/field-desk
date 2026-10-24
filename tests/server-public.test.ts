@@ -170,9 +170,12 @@ test('public POST: broadcast to the store’s admin and HQ (not other admins); a
     const seq = await seqOf(t, hq);
     assert.equal((await checkin(t, TOKEN, { phone: '9820011111' })).status, 200);
     const m1 = await sa1.next((m) => m.seq === seq + 1);
+    // Admins get the changed store as their filtered copy (whole doc), with the QR check-in in it.
     const paths = m1.ops.map((o: any) => `${o.k}/${o.id}:${o.p.join('.')}`);
-    assert.ok(paths.includes('stores/s1:day.checkIn.p1'), JSON.stringify(paths));
-    assert.ok(paths.some((p: string) => p.startsWith('stores/s1:day.checkInSource')), JSON.stringify(paths));
+    assert.deepEqual(paths, ['stores/s1:'], JSON.stringify(paths));
+    assert.ok(m1.ops[0].v.day.checkIn.p1, 'checked in');
+    assert.equal(m1.ops[0].v.day.checkInSource.p1, 'self');
+    assert.equal(m1.ops[0].v.day.players.find((p: any) => p.id === 'p1').phone, '9820011111', 'checked in → the admin gets the number');
     assert.match(m1.id, /^player-/);
     assert.ok((await shq.next((m) => m.seq === seq + 1)).ops.length > 0);
     assert.deepEqual((await sa2.next((m) => m.seq === seq + 1)).ops, [], 'a2 gets the seq, not s1’s data');

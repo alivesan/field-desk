@@ -79,6 +79,7 @@ export interface Player {
   seed: number;
   phone?: string; // normalized digits (normalizePhone) — how a player finds themselves at QR check-in
   ign?: string; // in-game name / gamertag from HQ's list (cleanIgn, ≤ 40) — shown to staff, searchable; never part of the id
+  phoneEnd?: string; // admins only: last 4 digits while the player isn't checked in — the server sends this instead of `phone` (never stored)
 }
 
 export interface Match {
@@ -179,8 +180,25 @@ export interface ToornamentSource {
   url: string; // the tournament (or stage) page HQ pasted: https://play.toornament.com/…/tournaments/<id>/
   stageId?: string; // the stage last used
   stageName?: string;
-  appliedAt?: string; // when HQ last used it for this store's bracket
-  by?: string; // principal
+  appliedAt?: string; // when HQ (or the auto-check) last used it for this store's bracket
+  by?: string; // principal ('system:toornament' = the auto-check)
+  loadId?: string; // id of the bracket.load that built the current bracket: its matches' ids start with it (how the auto-check tells a Toornament bracket from one built by hand)
+  auto?: ToornamentAuto; // the server's 5-minute check on the event day (server/toornament-auto.ts)
+}
+
+export type ToornamentAutoResult = 'waiting' | 'not-placed' | 'applied' | 'skipped-underway' | 'skipped-manual' | 'error';
+
+/**
+ * The auto-check's switch (HQ) and what it last found (written by the server only). `enabled` is on
+ * unless it says false. waiting = no bracket on Toornament yet; not-placed = a bracket, but the players
+ * aren't placed in it; applied / skipped-* end the day's checking (HQ's "Check again" clears them).
+ */
+export interface ToornamentAuto {
+  enabled: boolean;
+  lastCheckAt?: string; // ISO
+  lastResult?: ToornamentAutoResult;
+  message?: string; // one plain sentence for HQ — never a link
+  appliedAt?: string; // ISO, when the auto-check loaded the bracket
 }
 
 /** The requirements a recce was assessed against when it was submitted. */
@@ -240,6 +258,7 @@ export interface TournamentEvent {
   minDownMbps: number;
   createdAt: string;
   storeSheet?: StoreSheetSource; // HQ-only: the sheet the campaign's stores are imported from
+  toornamentAuto?: { from: string }; // 'HH:MM' India time: when the server starts checking Toornament for each store's bracket on its day (default 12:30)
 }
 
 /** The sheet link HQ imports this campaign's stores from — so next time it's one press on Refresh. */

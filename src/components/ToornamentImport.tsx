@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { sendCommand, updateStore, usePendingWork, useSync } from '../lib/db.ts';
 import { applyCommand, dayVersion, type Command, type CommandContext } from '../lib/commands.ts';
 import { maskPhone } from '../lib/phone.ts';
-import { applyToornamentLink, planImport, toornamentLinkProblem, underWay, type ImportPlan, type StageBracket, type ToornamentFetch } from '../lib/toornament.ts';
+import { applyToornamentLink, toornamentLinkProblem, underWay, type ToornamentFetch } from '../lib/toornament.ts';
+import { AUTO_EVERY_MIN, autoFinished, autoLine, planFor } from '../lib/toornament-auto.ts';
 import type { Store, TournamentEvent } from '../lib/types.ts';
 import { ago, cx } from '../lib/util.ts';
 import { useMarkOnSpot } from './OnSpotList.tsx';
+import { useNow } from './ui.tsx';
 import '../styles/toornament.css';
 import '../styles/onspot.css';
 
@@ -23,26 +25,39 @@ import '../styles/onspot.css';
 
 type Fetched = { at: string; data: ToornamentFetch };
 
-/** Would the server take this bracket.load? Used to keep walk-ins on the list outside Toornament's pairings, where that's accepted. */
-function loadTakes(store: Store, event: TournamentEvent, plan: ImportPlan) {
-  try {
-    applyCommand(store, { type: 'bracket.load', base: dayVersion(store), players: plan.players, pairs: plan.pairs }, { commandId: 'hq-probe', now: new Date().toISOString(), actor: { principal: 'super', name: 'HQ', role: 'super' }, event });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function planFor(bracket: StageBracket, store: Store, event: TournamentEvent): ImportPlan {
-  const opts = { onSpot: store.day.onSpot ?? [] };
-  const plain = planImport(bracket, store.day.players, opts);
-  if (!plain.pairs || !plain.onSpotMissing.some((m) => m.player)) return plain;
-  const kept = planImport(bracket, store.day.players, { ...opts, keepOutside: true });
-  return loadTakes(store, event, kept) ? kept : plain;
-}
+/*
+ * The server also does this by itself: from 12:30 on the store's day it checks Toornament every 5
+ * minutes and loads the bracket once the players are placed in it (server/toornament-auto.ts —
+ * the same plan, the same bracket.load). The "Auto-check" line below shows how that is going, with
+ * its switch; "Fetch from Toornament" stays for doing it by hand.
+ */
 
 const list = (names: string[]) => names.slice(0, 8).join(', ') + (names.length > 8 ? ` and ${names.length - 8} more` : '');
 const nPlayers = (n: number) => `${n} on-spot player${n === 1 ? '' : 's'}`;
+
+/** The server's auto-check for this store: how it is going, its switch, and "Check again" once it has stopped for the day. */
+export function AutoCheck({ store, event }: { store: Store; event: TournamentEvent }) {
+  const now = new Date(useNow(30000));
+  if (!store.toornament?.url) return null;
+  const line = autoLine(store, event, now);
+  // The switch and "Check again" write the HQ-only record; the server writes what it found into the same place.
+  const set = (enabled: boolean) => updateStore(store.id, (s) => void (s.toornament && (s.toornament.auto = { enabled })));
+  return (
+    <div className={cx('tn-auto', line.tone)}>
+      <p>{line.text}</p>
+      <div className="row">
+        <label className="tn-auto-switch">
+          <input type="checkbox" checked={line.on} onChange={(e) => set(e.target.checked)} /> Check Toornament by itself every {AUTO_EVERY_MIN} min on the day
+        </label>
+        {line.on && autoFinished(store, now) && (
+          <button className="link" onClick={() => set(true)}>
+            Check again
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function ToornamentImport({ store, event }: { store: Store; event: TournamentEvent }) {
   const sync = useSync();
@@ -136,8 +151,10 @@ export function ToornamentImport({ store, event }: { store: Store; event: Tourna
     } catch (e) {
       return setProblem(e instanceof Error ? e.message : String(e));
     }
+    let id: string;
     try {
-      setSentId(sendCommand(store.id, cmd));
+      id = sendCommand(store.id, cmd);
+      setSentId(id);
     } catch (e) {
       return setProblem(`Couldn’t queue this on the device: ${(e as Error).message}`);
     }
@@ -150,6 +167,7 @@ export function ToornamentImport({ store, event }: { store: Store; event: Tourna
       s.toornament.stageName = data.stage?.name;
       s.toornament.appliedAt = at;
       s.toornament.by = sync.principal ?? 'super';
+      s.toornament.loadId = id; // the bracket's match ids start with it — how the auto-check knows this one came from Toornament
     });
   };
 
@@ -183,6 +201,8 @@ export function ToornamentImport({ store, event }: { store: Store; event: Tourna
           </button>
         )}
       </div>
+
+      {link && !editing && <AutoCheck store={store} event={event} />}
 
       {editing && (
         <div className="tn-edit">

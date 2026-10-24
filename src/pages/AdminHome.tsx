@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { logout, useApp, usePendingWork, useSync } from '../lib/db.ts';
 import { assess } from '../lib/assess.ts';
 import { computeQueue } from '../lib/bracket.ts';
+import { matchDayOpen } from '../lib/gate.ts';
 import { storeDate } from '../lib/recce.ts';
 import { isLegacy, revLabel, submissionState } from '../lib/submission.ts';
 import type { Store, TournamentEvent } from '../lib/types.ts';
-import { cx, fmtDate, fmtDateTime, fmtTime } from '../lib/util.ts';
+import { cx, fmtDate, fmtDateTime, fmtTime, todayLocal } from '../lib/util.ts';
 import { PageHead, Shell, useNow } from '../components/ui.tsx';
 import { winnersState } from '../lib/winnerInput.ts';
 
@@ -73,9 +74,13 @@ function StoreTasks({ store, event, now }: { store: Store; event: TournamentEven
   const r = store.recce;
   const st = submissionState(store, usePendingWork(store.id));
   const sent = st.kind === 'submitted' || st.kind === 'reviewed'; // acknowledged by the server, nothing changed since
-  // The recce folds away once HQ has it; edited-since, waiting or failed submissions still need the admin's eyes.
+  // Match day is closed until HQ has checked the recce (or the event date comes); until then the recce is the whole card.
+  const gate = matchDayOpen(store, event, todayLocal(new Date(now)));
+  const open = gate.open;
+  // The recce folds away once HQ has it and match day leads; edited-since, waiting or failed submissions still need the admin's eyes.
   const [recceShown, setRecceShown] = useState(() => reccePref(store.id));
-  const recceOpen = !sent || recceShown;
+  const folds = sent && open;
+  const recceOpen = !folds || recceShown;
   const sentLine = sent ? `${isLegacy(st.acknowledged) ? 'Submitted' : `Submitted ${revLabel(st.acknowledged!)}`}${st.kind === 'reviewed' ? ' · Reviewed by HQ ✓' : ' · HQ hasn’t opened it yet'}` : '';
   const day = store.day;
   const q = day.matches.length ? computeQueue(day) : null;
@@ -95,17 +100,20 @@ function StoreTasks({ store, event, now }: { store: Store; event: TournamentEven
   const when = days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : days > 1 ? `In ${days} days` : `${-days} day${days === -1 ? '' : 's'} ago`;
 
   const base = `#/store/${store.id}`;
-  const next = collect
-    ? { label: 'Collect winner details', href: `${base}/day` }
-    : st.kind === 'failed'
-      ? { label: 'Fix the recce submission', href: `${base}/recce` }
-      : !st.acknowledged && st.kind !== 'waiting'
-        ? { label: r.startedAt ? 'Continue the recce' : 'Start the recce', href: `${base}/recce` }
-        : st.kind === 'draft' && days > 0
-          ? { label: 'Submit the recce update', href: `${base}/recce` }
-      : !q?.champion && (days <= 0 || day.players.length)
-        ? { label: 'Open match day', href: `${base}/day` }
-        : { label: 'View the report', href: `${base}/report` };
+  const next =
+    open && collect
+      ? { label: 'Collect winner details', href: `${base}/day` }
+      : st.kind === 'failed'
+        ? { label: 'Fix the recce submission', href: `${base}/recce` }
+        : !st.acknowledged && st.kind !== 'waiting'
+          ? { label: r.startedAt ? 'Continue the recce' : 'Start the recce', href: `${base}/recce` }
+          : st.kind === 'draft' && days > 0
+            ? { label: 'Submit the recce update', href: `${base}/recce` }
+            : !open
+              ? { label: 'View the recce', href: `${base}/recce` } // closed: never point at match day
+              : !q?.champion && (days <= 0 || day.players.length)
+                ? { label: 'Open match day', href: `${base}/day` }
+                : { label: 'View the report', href: `${base}/report` };
 
   const step = (done: boolean, title: string, detail: string, warn?: boolean) => (
     <li key={title} className={cx(done && 'done', warn && 'warn')}>
@@ -130,8 +138,8 @@ function StoreTasks({ store, event, now }: { store: Store; event: TournamentEven
         </a>
       </header>
 
-      <section className={cx('recce-part', sent && 'sent')}>
-        {sent ? (
+      <section className={cx('recce-part', folds && 'sent', !open && 'main')}>
+        {folds ? (
           <button
             type="button"
             className="fold-head"
@@ -156,7 +164,9 @@ function StoreTasks({ store, event, now }: { store: Store; event: TournamentEven
         {recceOpen && (
           <div id={`recce-${store.id}`}>
             <ol className="steps">
-              {a.sections.map((s) => step(s.done, s.title, s.done ? (s.issues[0] ?? 'Done') : s.todo.slice(0, 2).join(' · ') + (s.todo.length > 2 ? ` · +${s.todo.length - 2} more` : ''), s.done && s.issues.length > 0))}
+              {a.sections.map((s) =>
+                step(s.done, s.title, s.done ? (s.issues[0] ?? 'Done') : s.todo.slice(0, 2).join(' · ') + (s.todo.length > 2 ? ` · +${s.todo.length - 2} more` : ''), s.done && s.issues.length > 0),
+              )}
               {step(
                 sent,
                 st.kind === 'reviewed' ? 'Reviewed by HQ' : 'Submit to HQ',
@@ -184,42 +194,55 @@ function StoreTasks({ store, event, now }: { store: Store; event: TournamentEven
         )}
       </section>
 
-      <section className={cx('day-part', sent && 'main')}>
-        <h3>
-          <span>02</span> On the day — match day
-        </h3>
-        <ol className="steps">
-          {step(day.players.length > 0, 'Bracket loaded', day.players.length ? `${day.players.length} players · sent by HQ` : 'HQ sends it — it appears here automatically')}
-          {step(
-            day.players.length > 0 && here === day.players.length,
-            'Check players in',
-            day.players.length
-              ? `${here} of ${day.players.length} here${selfIn ? ` · ${selfIn} by QR` : ''}${day.selfCheckIn?.open ? ' · QR check-in open' : days === 0 ? ' · tip: open QR check-in so players check themselves in' : ''}`
-              : 'On the day, open QR check-in on match day — players scan and check themselves in',
-          )}
-          {step(!!q?.champion, 'Run the matches', total ? `${played} of ${total} played${q && q.live.length ? ` · ${q.live.length} live now` : ''}` : 'Call each match from the queue')}
-          {step(!!q?.champion, 'Champion', q?.champion ? names[q.champion] : '—')}
-          {(q?.champion || day.winners) &&
-            step(
-              ws.kind === 'saved' && !ws.missing,
-              ws.kind === 'saved' && !ws.missing ? 'Winners: details saved ✓' : 'Winner details',
-              ws.kind === 'stale'
-                ? 'Saved details no longer match the bracket — open match day'
-                : ws.kind === 'saved'
-                  ? `${ws.missing ? 'Still needs a real name or phone' : 'Winner and runner-up'} · saved ${fmtTime(day.winners!.updatedAt)} by ${day.winners!.by}`
-                  : 'Collect the winner’s and runner-up’s name, phone, email and Instagram',
-              ws.kind === 'stale' || (ws.kind === 'saved' && ws.missing),
+      {!open ? (
+        <section className="day-part gated">
+          <h3>
+            <span>02</span> On the day — match day
+          </h3>
+          <p className="gate-line">
+            {st.acknowledged ? 'Sent — waiting for HQ to check it. Match day opens once they have' : 'Match day opens once HQ checks your recce'} (or on{' '}
+            {fmtDate(date, { weekday: 'short', day: 'numeric', month: 'short' })}).
+          </p>
+        </section>
+      ) : (
+        <section className={cx('day-part', sent && 'main')}>
+          <h3>
+            <span>02</span> On the day — match day
+          </h3>
+          {gate.reason === 'event-day' && <p className="gate-note">Open because it’s the event date — HQ hasn’t checked the recce yet.</p>}
+          <ol className="steps">
+            {step(day.players.length > 0, 'Bracket loaded', day.players.length ? `${day.players.length} players · sent by HQ` : 'HQ sends it — it appears here automatically')}
+            {step(
+              day.players.length > 0 && here === day.players.length,
+              'Check players in',
+              day.players.length
+                ? `${here} of ${day.players.length} here${selfIn ? ` · ${selfIn} by QR` : ''}${day.selfCheckIn?.open ? ' · QR check-in open' : days === 0 ? ' · tip: open QR check-in so players check themselves in' : ''}`
+                : 'On the day, open QR check-in on match day — players scan and check themselves in',
             )}
-        </ol>
-        <div className="row">
-          <a className="btn ghost" href={`${base}/day`}>
-            Match day
-          </a>
-          <a className="btn ghost" href={`${base}/board`} target="_blank" rel="noreferrer">
-            Venue board ↗
-          </a>
-        </div>
-      </section>
+            {step(!!q?.champion, 'Run the matches', total ? `${played} of ${total} played${q && q.live.length ? ` · ${q.live.length} live now` : ''}` : 'Call each match from the queue')}
+            {step(!!q?.champion, 'Champion', q?.champion ? names[q.champion] : '—')}
+            {(q?.champion || day.winners) &&
+              step(
+                ws.kind === 'saved' && !ws.missing,
+                ws.kind === 'saved' && !ws.missing ? 'Winners: details saved ✓' : 'Winner details',
+                ws.kind === 'stale'
+                  ? 'Saved details no longer match the bracket — open match day'
+                  : ws.kind === 'saved'
+                    ? `${ws.missing ? 'Still needs a real name or phone' : 'Winner and runner-up'} · saved ${fmtTime(day.winners!.updatedAt)} by ${day.winners!.by}`
+                    : 'Collect the winner’s and runner-up’s name, phone, email and Instagram',
+                ws.kind === 'stale' || (ws.kind === 'saved' && ws.missing),
+              )}
+          </ol>
+          <div className="row">
+            <a className="btn ghost" href={`${base}/day`}>
+              Match day
+            </a>
+            <a className="btn ghost" href={`${base}/board`} target="_blank" rel="noreferrer">
+              Venue board ↗
+            </a>
+          </div>
+        </section>
+      )}
     </article>
   );
 }

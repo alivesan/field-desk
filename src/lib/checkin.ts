@@ -101,16 +101,22 @@ export function recentSelfCheckIns(day: MatchDay, limit = 8): SelfArrival[] {
     .slice(0, limit);
 }
 
-/** Players HQ sent without a phone number — they can't use the QR. */
-export const withoutPhone = (players: Player[]) => players.filter((p) => !p.phone).length;
+/** Players HQ sent without a phone number — they can't use the QR. (An admin's device holds only the last 4 — `phoneEnd` — for players not yet checked in; that counts as a number.) */
+export const withoutPhone = (players: Player[]) => players.filter((p) => !p.phone && !p.phoneEnd).length;
 
-/** Roster search: names and in-game names, or (3+ digits typed) the end of a phone number. */
+/**
+ * Roster search: names and in-game names, or (3+ digits typed) a phone number. A player whose full
+ * number this device doesn't hold yet (an admin, not checked in) is found by their last 4 digits —
+ * typing 3–4 digits, or a whole number ending in them.
+ */
 export function matchesPlayer(p: Player, query: string) {
   const q = query.trim().toLowerCase();
   if (!q) return true;
   if (p.name.toLowerCase().includes(q) || !!p.ign?.toLowerCase().includes(q)) return true;
   const digits = q.replace(/\D/g, '');
-  return digits.length >= 3 && digits.length === q.replace(/[\s+()-]/g, '').length && !!p.phone?.includes(digits);
+  if (digits.length < 3 || digits.length !== q.replace(/[\s+()-]/g, '').length) return false;
+  if (p.phone) return p.phone.includes(digits);
+  return !!p.phoneEnd && (digits.length <= p.phoneEnd.length ? p.phoneEnd.includes(digits) : digits.endsWith(p.phoneEnd));
 }
 
 /* ---------- the public page's answers ---------- */

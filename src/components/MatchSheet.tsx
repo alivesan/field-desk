@@ -1,7 +1,7 @@
 import { Fragment, useState } from 'react';
 import { canUndo, matchNo, roundCount, roundName } from '../lib/bracket.ts';
 import type { Command } from '../lib/commands.ts';
-import { feederOf, KIND_INFO, matchState, playedFor, stationSlots, telHref, undoBlockedBy, type MatchKind } from '../lib/day-ui.ts';
+import { feederOf, KIND_INFO, matchState, playedFor, stationSlots, telFor, undoBlockedBy, type MatchKind } from '../lib/day-ui.ts';
 import type { PendingWork } from '../lib/db.ts';
 import type { Match, MatchDay } from '../lib/types.ts';
 import { cx, fmtTime, minutesSince } from '../lib/util.ts';
@@ -32,6 +32,7 @@ interface Props {
   day: MatchDay;
   names: Record<string, string>;
   igns: Record<string, string>;
+  hq: boolean; // HQ can call anyone; a field admin only players who are checked in
   cmds: MatchCmds;
   pendingText: (w: PendingWork) => string;
   onCheckIn: (pid: string) => void;
@@ -53,7 +54,7 @@ export function MatchSheet(p: Props) {
   );
 }
 
-function MatchBody({ m, day, names, igns, cmds, pendingText, onCheckIn, onClose }: Props & { m: Match }) {
+function MatchBody({ m, day, names, igns, hq, cmds, pendingText, onCheckIn, onClose }: Props & { m: Match }) {
   const all = day.matches;
   const st = matchState(m, day);
   const no = (x: Match) => `M${matchNo(x, all)}`;
@@ -106,7 +107,7 @@ function MatchBody({ m, day, names, igns, cmds, pendingText, onCheckIn, onClose 
     );
   };
 
-  const phoneOf = (id: string) => day.players.find((x) => x.id === id)?.phone;
+  const playerOf = (id: string) => day.players.find((x) => x.id === id);
   const free = stationSlots(day);
   const anyFree = free.some((s) => !s.live && !cmds.pendingStart(s.station));
   const firstFree = free.find((s) => !s.live && !cmds.pendingStart(s.station))?.station;
@@ -173,7 +174,8 @@ function MatchBody({ m, day, names, igns, cmds, pendingText, onCheckIn, onClose 
               {st.kind === 'both-missing' ? 'Neither player has checked in yet.' : `${names[st.missing[0]]} hasn’t checked in yet.`} The match can be called once {st.missing.length === 2 ? 'both are' : 'they are'} here.
             </p>
             {st.missing.map((id) => {
-              const tel = telHref(phoneOf(id));
+              const p = playerOf(id);
+              const tel = p ? telFor(p, !!day.checkIn[id], hq) : null; // missing players aren't checked in, so only HQ gets a link
               return (
                 <div key={id} className="sheet-missing">
                   <button className="btn accent" onClick={() => onCheckIn(id)}>
@@ -187,6 +189,7 @@ function MatchBody({ m, day, names, igns, cmds, pendingText, onCheckIn, onClose 
                 </div>
               );
             })}
+            {!hq && st.missing.some((id) => playerOf(id)?.phone || playerOf(id)?.phoneEnd) && <p className="hint">Check them in to see {st.missing.length === 2 ? 'their numbers' : 'their number'}.</p>}
             {st.kind === 'one-missing' ? (
               (() => {
                 const here = m.a === st.missing[0] ? m.b! : m.a!;

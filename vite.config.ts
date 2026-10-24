@@ -25,7 +25,7 @@ function api(mode: string): Plugin {
     async configureServer(server) {
       const { createApi } = await import('./server/api.ts');
       const { code, source } = devSuperCode(mode);
-      const handler = createApi({ dataDir: process.env.DATA_DIR ?? '.data', superCode: code });
+      const handler = createApi({ dataDir: process.env.DATA_DIR ?? '.data', superCode: code, toornamentAuto: { enabled: process.env.TOORNAMENT_AUTO === '1' } }); // dev: the Toornament auto-check only when asked for
       // Vite restarts re-run this hook in the same process: release the DB handle, timers and data-dir lock.
       server.httpServer?.once('close', () => handler.close());
       server.config.logger.info(`  Field Desk: HQ signs in at /hq with ${source}`);

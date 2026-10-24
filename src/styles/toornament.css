@@ -204,3 +204,34 @@
 .tn-sent.bad {
   border-left: 3px solid var(--accent);
 }
+
+/* The server's auto-check: its status line and switch. */
+.tn-auto {
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: var(--paper-2);
+  border-left: 3px solid var(--rule);
+  max-width: 75ch;
+}
+.tn-auto.ok {
+  border-left-color: var(--ok);
+}
+.tn-auto.warn {
+  border-left-color: var(--warn);
+}
+.tn-auto p {
+  margin: 0;
+  font-size: 14px;
+}
+.tn-auto .row {
+  margin-top: 6px;
+  gap: 4px 16px;
+  align-items: center;
+}
+.tn-auto-switch {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--muted);
+}

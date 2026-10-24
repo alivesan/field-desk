@@ -2071,3 +2071,29 @@ code {
   font-size: clamp(28px, 7vw, 34px);
   border-bottom-width: 3px;
 }
+
+/* match day not open yet: one quiet line instead of the checklist */
+.task-card section.day-part.gated h3 {
+  color: var(--muted);
+  border-bottom-color: var(--rule);
+}
+.gate-line {
+  margin: 12px 0 0;
+  font-size: 14px;
+  color: var(--ink-2);
+  max-width: 52ch;
+}
+.gate-note {
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--warn);
+  background: var(--paper-2);
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.gate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}

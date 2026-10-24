@@ -5,7 +5,8 @@ import fs from 'node:fs';
 import { applyOps, diffDocs, DOC_KINDS, safeParse, validateOps, type Docs, type DocKind, type Op } from '../src/lib/ops.ts';
 import { ADMIN_CODE, normalizeStore, validateDocument } from '../src/lib/schema.ts';
 import { applyCommand, COMMAND_ROLES, CommandError, validateCommand, type Command, type CommandContext } from '../src/lib/commands.ts';
-import type { Store } from '../src/lib/types.ts';
+import type { Store, ToornamentSource } from '../src/lib/types.ts';
+import { AUTO_ACTOR } from '../src/lib/toornament-auto.ts';
 import { openDatabase, photoIds } from './migrate.ts';
 import { acquireLock } from './lock.ts';
 import { createSessions, hashToken, TOKEN } from './sessions.ts';
@@ -15,6 +16,7 @@ import { consoleLogger, errorFields, type Logger } from './log.ts';
 import { createPublicLimiter, DEFAULT_PUBLIC_LIMITS, selfCheckIn, storeByToken, type PublicLimitConfig } from './public.ts';
 import { fetchRoster, RosterFetchError, type RosterFetchOptions } from './roster-fetch.ts';
 import { fetchToornament } from './toornament-fetch.ts';
+import { createToornamentAuto, type ToornamentAutoOptions } from './toornament-auto.ts';
 import { lanOrigins, listensOnAll } from './lan.ts';
 
 export { ADMIN_CODE };
@@ -43,6 +45,10 @@ export { ADMIN_CODE };
  *   GET  /api/roster/fetch?url=<https link>   HQ only: { url, contentType, text, fetchedAt } (server/roster-fetch.ts)
  *   GET  /api/toornament/fetch?url=<toornament link>&stage=<stageId>   HQ only: tournament, stages,
  *        participants, the stage's first round (server/toornament-fetch.ts, src/lib/toornament.ts)
+ *
+ * No request for these: from 12:30 on a store's day the server checks its Toornament stage every 5
+ * minutes and loads the bracket once the players are placed (server/toornament-auto.ts; off in
+ * tests unless asked for). It commits as the system actor 'system:toornament', like any command.
  *
  * Public — no session, for players at the venue (server/public.ts has the limits):
  *   GET  /api/public/checkin/:token   { store, campaign, date, open } — nothing about players
@@ -76,6 +82,8 @@ export interface ApiOptions {
   publicLimits?: Partial<PublicLimitConfig>;
   /** Roster link and Toornament fetches: DNS / transport / limits, for tests (server/roster-fetch.ts). */
   rosterFetch?: RosterFetchOptions;
+  /** The Toornament auto-check (server/toornament-auto.ts). Off unless `enabled` — server/index.ts turns it on. */
+  toornamentAuto?: ToornamentAutoOptions;
   /** How often open event streams are pinged and their sessions re-checked. Default 20 s. */
   streamCheckMs?: number;
   /** Clock, for tests. */
@@ -83,12 +91,15 @@ export interface ApiOptions {
   log?: Logger;
 }
 
-type Who = { role: 'super'; principal: 'super'; name: string } | { role: 'admin'; principal: string; id: string; name: string };
+type Who = { role: 'super'; principal: 'super' | typeof AUTO_ACTOR.principal; name: string } | { role: 'admin'; principal: string; id: string; name: string };
 interface Session {
   hash: string;
   who: Who;
   expiresAt: number;
 }
+
+/** The server acting on its own (the Toornament auto-check): HQ's powers, but never a session. */
+const SYSTEM: Who = { role: 'super', principal: AUTO_ACTOR.principal, name: AUTO_ACTOR.name };
 
 const BATCH_ID = /^[\w-]{6,60}$/;
 /** Shorter: handlers derive ids from it (match `${id}-r-i`, submission `sub-${id}`), which must stay ≤ 64. */
@@ -229,6 +240,27 @@ export function createApi(opts: ApiOptions) {
 
   const storesOf = (adminId: string) => Object.values(docs.stores).filter((s) => s.adminId === adminId);
 
+  /**
+   * Admins see a player's full number only once the player is checked in (at the desk or by QR) —
+   * then they may need to call them. Before that they get the last 4 digits, enough to tell people
+   * apart. QR check-in matches numbers on the server, so it doesn't need the client to have them.
+   */
+  function phonesForAdmins(day: Store['day']): Store['day'] {
+    if (!day?.players) return day;
+    const here = (id: string) => !!day.checkIn?.[id];
+    const players = day.players.map((p) => {
+      if (!p.phone || here(p.id)) return p;
+      const { phone, ...rest } = p;
+      return { ...rest, phoneEnd: phone.slice(-4) };
+    });
+    const onSpot = day.onSpot?.map((e) => {
+      if (!e.phone || here(e.playerId)) return e;
+      const { phone: _hidden, ...rest } = e;
+      return rest;
+    });
+    return { ...day, players, ...(onSpot ? { onSpot } : {}) };
+  }
+
   function visibleDocs(who: Who): Docs {
     if (who.role === 'super') return docs;
     const stores = storesOf(who.id);
@@ -247,7 +279,7 @@ export function createApi(opts: ApiOptions) {
       stores: Object.fromEntries(
         stores.map((s) => {
           const { roster: _hq, ...rest } = s;
-          return [s.id, rest as typeof s];
+          return [s.id, { ...rest, day: phonesForAdmins(rest.day) } as typeof s];
         }),
       ),
       admins: {},
@@ -400,7 +432,8 @@ export function createApi(opts: ApiOptions) {
     return commit(id, hash, work, touched, id, [...ops, ...seeded]);
   }
 
-  function runCommand(who: Who, id: string, storeId: string, cmd: Command) {
+  /** `also` may adjust the resulting store (e.g. the auto-check's record of what it did) — it commits with the command. */
+  function runCommand(who: Who, id: string, storeId: string, cmd: Command, also?: (next: Store) => void) {
     const hash = sha256(canonical({ storeId, cmd }));
     const prior = seen(`cmd:${id}`, hash);
     if (prior !== undefined) return prior;
@@ -418,12 +451,38 @@ export function createApi(opts: ApiOptions) {
       if (!(e instanceof CommandError)) throw e;
       throw new HttpError(e.code === 'conflict' ? 409 : e.code === 'forbidden' ? 403 : 400, e.code, e.message);
     }
+    also?.(next);
     const { work, touched } = workCopy([['stores', storeId]]);
     work.stores[storeId] = next;
     check(work, touched, false);
     const ops = diffDocs({ events: {}, stores: { [storeId]: store }, admins: {} }, { events: {}, stores: { [storeId]: next }, admins: {} });
     return commit(`cmd:${id}`, hash, work, touched, id, ops);
   }
+
+  /** A server-made change to a store's Toornament record (the auto-check's status): validated and committed like a batch, so every client hears of it. */
+  function recordToornament(storeId: string, edit: (t: ToornamentSource) => void) {
+    const store = docs.stores[storeId];
+    if (!store?.toornament) return;
+    const { work, touched } = workCopy([['stores', storeId]]);
+    edit(work.stores[storeId].toornament!);
+    const ops = diffDocs({ events: {}, stores: { [storeId]: store }, admins: {} }, { events: {}, stores: { [storeId]: work.stores[storeId] }, admins: {} });
+    if (!ops.length) return;
+    check(work, touched, true);
+    const id = `auto-${randomBytes(9).toString('base64url')}`;
+    commit(id, sha256(canonical({ ops })), work, touched, id, ops);
+  }
+
+  const toornamentAuto = createToornamentAuto(
+    {
+      stores: () => Object.values(docs.stores),
+      store: (id) => docs.stores[id],
+      event: (id) => docs.events[id],
+      apply: (storeId, commandId, cmd, edit) => void runCommand(SYSTEM, commandId, storeId, cmd, (next) => next.toornament && edit(next.toornament)),
+      record: recordToornament,
+    },
+    { now: () => new Date(now()), ...opts.toornamentAuto, rosterFetch: { now, ...opts.rosterFetch }, log },
+  );
+  if (opts.toornamentAuto?.enabled) toornamentAuto.start();
 
   // Every client gets every seq (so it can spot gaps), with only the ops it may see.
   function broadcast(n: number, id: string, ops: Op[]) {
@@ -434,8 +493,18 @@ export function createApi(opts: ApiOptions) {
       if (!s) closeStream(res);
       else if (s.who.role === 'super') res.write(full);
       else {
+        // Admins get each changed doc as their filtered copy (visibleDocs), never the raw ops: a raw
+        // op can carry what their snapshot leaves out (phones before check-in, HQ's sheet links),
+        // and a check-in must also deliver that player's number, which the op itself doesn't hold.
         const vis = visibleDocs(s.who);
-        const mine = ops.filter((o) => o.k !== 'admins' && vis[o.k][o.id]);
+        const seen = new Set<string>();
+        const mine: Op[] = [];
+        for (const o of ops) {
+          const key = `${o.k}/${o.id}`;
+          if (o.k === 'admins' || seen.has(key) || !vis[o.k][o.id]) continue;
+          seen.add(key);
+          mine.push({ k: o.k, id: o.id, p: [], v: vis[o.k][o.id] });
+        }
         res.write(`data: ${JSON.stringify({ seq: n, id, ops: resync ? [] : mine, resync: resync || undefined })}\n\n`);
       }
     }
@@ -751,8 +820,11 @@ export function createApi(opts: ApiOptions) {
         return true;
       }
     },
+    /** The Toornament auto-check: tick() looks at every store that is due right now (the timer calls it; tests call it with a fake clock). */
+    toornamentAuto,
     /** Stops timers, ends event streams, closes the database and releases the data-dir lock. */
     close() {
+      toornamentAuto.stop();
       clearInterval(ticker);
       clearInterval(pruner);
       for (const res of streams.keys()) res.end();
