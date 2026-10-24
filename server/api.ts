@@ -7,6 +7,8 @@ import { ADMIN_CODE, normalizeStore, validateDocument } from '../src/lib/schema.
 import { applyCommand, COMMAND_ROLES, CommandError, validateCommand, type Command, type CommandContext } from '../src/lib/commands.ts';
 import type { Store, ToornamentSource } from '../src/lib/types.ts';
 import { AUTO_ACTOR } from '../src/lib/toornament-auto.ts';
+import { cleanPersonName, shortStoreName, teamActorName } from '../src/lib/teams.ts';
+import { steamLoginFor } from '../src/lib/steam.ts';
 import { openDatabase, photoIds } from './migrate.ts';
 import { acquireLock } from './lock.ts';
 import { createSessions, hashToken, TOKEN } from './sessions.ts';
@@ -30,13 +32,23 @@ export { ADMIN_CODE };
  *   admin  — a field admin. Signs in with their personal 4-character code (the link
  *            HQ shares: https://host/K7Q2). Sees only the stores assigned to them and
  *            their events, and may only write those stores' recce / match-day data.
+ *            A store's team code (store.access: one per store, shared by its 2–4 people) is the same
+ *            thing for that one store: principal "store:<id>", each person naming themselves once
+ *            (POST /api/me/name) so records read "Rhea (San Infotech team)".
  * Every read, write, stream message and photo is checked here, not just hidden in the UI.
  *
- *   GET  /api/me              { role, principal, name?, expiresAt } | { role: null }
- *   POST /api/login           { code } -> session cookie, { ok, role, principal, expiresAt }
+ *   GET  /api/me              { role, principal, name?, expiresAt } | { role: null };
+ *                             a store team also gets { store, team, needsName } (name = the person, '' until typed)
+ *   POST /api/login           { code, name? } -> session cookie, { ok, role, principal, expiresAt }; name is a
+ *                             store team member's remembered name (ignored for everyone else)
+ *   POST /api/me/name         { name } -> { ok, name }   store team sessions only: who is on this phone
+ *                             (commands then record "Name (Store team)")
  *   POST /api/logout          revokes this session
  *   GET  /api/lan             signed in: { origins } — this machine's Wi-Fi addresses, for links made on localhost
- *   GET  /api/state           snapshot the caller may see { seq, principal, events, stores, admins }
+ *   GET  /api/state           snapshot the caller may see { seq, principal, events, stores, admins, accounts }
+ *                             (admins and accounts = HQ's Steam accounts: HQ only, `{}` for everyone else; a store's
+ *                             own team / admin gets that store with `steamLogin` — the login of the account HQ gave
+ *                             it, worked out per request, never stored)
  *   POST /api/batch           { id, ops } -> { seq }    field edits; idempotent per (id, payload)
  *   POST /api/command         { id, storeId, cmd } -> { seq }   tournament / submission commands
  *   GET  /api/stream          server-sent events: every commit, filtered per caller
@@ -91,7 +103,10 @@ export interface ApiOptions {
   log?: Logger;
 }
 
-type Who = { role: 'super'; principal: 'super' | typeof AUTO_ACTOR.principal; name: string } | { role: 'admin'; principal: string; id: string; name: string };
+type Who =
+  | { role: 'super'; principal: 'super' | typeof AUTO_ACTOR.principal; name: string }
+  // A store team session has storeId (= id); name is the actor's ("Rhea (San Infotech team)"), person the typed one.
+  | { role: 'admin'; principal: string; id: string; name: string; storeId?: string; person?: string; team?: string };
 interface Session {
   hash: string;
   who: Who;
@@ -106,7 +121,7 @@ const BATCH_ID = /^[\w-]{6,60}$/;
 const COMMAND_ID = /^[\w-]{6,48}$/;
 const PHOTO_ID = /^[a-z0-9]{6,40}$/;
 const MAX_JSON = 4 * 1024 * 1024;
-/** Store fields a field admin may change. Everything else (name, assignment…) is HQ's. */
+/** Store fields a field admin may change. Everything else (name, assignment, the team code `access`…) is HQ's. */
 const ADMIN_WRITABLE = new Set(['recce', 'day', 'pin', 'updatedAt']);
 /** Store state that changes only through commands — never through generic batches, from anyone. */
 const PROTECTED: [string, (s: any) => unknown][] = [
@@ -180,7 +195,7 @@ export function createApi(opts: ApiOptions) {
   const sign = (s: string) => createHmac('sha256', secret).update(s).digest('hex');
 
   let seq = Number(meta('seq') ?? 0);
-  let docs: Docs = { events: {}, stores: {}, admins: {} };
+  let docs: Docs = { events: {}, stores: {}, admins: {}, accounts: {} };
   for (const row of db.prepare('SELECT kind, id, data FROM docs').all() as { kind: DocKind; id: string; data: string }[]) {
     if (!DOC_KINDS.includes(row.kind)) continue;
     const doc = JSON.parse(row.data);
@@ -203,6 +218,8 @@ export function createApi(opts: ApiOptions) {
   // Fingerprint of the code a session was made with: rotating a code ends its sessions.
   const superFp = sign(`super:${superCode}`);
   const adminFp = (a: { id: string; code: string }) => sign(`admin:${a.id}:${a.code}`);
+  // A store's team code, with its creation time: a new code (even the same letters) signs everyone out.
+  const storeFp = (s: { id: string; access?: { code: string; createdAt: string } }) => sign(`store:${s.id}:${s.access?.code}:${s.access?.createdAt}`);
   const same = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
   sessions.revokeAllExcept('super', superFp); // SUPER_ADMIN_CODE changed → HQ signs in again (and changing it back doesn't revive old sessions)
 
@@ -210,6 +227,12 @@ export function createApi(opts: ApiOptions) {
     const row = sessions.find(hash);
     if (!row) return null;
     if (row.principal === 'super') return same(row.fp, superFp) ? { hash, who: { role: 'super', principal: 'super', name: 'HQ' }, expiresAt: row.expires_at } : null;
+    if (row.principal.startsWith('store:')) {
+      const st = docs.stores[row.principal.slice(6)];
+      if (!st?.access || !same(row.fp, storeFp(st))) return null;
+      const person = row.name ?? '';
+      return { hash, who: { role: 'admin', principal: row.principal, id: st.id, storeId: st.id, name: teamActorName(person, st.name), person, team: shortStoreName(st.name) }, expiresAt: row.expires_at };
+    }
     const a = row.principal.startsWith('admin:') ? docs.admins[row.principal.slice(6)] : undefined;
     if (!a || !same(row.fp, adminFp(a))) return null;
     return { hash, who: { role: 'admin', principal: row.principal, id: a.id, name: a.name }, expiresAt: row.expires_at };
@@ -238,7 +261,9 @@ export function createApi(opts: ApiOptions) {
 
   /* ---------- visibility ---------- */
 
-  const storesOf = (adminId: string) => Object.values(docs.stores).filter((s) => s.adminId === adminId);
+  /** A field admin's stores: the ones assigned to them — or, for a store team's code, just that store. */
+  const owns = (who: Who, s: Store | undefined) => !!s && (who.role === 'super' || (who.storeId ? s.id === who.storeId : s.adminId === who.id));
+  const storesOf = (who: Who) => Object.values(docs.stores).filter((s) => owns(who, s));
 
   /**
    * Admins see a player's full number only once the player is checked in (at the desk or by QR) —
@@ -263,7 +288,7 @@ export function createApi(opts: ApiOptions) {
 
   function visibleDocs(who: Who): Docs {
     if (who.role === 'super') return docs;
-    const stores = storesOf(who.id);
+    const stores = storesOf(who);
     const eventIds = new Set(stores.map((s) => s.eventId));
     // HQ's source links (the campaign's store sheet, a store's player-list link) are capabilities —
     // anyone holding a published-sheet link can read the whole sheet — so they never reach admins.
@@ -278,20 +303,24 @@ export function createApi(opts: ApiOptions) {
       ),
       stores: Object.fromEntries(
         stores.map((s) => {
-          const { roster: _hq, ...rest } = s;
-          return [s.id, { ...rest, day: phonesForAdmins(rest.day) } as typeof s];
+          // The team code signs people in: HQ's only. So is which account HQ picked (`steam`); the store gets its login instead.
+          const { roster: _hq, access: _code, steam: _pick, ...rest } = s;
+          const steamLogin = steamLoginFor(s, docs.accounts);
+          return [s.id, { ...rest, ...(steamLogin ? { steamLogin } : {}), day: phonesForAdmins(rest.day) } as typeof s];
         }),
       ),
       admins: {},
+      accounts: {},
     };
   }
 
-  const canWriteStore = (who: Who, storeId: string) => who.role === 'super' || docs.stores[storeId]?.adminId === who.id;
+  const canWriteStore = (who: Who, storeId: string) => owns(who, docs.stores[storeId]);
 
   /** Rejects any op a field admin isn't allowed to make. Uses only op.k, op.id and op.p[0]. */
   function authorize(who: Who, ops: Op[]) {
     if (who.role === 'super') return;
     for (const op of ops) {
+      if (op.k === 'accounts') throw new HttpError(403, 'forbidden', 'Only HQ can change Steam accounts.');
       if (op.k !== 'stores' || !canWriteStore(who, op.id)) throw new HttpError(403, 'forbidden', 'That store isn’t assigned to you.');
       if (!op.p.length || !ADMIN_WRITABLE.has(String(op.p[0]))) throw new HttpError(403, 'forbidden', `Only HQ can change “${op.p[0] ?? 'the store'}”.`);
     }
@@ -329,7 +358,7 @@ export function createApi(opts: ApiOptions) {
     throw new HttpError(409, 'batch-id-reused', 'This id was already used for different changes. Send new changes with a new id.');
   }
 
-  const docProblems = (k: DocKind, doc: unknown, from: Docs) => validateDocument(k, doc, { events: from.events, admins: from.admins, stores: from.stores });
+  const docProblems = (k: DocKind, doc: unknown, from: Docs) => validateDocument(k, doc, { events: from.events, admins: from.admins, stores: from.stores, accounts: from.accounts });
 
   /**
    * Checks the documents a commit touches, against the state it would produce. Throws:
@@ -360,7 +389,7 @@ export function createApi(opts: ApiOptions) {
         }
       }
     }
-    // A campaign or admin change can break stores that point at it.
+    // A campaign, admin or Steam account change can break stores that point at it (deleting an assigned account, say).
     if ([...touched.values()].some(([k]) => k !== 'stores')) {
       for (const [id, s] of Object.entries(work.stores)) {
         if (touched.has(`stores/${id}`)) continue;
@@ -390,8 +419,12 @@ export function createApi(opts: ApiOptions) {
     seq += 1;
     const prev = docs;
     docs = work;
-    // A changed or removed admin code ends that admin's sessions for good.
+    // A changed or removed admin code ends that admin's sessions for good — a store's team code, everyone's on that store.
     for (const [k, docId] of touched.values()) {
+      if (k === 'stores') {
+        const [was, is] = [prev.stores[docId]?.access, work.stores[docId]?.access];
+        if (was?.code !== is?.code || was?.createdAt !== is?.createdAt) sessions.revokeAllExcept(`store:${docId}`, is ? storeFp(work.stores[docId]) : '');
+      }
       if (k !== 'admins' || prev.admins[docId]?.code === work.admins[docId]?.code) continue;
       sessions.revokeAllExcept(`admin:${docId}`, work.admins[docId] ? adminFp(work.admins[docId]) : '');
     }
@@ -401,7 +434,7 @@ export function createApi(opts: ApiOptions) {
 
   // Copies of the collections, with the touched documents cloned, so a failure leaves memory untouched.
   function workCopy(keys: [DocKind, string][]) {
-    const work: Docs = { events: { ...docs.events }, stores: { ...docs.stores }, admins: { ...docs.admins } };
+    const work: Docs = { events: { ...docs.events }, stores: { ...docs.stores }, admins: { ...docs.admins }, accounts: { ...docs.accounts } };
     const touched = new Map<string, [DocKind, string]>();
     for (const [k, id] of keys) {
       const key = `${k}/${id}`;
@@ -455,7 +488,7 @@ export function createApi(opts: ApiOptions) {
     const { work, touched } = workCopy([['stores', storeId]]);
     work.stores[storeId] = next;
     check(work, touched, false);
-    const ops = diffDocs({ events: {}, stores: { [storeId]: store }, admins: {} }, { events: {}, stores: { [storeId]: next }, admins: {} });
+    const ops = diffDocs({ events: {}, stores: { [storeId]: store }, admins: {}, accounts: {} }, { events: {}, stores: { [storeId]: next }, admins: {}, accounts: {} });
     return commit(`cmd:${id}`, hash, work, touched, id, ops);
   }
 
@@ -465,7 +498,7 @@ export function createApi(opts: ApiOptions) {
     if (!store?.toornament) return;
     const { work, touched } = workCopy([['stores', storeId]]);
     edit(work.stores[storeId].toornament!);
-    const ops = diffDocs({ events: {}, stores: { [storeId]: store }, admins: {} }, { events: {}, stores: { [storeId]: work.stores[storeId] }, admins: {} });
+    const ops = diffDocs({ events: {}, stores: { [storeId]: store }, admins: {}, accounts: {} }, { events: {}, stores: { [storeId]: work.stores[storeId] }, admins: {}, accounts: {} });
     if (!ops.length) return;
     check(work, touched, true);
     const id = `auto-${randomBytes(9).toString('base64url')}`;
@@ -499,12 +532,17 @@ export function createApi(opts: ApiOptions) {
         const vis = visibleDocs(s.who);
         const seen = new Set<string>();
         const mine: Op[] = [];
-        for (const o of ops) {
-          const key = `${o.k}/${o.id}`;
-          if (o.k === 'admins' || seen.has(key) || !vis[o.k][o.id]) continue;
+        const push = (k: DocKind, id: string) => {
+          const key = `${k}/${id}`;
+          if (k === 'admins' || k === 'accounts' || seen.has(key) || !vis[k][id]) return;
           seen.add(key);
-          mine.push({ k: o.k, id: o.id, p: [], v: vis[o.k][o.id] });
-        }
+          mine.push({ k, id, p: [], v: vis[k][id] });
+        };
+        for (const o of ops) push(o.k, o.id);
+        // A Steam account is never sent to admins, but its login is part of the stores it was given to:
+        // a new password reaches those stores' teams as a changed store.
+        const edited = new Set(ops.filter((o) => o.k === 'accounts').map((o) => o.id));
+        if (edited.size) for (const st of Object.values(docs.stores)) if (st.steam && edited.has(st.steam.accountId)) push('stores', st.id);
         res.write(`data: ${JSON.stringify({ seq: n, id, ops: resync ? [] : mine, resync: resync || undefined })}\n\n`);
       }
     }
@@ -553,7 +591,12 @@ export function createApi(opts: ApiOptions) {
     const who = session?.who ?? null;
 
     if (route === 'GET /api/me') {
-      return send(res, 200, session ? { role: session.who.role, principal: session.who.principal, name: session.who.name, expiresAt: new Date(session.expiresAt).toISOString(), seq } : { role: null });
+      if (!session) return send(res, 200, { role: null });
+      const w = session.who;
+      const base = { role: w.role, principal: w.principal, expiresAt: new Date(session.expiresAt).toISOString(), seq };
+      // A store team: name is the person on this phone ('' until they say), team the store's short name.
+      if (w.role === 'admin' && w.storeId) return send(res, 200, { ...base, name: w.person ?? '', store: w.storeId, team: w.team, needsName: !w.person });
+      return send(res, 200, { ...base, name: w.name });
     }
 
     if (route === 'GET /api/lan') {
@@ -576,6 +619,7 @@ export function createApi(opts: ApiOptions) {
       const ip = clientIp(req, trustProxy);
       const body = await readJson(req, 10000);
       const code = typeof body?.code === 'string' ? body.code.trim() : '';
+      const person = cleanPersonName(body?.name); // a store team member's remembered name; unused for anyone else
       const kind: LoginKind = ADMIN_CODE.test(code.toUpperCase()) && !same(code, superCode) ? 'admin' : 'hq';
       const wait = limiter.blockedFor(ip, kind);
       if (wait) {
@@ -587,6 +631,10 @@ export function createApi(opts: ApiOptions) {
       if (kind === 'admin') {
         const a = Object.values(docs.admins).find((x) => typeof x.code === 'string' && same(x.code, code.toUpperCase()));
         if (a) [principal, fp] = [`admin:${a.id}`, adminFp(a)];
+        else {
+          const st = Object.values(docs.stores).find((x) => x.access && same(x.access.code, code.toUpperCase()));
+          if (st) [principal, fp] = [`store:${st.id}`, storeFp(st)];
+        }
       } else if (same(code, superCode)) [principal, fp] = ['super', superFp];
       if (!principal) {
         limiter.fail(ip, kind);
@@ -596,10 +644,19 @@ export function createApi(opts: ApiOptions) {
       limiter.succeed(ip, kind);
       if (session) sessions.revoke(session.hash); // signing in again replaces this browser's session
       const role = principal === 'super' ? 'super' : 'admin';
-      const s = sessions.create(principal, fp, ttl[role]);
+      const s = sessions.create(principal, fp, ttl[role], principal.startsWith('store:') && person ? person : null);
       res.setHeader('Set-Cookie', cookie(req, s.raw, Math.floor(ttl[role] / 1000)));
       log('info', 'login', { principal });
       return send(res, 200, { ok: true, role, principal, expiresAt: new Date(s.expiresAt).toISOString() });
+    }
+
+    if (route === 'POST /api/me/name') {
+      if (!who) return send(res, 401, { code: 'unauthenticated', error: 'Sign-in required' });
+      if (who.role !== 'admin' || !who.storeId) return send(res, 403, { code: 'forbidden', error: 'Only a store team link asks for a name.' });
+      const name = cleanPersonName((await readJson(req, 2000))?.name);
+      if (!name) throw new HttpError(400, 'bad-request', 'Type your name.');
+      sessions.setName(session!.hash, name);
+      return send(res, 200, { ok: true, name });
     }
 
     if (route === 'POST /api/logout') {
@@ -732,7 +789,7 @@ export function createApi(opts: ApiOptions) {
       if (req.method === 'GET') {
         const row = photos.row(id);
         // Authorized by the store the photo was uploaded for — never by references in documents.
-        if (!row || (who.role !== 'super' && (row.store_id === null || docs.stores[row.store_id]?.adminId !== who.id))) return send(res, 404, { code: 'not-found', error: 'not found' });
+        if (!row || (who.role !== 'super' && (row.store_id === null || !owns(who, docs.stores[row.store_id])))) return send(res, 404, { code: 'not-found', error: 'not found' });
         const stream = fs.createReadStream(photos.file(id));
         await new Promise<void>((resolve) => {
           stream.once('open', () => {
@@ -796,7 +853,7 @@ export function createApi(opts: ApiOptions) {
 
     // Committed exactly like a batch (validated, new seq, broadcast to whoever may see the store).
     const id = `player-${randomBytes(12).toString('base64url')}`;
-    const ops = diffDocs({ events: {}, stores: { [store.id]: store }, admins: {} }, { events: {}, stores: { [store.id]: r.next }, admins: {} });
+    const ops = diffDocs({ events: {}, stores: { [store.id]: store }, admins: {}, accounts: {} }, { events: {}, stores: { [store.id]: r.next }, admins: {}, accounts: {} });
     const { work, touched } = workCopy([['stores', store.id]]);
     work.stores[store.id] = r.next;
     check(work, touched, true);

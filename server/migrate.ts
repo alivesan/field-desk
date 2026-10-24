@@ -207,7 +207,7 @@ export interface CheckReport {
   dataDir: string;
   schemaVersion: number;
   pendingMigrations: number[];
-  counts: { events: number; stores: number; admins: number; batches: number; legacyBatches: number; photoFiles: number; photoRows: number | null };
+  counts: { events: number; stores: number; admins: number; accounts: number; batches: number; legacyBatches: number; photoFiles: number; photoRows: number | null };
   storesNormalizedOnMigrate: string[];
   problems: string[];
   photos: { referencedButMissing: string[]; unreferencedFiles: string[]; sharedByStores: string[] };
@@ -220,7 +220,7 @@ export function checkDataDir(dataDir: string): CheckReport {
   try {
     const version = schemaVersion(db);
     const rows = tableExists(db, 'docs') ? (db.prepare('SELECT kind, id, data FROM docs').all() as { kind: string; id: string; data: string }[]) : [];
-    const docs: Record<string, Record<string, any>> = { events: {}, stores: {}, admins: {} };
+    const docs: Record<string, Record<string, any>> = { events: {}, stores: {}, admins: {}, accounts: {} };
     const problems: string[] = [];
     const normalized: string[] = [];
     for (const r of rows) {
@@ -242,8 +242,8 @@ export function checkDataDir(dataDir: string): CheckReport {
       }
       docs[r.kind][r.id] = doc;
     }
-    const ctx = { events: docs.events, admins: docs.admins };
-    for (const kind of ['events', 'admins', 'stores'] as const) {
+    const ctx = { events: docs.events, admins: docs.admins, accounts: docs.accounts };
+    for (const kind of ['events', 'admins', 'accounts', 'stores'] as const) {
       for (const [id, doc] of Object.entries(docs[kind])) {
         if (doc?.id !== id) problems.push(`${kind}/${id}: id field ${JSON.stringify(doc?.id)} doesn’t match the row`);
         for (const p of validateDocument(kind, doc, ctx)) problems.push(`${kind}/${id}: ${p}`);
@@ -264,6 +264,7 @@ export function checkDataDir(dataDir: string): CheckReport {
         events: Object.keys(docs.events).length,
         stores: Object.keys(docs.stores).length,
         admins: Object.keys(docs.admins).length,
+        accounts: Object.keys(docs.accounts).length,
         batches,
         legacyBatches,
         photoFiles: files.size,

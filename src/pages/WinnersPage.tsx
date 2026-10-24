@@ -3,6 +3,7 @@ import { useApp } from '../lib/db.ts';
 import { dayVersion } from '../lib/commands.ts';
 import type { Store, TournamentEvent } from '../lib/types.ts';
 import { go } from '../lib/router.ts';
+import { campaignStoreNames, sharedPrefix } from '../lib/names.ts';
 import { prettyPhone } from '../lib/onspot.ts';
 import { FIELD_LABEL } from '../lib/winnerInput.ts';
 import { STATUS_LABEL, summarize, winnerRows, winnersCsv, type WinnerRow, type WinnerStatus } from '../lib/winners.ts';
@@ -10,6 +11,7 @@ import { cx, downloadBlob, fmtDate, slug, todayLocal } from '../lib/util.ts';
 import { askConfirm, Chip, notify, PageHead, Shell, toast } from '../components/ui.tsx';
 import { CountUp, EmptyCard } from '../components/flair.tsx';
 import { useHqCommand } from '../components/hqCommand.ts';
+import { useStoreName } from '../components/useStoreName.ts';
 import '../styles/winners.css';
 
 type StatusFilter = 'all' | WinnerStatus;
@@ -53,6 +55,7 @@ export function WinnersPage({ eventId }: { eventId?: string }) {
 
   return (
     <Shell crumbs={[{ label: 'Campaigns', href: '#/' }, { label: 'Winners' }]}>
+      <i className="hq-wide" hidden />
       <PageHead kicker="HQ" title="Winners" deck="Every store’s winner and runner-up, with the details the admin collected after the final — and the date of the event. One CSV for the whole lot." />
 
       <section className="wn-bar">
@@ -117,7 +120,7 @@ export function WinnersPage({ eventId }: { eventId?: string }) {
               <h2>
                 <a href={`#/event/${list[0].rows[0].eventId}`}>{list[0].rows[0].campaign}</a>
               </h2>
-              <span className="label">{plural(list.length, 'store')}</span>
+              <span className="label">{[sharedPrefix(campaignStoreNames(Object.values(stores), list[0].rows[0].eventId)), plural(list.length, 'store')].filter(Boolean).join(' · ')}</span>
             </div>
             <div className="wn-stores fd-stagger">
               {list.map((g, i) => (
@@ -134,11 +137,12 @@ export function WinnersPage({ eventId }: { eventId?: string }) {
 function StoreCard({ rows, index }: { rows: WinnerRow[]; index: number }) {
   const first = rows[0];
   const store = useApp((s) => s.stores[first.storeId]);
+  const { short } = useStoreName(store);
   const open = !first.finalDone && rows.every((r) => r.status === 'no-final');
   return (
     <article className="wn-store" style={{ ['--i' as string]: index }}>
       <header className="wn-store-head">
-        <h3>{first.store}</h3>
+        <h3>{short || first.store}</h3>
         <div className="wn-where">
           {[first.city, first.state].filter(Boolean).join(', ') || 'No city'} · <time dateTime={first.date}>{fmtDate(first.date, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</time>
         </div>

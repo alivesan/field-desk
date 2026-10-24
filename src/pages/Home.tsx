@@ -7,8 +7,10 @@ import { parseGames } from '../lib/games.ts';
 import { submissionsOf } from '../lib/submission.ts';
 import { onSpotCounts } from '../lib/onspot.ts';
 import { storeDate } from '../lib/recce.ts';
-import { campaignProgress, isLiveNow, nextEventDate, unreviewedReports, whenLabel, winnersMissing } from '../lib/stages.ts';
+import { dayPlaces, groupByWeekend, groupOfDate, thisGroupLabel, weekendLabel, weekendOf } from '../lib/weekends.ts';
+import { campaignProgress, daysUntil, isLiveNow, nextEventDate, unreviewedReports, whenLabel, winnersMissing } from '../lib/stages.ts';
 import { seedDemo } from '../lib/demo.ts';
+import type { Store, TournamentEvent } from '../lib/types.ts';
 import { go } from '../lib/router.ts';
 import { cx, downloadBlob, fmtDate, fmtDateTime, todayLocal } from '../lib/util.ts';
 import { askConfirm, Chip, Field, notify, PageHead, Shell, toast, useNow } from '../components/ui.tsx';
@@ -22,8 +24,18 @@ export function Home() {
   const events = useApp((s) => s.events);
   const stores = useApp((s) => s.stores);
   const [form, setForm] = useState<null | { name: string; date: string; games: string }>(null);
-  const list = Object.values(events).sort((a, b) => b.date.localeCompare(a.date));
+  const list = Object.values(events);
   const now = useNow(60000);
+  const today = todayLocal(new Date(now));
+  const cards: Card[] = list.map((ev) => {
+    const ss = Object.values(stores).filter((s) => s.eventId === ev.id);
+    return { ev, ss, dates: ss.length ? ss.map((s) => storeDate(s, ev)) : [ev.date] };
+  });
+  const groups = groupByWeekend(cards, today);
+  const upcomingCount = groups.upcoming.reduce((n, w) => n + w.items.length, 0);
+  const thisDates = groups.this.flatMap((c) => c.dates).filter((d) => groupOfDate(d, today) === 'this'); // a campaign's later days aren't this weekend's
+  const thisLabel = thisGroupLabel(thisDates);
+  const thisRange = thisLabel === 'This weekend' ? weekendLabel(weekendOf(today)) : '';
 
   const create = () => {
     if (!form?.name.trim()) return;
@@ -35,6 +47,7 @@ export function Home() {
 
   return (
     <Shell>
+      <i className="hq-wide" hidden />
       <PageHead kicker="Tournament operations" title="Every venue, ready on the day." deck="Store recce with timestamped, geotagged proof — then attendance, the bracket, and who plays next on tournament day." />
 
       <TodayStrip />
@@ -69,48 +82,21 @@ export function Home() {
         )}
 
         {list.length ? (
-          <ol className="ev-cards fd-stagger">
-            {list.map((ev, i) => {
-              const ss = Object.values(stores).filter((s) => s.eventId === ev.id);
-              const sent = ss.filter((s) => submissionsOf(s).length > 0).length;
-              const walkIns = onSpotCounts(ss).todo;
-              const p = campaignProgress(ss);
-              const next = nextEventDate(ss.length ? ss.map((s) => storeDate(s, ev)) : [ev.date], todayLocal(new Date(now)));
-              return (
-                <li key={ev.id} style={{ ['--i' as string]: i }}>
-                  <a href={`#/event/${ev.id}`}>
-                    <span className="ev-day">
-                      <b>{fmtDate(next?.date ?? ev.date, { day: '2-digit' })}</b>
-                      <span>{fmtDate(next?.date ?? ev.date, { month: 'short' })}</span>
-                    </span>
-                    <span className="ev-main">
-                      <span className="ev-name">{ev.name}</span>
-                      <span className="row">
-                        {next && !next.past && <Chip tone={next.days <= 1 ? 'accent' : undefined}>{whenLabel(next.days)}</Chip>}
-                        <span className="ev-meta">
-                          {ss.length} store{ss.length === 1 ? '' : 's'} · {sent} recce report{sent === 1 ? '' : 's'} in
-                          {walkIns > 0 && <span className="ev-onspot"> · {walkIns} on-spot to add to Toornament</span>}
-                        </span>
-                      </span>
-                    </span>
-                    {p.stores > 0 && (
-                      <span className="ev-ring">
-                        <Ring value={p.overall} label={`${Math.round(p.overall * 100)} percent of the steps done across ${p.stores} stores`} />
-                      </span>
-                    )}
-                    {p.stores > 0 && (
-                      <span className="ev-bars">
-                        <MiniBar label="Recce" n={p.recce} of={p.stores} />
-                        <MiniBar label="Players" n={p.players} of={p.stores} />
-                        <MiniBar label="Brackets" n={p.brackets} of={p.stores} />
-                        <MiniBar label="Winners" n={p.winners} of={p.stores} />
-                      </span>
-                    )}
-                  </a>
-                </li>
-              );
-            })}
-          </ol>
+          <>
+            <Group title={thisLabel} range={thisRange} cards={groups.this} empty={groups.upcoming.length ? `Nothing this weekend — next up is ${weekendLabel(groups.upcoming[0].weekend)}.` : 'Nothing this weekend.'} tone="now" now={now} />
+            {groups.upcoming.length > 0 && (
+              <div className="ev-group">
+                <header className="ev-group-head">
+                  <h3>Upcoming</h3>
+                  <span className="label">{upcomingCount} campaign{upcomingCount === 1 ? '' : 's'}</span>
+                </header>
+                {groups.upcoming.map((w) => (
+                  <Group key={w.weekend.sat} title={weekendLabel(w.weekend)} cards={w.items} sub now={now} />
+                ))}
+              </div>
+            )}
+            <Group title="Past" cards={groups.past} tone="past" now={now} />
+          </>
         ) : (
           !form && (
             <EmptyCard mark="campaign" title="No campaigns yet." hint="A campaign is a set of stores playing on one date. Create the first one, or load a demo to look around.">
@@ -133,6 +119,89 @@ export function Home() {
 
       <DataTools showDemo={list.length > 0} />
     </Shell>
+  );
+}
+
+interface Card {
+  ev: TournamentEvent;
+  ss: Store[];
+  /** Every date the campaign plays on (its stores' days; the campaign's own date while it has no stores). */
+  dates: string[];
+}
+
+/** One block of the campaign list: This weekend, one upcoming weekend, or Past. */
+function Group({ title, range, cards, empty, tone, sub, now }: { title: string; range?: string; cards: Card[]; empty?: string; tone?: 'now' | 'past'; sub?: boolean; now: number }) {
+  if (!cards.length && !empty) return null;
+  return (
+    <section className={cx('ev-group', tone, sub && 'sub')}>
+      <header className="ev-group-head">
+        {sub ? <h4>{title}</h4> : <h3>{title}</h3>}
+        {range && <span className="label">{range}</span>}
+        {!sub && cards.length > 0 && !range && <span className="label">{cards.length} campaign{cards.length === 1 ? '' : 's'}</span>}
+      </header>
+      {cards.length ? (
+        <ol className={cx('ev-cards fd-stagger', tone === 'past' && 'compact')}>
+          {cards.map((c, i) => (
+            <CampaignCard key={c.ev.id} card={c} i={i} now={now} past={tone === 'past'} />
+          ))}
+        </ol>
+      ) : (
+        <p className="ev-none">{empty}</p>
+      )}
+    </section>
+  );
+}
+
+function CampaignCard({ card: { ev, ss, dates }, i, now, past }: { card: Card; i: number; now: number; past: boolean }) {
+  const today = todayLocal(new Date(now));
+  const sent = ss.filter((s) => submissionsOf(s).length > 0).length;
+  const walkIns = onSpotCounts(ss).todo;
+  const p = campaignProgress(ss);
+  const next = nextEventDate(dates, today);
+  const days = dayPlaces(ss.map((s) => ({ date: storeDate(s, ev), city: s.city })));
+  const day = next?.date ?? ev.date;
+  return (
+    <li style={{ ['--i' as string]: i }}>
+      <a href={`#/event/${ev.id}`}>
+        <span className="ev-day">
+          <b>{fmtDate(day, { day: '2-digit' })}</b>
+          <span>{fmtDate(day, { month: 'short' })}</span>
+        </span>
+        <span className="ev-main">
+          <span className="ev-name">{ev.name}</span>
+          <span className="row">
+            {next && !next.past && <Chip tone={next.days <= 1 ? 'accent' : undefined}>{whenLabel(next.days)}</Chip>}
+            {past && next && <Chip tone="muted">{whenLabel(daysUntil(next.date, today))}</Chip>}
+            <span className="ev-meta">
+              {ss.length} store{ss.length === 1 ? '' : 's'} · {sent} recce report{sent === 1 ? '' : 's'} in
+              {walkIns > 0 && <span className="ev-onspot"> · {walkIns} on-spot to add to Toornament</span>}
+            </span>
+          </span>
+          {days.length > 0 && (
+            <span className="ev-days">
+              {days.map((d) => (
+                <span key={d.date} className={cx(d.date === day && !past && 'next')}>
+                  <b>{d.label}</b> {d.cities.length ? d.cities.join(', ') : `${d.stores} store${d.stores === 1 ? '' : 's'}`}
+                </span>
+              ))}
+            </span>
+          )}
+        </span>
+        {p.stores > 0 && (
+          <span className="ev-ring">
+            <Ring value={p.overall} label={`${Math.round(p.overall * 100)} percent of the steps done across ${p.stores} stores`} />
+          </span>
+        )}
+        {p.stores > 0 && (
+          <span className="ev-bars">
+            <MiniBar label="Recce" n={p.recce} of={p.stores} />
+            <MiniBar label="Players" n={p.players} of={p.stores} />
+            <MiniBar label="Brackets" n={p.brackets} of={p.stores} />
+            <MiniBar label="Winners" n={p.winners} of={p.stores} />
+          </span>
+        )}
+      </a>
+    </li>
   );
 }
 

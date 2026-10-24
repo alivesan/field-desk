@@ -18,8 +18,8 @@ export interface TestServer {
   dataDir: string;
   /** The API instance (its close() is called by close()). */
   api: ReturnType<typeof createApi>;
-  /** Sign in; returns a Cookie header value. */
-  login(code: string): Promise<string>;
+  /** Sign in; returns a Cookie header value. `name` is a store team member's remembered name. */
+  login(code: string, name?: string): Promise<string>;
   /** fetch against the server with an optional Cookie. */
   req(pathname: string, init?: RequestInit & { cookie?: string }): Promise<Response>;
   json<T = any>(pathname: string, init?: Omit<RequestInit, 'body'> & { cookie?: string; body?: any }): Promise<{ status: number; body: T }>;
@@ -62,8 +62,8 @@ export async function startTestServer(opts: { dataDir?: string; superCode?: stri
     }
     return { status: r.status, body: parsed };
   };
-  const login = async (code: string) => {
-    const r = await req('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+  const login = async (code: string, name?: string) => {
+    const r = await req('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, name }) });
     if (!r.ok) throw new Error(`login failed ${r.status}: ${await r.text()}`);
     return r.headers.get('set-cookie')!.split(';')[0];
   };
@@ -148,7 +148,7 @@ export async function seedBasic(t: TestServer) {
  * only lets commands create (e.g. players with phones). Stop the server first; start a new one
  * on the same dataDir afterwards.
  */
-export function writeDocForTests(dataDir: string, kind: 'events' | 'stores' | 'admins', doc: { id: string }) {
+export function writeDocForTests(dataDir: string, kind: 'events' | 'stores' | 'admins' | 'accounts', doc: { id: string }) {
   const db = new DatabaseSync(path.join(dataDir, DB_FILE));
   try {
     db.prepare('INSERT INTO docs (kind, id, data) VALUES (?, ?, ?) ON CONFLICT (kind, id) DO UPDATE SET data = excluded.data').run(kind, doc.id, JSON.stringify(doc));

@@ -15,17 +15,18 @@
  *
  * Node-loadable: no browser APIs, explicit .ts imports only.
  */
-import type { Admin, Recce, Store, TournamentEvent } from './types.ts';
+import type { Admin, Recce, SteamAccount, Store, TournamentEvent } from './types.ts';
 import { ensureRecce } from './recce.ts';
 import { HH_MM, toornamentLinkProblem } from './toornament.ts';
 import { MAX_IGN } from './phone.ts';
 import { INSTAGRAM_HANDLE } from './winnerInput.ts';
 
-export type DocKind = 'events' | 'stores' | 'admins';
+export type DocKind = 'events' | 'stores' | 'admins' | 'accounts';
 
 export interface ValidationContext {
   events?: Record<string, TournamentEvent>;
   admins?: Record<string, Admin>;
+  accounts?: Record<string, SteamAccount>;
   /** For cross-store checks (self check-in tokens unique). */
   stores?: Record<string, Store>;
 }
@@ -117,6 +118,7 @@ export function validateDocument(kind: DocKind, doc: unknown, ctx: ValidationCon
   if (!c.obj(doc, '')) return out;
   if (kind === 'events') validateEvent(c, doc);
   else if (kind === 'admins') validateAdmin(c, doc, ctx);
+  else if (kind === 'accounts') validateAccount(c, doc, ctx);
   else if (kind === 'stores') validateStore(c, doc, ctx);
   else c.bad('', `unknown document kind ${JSON.stringify(kind)}`);
   return out;
@@ -145,7 +147,23 @@ function validateAdmin(c: C, a: Rec, ctx: ValidationContext) {
   c.str(a.phone, 'phone', 100);
   if (typeof a.code !== 'string' || !ADMIN_CODE.test(a.code)) c.bad('code', 'must be 4 characters: A–Z and 2–9, without 0/O/1/I/L');
   else if (ctx.admins && Object.values(ctx.admins).some((o) => o && o.id !== a.id && o.code === a.code)) c.bad('code', 'is already used by another admin');
+  else if (ctx.stores && Object.values(ctx.stores).some((o) => o?.access?.code === a.code)) c.bad('code', 'is already used by a store team link');
   c.time(a.createdAt, 'createdAt');
+}
+
+/** A Steam account of HQ's. Login fields are required and plain text; the username is unique in the list (case aside). */
+function validateAccount(c: C, a: Rec, ctx: ValidationContext) {
+  c.id(a.id, 'id');
+  c.optStr(a.label, 'label', 200);
+  for (const k of ['username', 'password'] as const) {
+    if (typeof a[k] !== 'string' || !(a[k] as string).trim()) c.bad(k, 'must be text (up to 200 characters), not empty');
+    else c.str(a[k], k, 200);
+  }
+  c.optStr(a.email, 'email', 200);
+  c.optStr(a.notes, 'notes', 2000);
+  c.time(a.createdAt, 'createdAt');
+  const name = typeof a.username === 'string' ? a.username.trim().toLowerCase() : '';
+  if (name && ctx.accounts && Object.values(ctx.accounts).some((o) => o && o.id !== a.id && typeof o.username === 'string' && o.username.trim().toLowerCase() === name)) c.bad('username', 'is already in the Steam accounts list');
 }
 
 function validateStore(c: C, s: Rec, ctx: ValidationContext) {
@@ -158,6 +176,20 @@ function validateStore(c: C, s: Rec, ctx: ValidationContext) {
   c.str(s.address, 'address', 1000);
   if (s.date !== undefined && s.date !== '') c.date(s.date, 'date'); // '' / absent = the campaign's date
   c.optStr(s.phone, 'phone', 100);
+  if (s.access !== undefined && c.obj(s.access, 'access')) {
+    const a = s.access as Record<string, unknown>;
+    if (typeof a.code !== 'string' || !ADMIN_CODE.test(a.code)) c.bad('access.code', 'must be 4 characters: A–Z and 2–9, without 0/O/1/I/L');
+    c.time(a.createdAt, 'access.createdAt');
+    if (typeof a.code === 'string' && ctx.admins && Object.values(ctx.admins).some((o) => o?.code === a.code)) c.bad('access.code', 'is already used by an admin');
+    else if (typeof a.code === 'string' && ctx.stores && Object.values(ctx.stores).some((o) => o && o.id !== s.id && o.access?.code === a.code)) c.bad('access.code', 'is already used by another store');
+  }
+  if (s.steam !== undefined && c.obj(s.steam, 'steam')) {
+    const st = s.steam;
+    if (c.id(st.accountId, 'steam.accountId') && ctx.accounts && !ctx.accounts[st.accountId as string]) c.bad('steam.accountId', `Steam account ${st.accountId} doesn’t exist`);
+    c.oneOf(st.purpose, 'steam.purpose', ['play', 'download']);
+    c.time(st.assignedAt, 'steam.assignedAt');
+  }
+  if (s.steamLogin !== undefined) c.bad('steamLogin', 'is worked out by the server for the store’s team — it can’t be saved');
   c.optStr(s.mapsUrl, 'mapsUrl', 2000);
   c.optStr(s.venue, 'venue', 500);
   if (s.geo !== undefined) c.geoOrNull(s.geo, 'geo');

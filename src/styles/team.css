@@ -1,0 +1,92 @@
+/*
+ * Store team links (src/components/StoreTeamLink.tsx, the Team page's "Store team links") and
+ * the footer's "change name" for someone on a store team's code. Tokens come from base.css.
+ */
+
+.stl {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  min-width: 0;
+}
+.stl-code {
+  font: 500 20px/1 var(--mono);
+  letter-spacing: 0.16em;
+  padding: 7px 8px 7px 12px;
+  border: 1px solid var(--ink);
+  background: var(--paper-2);
+}
+.stl-url {
+  flex: 1 1 180px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 12px/1.4 var(--mono);
+  color: var(--ink-2);
+}
+.stl-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+}
+
+/* Team page: one row per store */
+.stl-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--ink);
+}
+.stl-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr);
+  gap: 8px 24px;
+  align-items: center;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.stl-store {
+  min-width: 0;
+}
+.stl-store strong {
+  display: block;
+  font: 400 19px/1.2 var(--serif);
+}
+.stl-store span {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.stl-group {
+  margin: 22px 0 6px;
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+@media (max-width: 760px) {
+  .stl-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.gate form > .link {
+  display: block;
+  margin-top: 16px;
+}
+
+/* footer:"Rhea · San Infotech team — change name" */
+.foot:has(.foot-who) {
+  flex-wrap: wrap;
+}
+.foot .foot-who {
+  flex: 1 1 100%;
+  margin-top: 6px;
+  text-align: left;
+  font: 500 10px/1.3 var(--mono);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}

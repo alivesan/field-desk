@@ -4,7 +4,7 @@
  * missing) — all before a single photo is stored or a record touched. backup.ts applies a plan
  * only after the user confirms it. Pure: no browser APIs, so it is tested under Node.
  */
-import type { Admin, AppState, Store, TournamentEvent } from './types.ts';
+import type { Admin, AppState, SteamAccount, Store, TournamentEvent } from './types.ts';
 import { normalizeStore, validateDocument, type DocKind } from './schema.ts';
 import { storeEvidence } from './evidence.ts';
 import { sameJson } from './submission.ts';
@@ -21,7 +21,7 @@ const SHA = /^[0-9a-f]{64}$/;
 export interface ParsedBackup {
   format: number;
   exportedAt?: string;
-  state: { events: Record<string, TournamentEvent>; stores: Record<string, Store>; admins: Record<string, Admin> };
+  state: { events: Record<string, TournamentEvent>; stores: Record<string, Store>; admins: Record<string, Admin>; accounts: Record<string, SteamAccount> };
   photos: Record<string, string>; // id → data URL
   sha256: Record<string, string>; // id → expected hash, from the manifest (format 2)
   complete?: boolean; // the exporter's own verdict (format 2)
@@ -46,6 +46,9 @@ function basics(kind: DocKind, v: Record<string, unknown>): string[] {
     str('eventId');
     if (!isObj(v.recce)) p.push('recce: missing');
     if (!isObj(v.day)) p.push('day: missing');
+  } else if (kind === 'accounts') {
+    str('username');
+    str('password');
   } else {
     str('name');
     str('code');
@@ -86,6 +89,7 @@ export function parseBackup(text: string): ParseResult {
   const events = coll('events', true) as Record<string, TournamentEvent>;
   const stores = coll('stores', true) as Record<string, Store>;
   const admins = coll('admins', false) as Record<string, Admin>;
+  const accounts = coll('accounts', false) as Record<string, SteamAccount>; // HQ's Steam accounts (passwords included — a backup file is as private as the data)
 
   const photos: Record<string, string> = {};
   if (data.photos !== undefined && !isObj(data.photos)) errors.push('photos: must be an object of id → image');
@@ -116,7 +120,7 @@ export function parseBackup(text: string): ParseResult {
   for (const id of Object.keys(sha256)) if (!photos[id]) errors.push(`manifest lists photo ${id.slice(0, 12)} but the file doesn’t contain it`);
 
   if (errors.length) return { ok: false, errors };
-  return { ok: true, backup: { format: format as number, exportedAt: typeof data.exportedAt === 'string' ? data.exportedAt : undefined, state: { events, stores, admins }, photos, sha256, complete, exportMissing } };
+  return { ok: true, backup: { format: format as number, exportedAt: typeof data.exportedAt === 'string' ? data.exportedAt : undefined, state: { events, stores, admins, accounts }, photos, sha256, complete, exportMissing } };
 }
 
 /* ---------- the plan ---------- */
@@ -137,7 +141,7 @@ export interface KindCounts {
 export interface ImportEdit {
   kind: DocKind;
   id: string;
-  doc: TournamentEvent | Store | Admin;
+  doc: TournamentEvent | Store | Admin | SteamAccount;
   action: 'create' | 'replace';
 }
 
@@ -158,7 +162,7 @@ const zero = (): KindCounts => ({ create: 0, replace: 0, same: 0, keptNewer: 0, 
 export function planImport(b: ParsedBackup, current: AppState, opts: ImportOptions = {}): ImportPlan {
   const includeAdmins = !!opts.includeAdmins;
   const keepNewer = opts.keepNewerLocal !== false;
-  const counts: Record<DocKind, KindCounts> = { events: zero(), stores: zero(), admins: zero() };
+  const counts: Record<DocKind, KindCounts> = { events: zero(), stores: zero(), admins: zero(), accounts: zero() };
   const warnings: string[] = [];
   const edits: ImportEdit[] = [];
   const localNewer: ImportPlan['localNewer'] = [];
@@ -188,6 +192,13 @@ export function planImport(b: ParsedBackup, current: AppState, opts: ImportOptio
     }
   } else counts.admins.skipped = inFile.length;
 
+  // Steam accounts are HQ's own list and come in with the file; stores assigned one need it to exist.
+  const accountsAfter: Record<string, SteamAccount> = { ...current.accounts };
+  for (const a of Object.values(b.state.accounts)) {
+    accountsAfter[a.id] = a;
+    consider('accounts', structuredClone(a), current.accounts?.[a.id]);
+  }
+
   const eventsAfter: Record<string, TournamentEvent> = { ...current.events };
   for (const e of Object.values(b.state.events)) {
     eventsAfter[e.id] = e;
@@ -203,6 +214,7 @@ export function planImport(b: ParsedBackup, current: AppState, opts: ImportOptio
       warnings.push(`stores.${raw.id}: couldn’t be read (${(e as Error).message})`);
       continue;
     }
+    delete s.steamLogin; // what an admin's copy carries for the store's team — worked out by the server, never saved
     const cur = current.stores[s.id];
     // Submission history is written only by the server — keep what's there; never fabricate revisions.
     const dropped = (s.submissions?.length ?? 0) - (cur?.submissions?.length ?? 0);
@@ -258,7 +270,7 @@ export function planImport(b: ParsedBackup, current: AppState, opts: ImportOptio
 
   // Validate every resulting document against the full picture it will live in.
   const errors: string[] = [];
-  const ctx = { events: eventsAfter, admins: adminsAfter };
+  const ctx = { events: eventsAfter, admins: adminsAfter, accounts: accountsAfter };
   for (const e of edits) {
     if (e.kind === 'stores' && !eventsAfter[(e.doc as Store).eventId]) errors.push(`stores.${e.id}: its campaign (${(e.doc as Store).eventId}) is neither in the file nor on this server`);
     for (const p of validateDocument(e.kind, e.doc, ctx)) errors.push(`${e.kind}.${e.id}: ${p}`);
@@ -297,9 +309,9 @@ export function planImport(b: ParsedBackup, current: AppState, opts: ImportOptio
 
 /** "2 new stores, 1 replaced campaign…" for the confirm button and summary. */
 export function planSummary(p: ImportPlan): string {
-  const names: Record<DocKind, [string, string]> = { events: ['campaign', 'campaigns'], stores: ['store', 'stores'], admins: ['admin', 'admins'] };
+  const names: Record<DocKind, [string, string]> = { events: ['campaign', 'campaigns'], stores: ['store', 'stores'], admins: ['admin', 'admins'], accounts: ['Steam account', 'Steam accounts'] };
   const parts: string[] = [];
-  for (const k of ['events', 'stores', 'admins'] as DocKind[]) {
+  for (const k of ['events', 'stores', 'admins', 'accounts'] as DocKind[]) {
     const c = p.counts[k];
     const n = (x: number) => names[k][x === 1 ? 0 : 1];
     if (c.create) parts.push(`${c.create} new ${n(c.create)}`);

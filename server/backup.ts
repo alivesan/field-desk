@@ -25,7 +25,7 @@ export interface Manifest {
   source: string;
   schemaVersion: number;
   seq: number;
-  counts: { events: number; stores: number; admins: number; photos: number; sessions: number };
+  counts: { events: number; stores: number; admins: number; accounts: number; photos: number; sessions: number };
   db: { file: string; bytes: number; sha256: string };
   photos: { id: string; bytes: number; sha256: string; storeId: string | null }[];
   missingPhotos: string[]; // known to the database, but no file was found
@@ -44,6 +44,7 @@ function summarize(db: DatabaseSync) {
       events: kind('events'),
       stores: kind('stores'),
       admins: kind('admins'),
+      accounts: kind('accounts'),
       photos: has(db, 'photos') ? count(db, 'SELECT COUNT(*) AS n FROM photos') : 0,
       sessions: has(db, 'sessions') ? count(db, 'SELECT COUNT(*) AS n FROM sessions') : 0,
     },
@@ -165,7 +166,7 @@ if (import.meta.main) {
       console.log(`Restored backup of ${m.createdAt} (seq ${m.seq}, ${m.counts.stores} stores, ${m.photos.length} photos) into ${path.resolve(args[2])}.`);
     } else if (args.length === 2 && !args[0].startsWith('--')) {
       const m = createBackup(path.resolve(args[0]), path.resolve(args[1]));
-      console.log(`Backup written to ${path.resolve(args[1])}: seq ${m.seq}, ${m.counts.events} campaigns, ${m.counts.stores} stores, ${m.counts.admins} admins, ${m.photos.length} photos${m.missingPhotos.length ? `, ${m.missingPhotos.length} MISSING` : ''}.`);
+      console.log(`Backup written to ${path.resolve(args[1])}: seq ${m.seq}, ${m.counts.events} campaigns, ${m.counts.stores} stores, ${m.counts.admins} admins, ${m.counts.accounts ?? 0} Steam accounts, ${m.photos.length} photos${m.missingPhotos.length ? `, ${m.missingPhotos.length} MISSING` : ''}.`);
       process.exit(m.missingPhotos.length ? 1 : 0);
     } else {
       console.error('Usage:\n  node server/backup.ts <dataDir> <outDir>\n  node server/backup.ts --verify <backupDir>\n  node server/backup.ts --restore <backupDir> <newDataDir>');

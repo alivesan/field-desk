@@ -15,6 +15,10 @@
   --warn: #a35f14;
   --warn-soft: rgba(163, 95, 20, 0.12);
 
+  /* page column: reading width for text-heavy pages, desktop width for HQ's lists and boards */
+  --page-read: 880px;
+  --page-desk: 1240px;
+
   --serif: 'Newsreader', 'Iowan Old Style', Georgia, serif;
   --sans: 'Geist', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'Geist Mono', ui-monospace, Menlo, Consolas, monospace;
@@ -51,6 +55,21 @@ h3 {
   letter-spacing: -0.022em;
   line-height: 1.02;
   margin: 0;
+}
+
+/*
+ * The page column (header, content, footer) takes --page-max from the shell. HQ's pages carry a
+ * hidden <i class="hq-wide"> marker (and the team list is matched by its class), which switches
+ * the whole shell to the desktop width; phones and anything under 880px are untouched.
+ */
+.shell {
+  --page-max: var(--page-read);
+}
+.shell:has(.hq-wide, ol.team) {
+  --page-max: var(--page-desk);
+}
+.shell .foot {
+  max-width: var(--page-max);
 }
 
 a {

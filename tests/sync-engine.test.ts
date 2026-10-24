@@ -348,3 +348,44 @@ test('logout wipes this principal’s data; export includes unsent work', async 
     e.stop();
   }
 });
+
+test('Steam accounts: HQ’s snapshot carries them, edits go out as accounts ops, the stream updates them; a snapshot without them gives {}', async () => {
+  const dev = device();
+  const { api, make, stream } = fakeApi(dev);
+  api.me = { role: 'super', principal: 'super', name: 'HQ' };
+  const acct = (password: string) => ({ id: 'x', username: 'test_rog_01', password, createdAt: '2026-10-20T00:00:00.000Z' });
+  api.docs = () => ({ events: { e1: fixtureEvent('e1') }, stores: { s1: fixtureStore('s1', 'e1', null) }, admins: {}, accounts: { x: acct('fake-pass-123') } });
+  const e = make();
+  try {
+    await e.start();
+    await live(e);
+    assert.equal(e.getState().accounts.x.password, 'fake-pass-123');
+
+    e.update((d) => (d.accounts.x.password = 'fake-pass-456'));
+    e.update((d) => (d.stores.s1.steam = { accountId: 'x', purpose: 'play', assignedAt: '2026-10-22T00:00:00.000Z' }));
+    await waitFor(() => sent(api, '/api/batch').length >= 1, 'batch sent');
+    const ops = sent(api, '/api/batch').flatMap((r) => JSON.parse(r.body!).ops);
+    assert.ok(ops.some((o: any) => o.k === 'accounts' && o.id === 'x' && o.p.join('.') === 'password' && o.v === 'fake-pass-456'), JSON.stringify(ops));
+    assert.ok(ops.some((o: any) => o.k === 'stores' && o.p[0] === 'steam'));
+
+    // another HQ tab changes the password: the stream carries the accounts op
+    stream().push({ seq: api.seq + 1, id: 'remote-acct', ops: [{ k: 'accounts', id: 'x', p: ['password'], v: 'fake-pass-789' }] });
+    await waitFor(() => e.getState().accounts.x.password === 'fake-pass-789', 'stream op applied');
+  } finally {
+    e.stop();
+  }
+
+  // a server (or a saved copy) from before accounts existed: an empty list, not a crash
+  const dev2 = device();
+  const second = fakeApi(dev2);
+  second.api.me = { role: 'admin', principal: 'admin:a1', name: 'Synthetic a1' };
+  second.api.docs = () => ({ events: { e1: fixtureEvent('e1') }, stores: { s1: fixtureStore('s1', 'e1', 'a1') }, admins: {} });
+  const old = second.make();
+  try {
+    await old.start();
+    await live(old);
+    assert.deepEqual(old.getState().accounts, {});
+  } finally {
+    old.stop();
+  }
+});

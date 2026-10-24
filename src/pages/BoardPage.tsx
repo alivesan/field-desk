@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useApp, useSync, type SyncInfo } from '../lib/db.ts';
 import { computeQueue, matchNo, roundCount, roundName } from '../lib/bracket.ts';
 import { NotFound, useNow } from '../components/ui.tsx';
+import { useStoreName } from '../components/useStoreName.ts';
 import { cx, fmtTime } from '../lib/util.ts';
 import { checkInUrl } from '../lib/checkin.ts';
 import { finalResult } from '../lib/winnerInput.ts';
@@ -20,6 +21,7 @@ const RECHEER_MS = 30000;
  */
 export function BoardPage({ storeId }: { storeId: string }) {
   const store = useApp((s) => s.stores[storeId]);
+  const { short: storeName, prefix } = useStoreName(store);
   const event = useApp((s) => (store ? s.events[store.eventId] : undefined));
   const now = useNow(5000);
   const sync = useSync();
@@ -51,8 +53,8 @@ export function BoardPage({ storeId }: { storeId: string }) {
     <div className="board">
       <header className="board-head">
         <div>
-          <span className="label">{event.name}</span>
-          <h1>{store.name}</h1>
+          <span className="label">{[prefix, event.name].filter(Boolean).join(' · ')}</span>
+          <h1>{storeName}</h1>
         </div>
         <div className="board-clock">
           <BoardClock />

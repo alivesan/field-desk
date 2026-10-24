@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.0-beta.2
+
+- **Store team links:** one sign-in link per store, shared by the whole store team (2–4 people). Each person types their name once, so history reads "Rhea (Nashik team)". New code / Turn off signs the old phones out. Named admins are optional now, for someone covering several stores.
+- **Steam accounts:** HQ keeps the Steam accounts on a new Steam page and gives each store one for playing (one store per weekend; double-booking is refused) or for downloads during the recce (can be shared). The store team sees its Steam ID and password, the download/offline-play tips, and "call HQ for the OTP".
+- **Desktop:** HQ pages use the full width (up to 1240 px); store rows on one line.
+- **Store names:** the shared "ASUS ROG Exclusive Store —" prefix is shown once, each store by its own name.
+- **Campaigns by weekend** on HQ home: This weekend, Upcoming (by weekend), Past.
+- **On-spot registrations** only show once there are walk-ins.
+
 ## 1.0.0-beta.1 — first official beta
 
 Field Desk is ready to run real in-store tournaments end to end. Beta means: the whole flow works and is tested, but it hasn't been through a live event yet — expect rough edges, report them, and avoid deploying during event hours.

@@ -17,8 +17,8 @@
  * Ops with numeric indices (the old format) are still applied, for outboxes saved before.
  */
 
-export type DocKind = 'events' | 'stores' | 'admins';
-export const DOC_KINDS: DocKind[] = ['events', 'stores', 'admins'];
+export type DocKind = 'events' | 'stores' | 'admins' | 'accounts';
+export const DOC_KINDS: DocKind[] = ['events', 'stores', 'admins', 'accounts'];
 
 /** One step of a path: an object key, an array index (old format), or an id selector. */
 export type Seg = string | number | { id: string };
@@ -38,6 +38,7 @@ export interface Docs {
   events: Record<string, any>;
   stores: Record<string, any>;
   admins: Record<string, any>;
+  accounts: Record<string, any>;
 }
 
 const FORBIDDEN = new Set(['__proto__', 'prototype', 'constructor']);

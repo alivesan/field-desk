@@ -3,13 +3,20 @@ import { logout, useApp } from '../lib/db.ts';
 import { addAdmin, adminLink, regenerateCode, removeAdmin, renameAdmin, storesFor } from '../lib/admins.ts';
 import { askConfirm, Field, notify, PageHead, Shell, toast } from '../components/ui.tsx';
 import { EmptyCard } from '../components/flair.tsx';
+import { StoreTeamLink } from '../components/StoreTeamLink.tsx';
+import { shortStoreName } from '../lib/teams.ts';
 
-/** Super admin: the field team, their personal links, and what each one is assigned. */
+/** Super admin: each store's team link, plus the (optional) personal admins and what each one is assigned. */
 export function TeamPage() {
   const state = useApp((s) => s);
   const admins = Object.values(state.admins).sort((a, b) => a.name.localeCompare(b.name));
   const [form, setForm] = useState<null | { name: string; phone: string }>(null);
   const [copied, setCopied] = useState('');
+  // Store team links, by campaign (newest first).
+  const campaigns = Object.values(state.events)
+    .sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name))
+    .map((e) => ({ event: e, stores: Object.values(state.stores).filter((s) => s.eventId === e.id).sort((a, b) => a.name.localeCompare(b.name)) }))
+    .filter((c) => c.stores.length);
 
   const copy = async (id: string, code: string) => {
     const link = adminLink(code);
@@ -33,16 +40,46 @@ export function TeamPage() {
       <PageHead
         kicker="Super admin"
         title="The team."
-        deck="Each admin gets a personal link with a 4-character code. It opens only the stores you assign them — nothing else. Assign stores from a campaign’s page."
+        deck="Each store gets one team link with a 4-character code, shared by everyone working that store. It opens only that store — nothing else — and each person types their name once, so reports and walk-ins say who did what."
       />
 
       <section className="index">
         <div className="index-head">
-          <h2>Admins</h2>
+          <h2>Store team links</h2>
+        </div>
+        <p className="hint">
+          One link per store, however many people work it: send it to the whole team (WhatsApp works). A new code signs everyone out; turning it off ends the link. You can also make a link from each store’s row on its campaign page.
+        </p>
+        {campaigns.map(({ event, stores }) => (
+          <div key={event.id}>
+            <div className="stl-group">{event.name}</div>
+            <ul className="stl-list">
+              {stores.map((s) => (
+                <li key={s.id} className="stl-row">
+                  <div className="stl-store">
+                    <strong>{shortStoreName(s.name)}</strong>
+                    <span>{[s.city, s.admin ? `admin: ${s.admin}` : ''].filter(Boolean).join(' · ') || 'No admin assigned'}</span>
+                  </div>
+                  <StoreTeamLink store={s} />
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+        {!campaigns.length && <p className="hint">No stores yet — add stores to a campaign and each one gets a team link here.</p>}
+      </section>
+
+      <section className="index">
+        <div className="index-head">
+          <h2>Admins (optional)</h2>
           <button className="btn" onClick={() => setForm({ name: '', phone: '' })}>
             Add admin
           </button>
         </div>
+
+        <p className="hint">
+          A personal link is only for someone who covers <strong>several stores</strong>, or who should be named on every report. Everyone else uses their store’s team link above. Assign stores to a personal admin from a campaign’s page.
+        </p>
 
         {form && (
           <div className="card form">
@@ -103,7 +140,7 @@ export function TeamPage() {
           })}
           {!admins.length && !form && (
             <li className="empty-li">
-              <EmptyCard mark="team" title="No admins yet." hint="Add a field admin to get their personal link, then assign stores to them from a campaign’s page.">
+              <EmptyCard mark="team" title="No personal admins." hint="Most stores only need their team link. Add a personal admin for someone who covers several stores, then assign stores to them from a campaign’s page.">
                 <button className="btn accent" onClick={() => setForm({ name: '', phone: '' })}>
                   Add admin
                 </button>
@@ -115,7 +152,7 @@ export function TeamPage() {
 
       <section className="data-tools">
         <h2>Your access</h2>
-        <p className="hint">You’re signed in as super admin on this device. Admin links never give access to this page, other stores, or the team list.</p>
+        <p className="hint">You’re signed in as super admin on this device. Admin and store team links never give access to this page, other stores, or the team list.</p>
         <div className="row">
           <button className="link" onClick={logout}>
             Sign out of this device

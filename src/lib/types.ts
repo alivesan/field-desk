@@ -245,7 +245,10 @@ export interface Store {
   updatedAt?: string; // last edit from any device
   submissions?: Submission[]; // append-only revision history, newest last (server commands only)
   roster?: RosterSource; // HQ-only
+  access?: StoreAccess; // HQ-only: the store team's shared sign-in code (never sent to admins)
   toornament?: ToornamentSource; // HQ-only
+  steam?: SteamAssignment; // HQ-only: which Steam account this store was given, and for what
+  steamLogin?: SteamLogin; // computed by the server for the store's own team / admin on every read — never stored, never written
 }
 
 export interface TournamentEvent {
@@ -268,6 +271,50 @@ export interface StoreSheetSource {
 }
 
 /** A field admin. Signs in with a personal 4-character code link; sees only assigned stores. */
+/**
+ * One sign-in code per store, shared by everyone working that store (2–4 people). Opening
+ * `/<code>` signs a phone in to that store only; each person types their name once so actions
+ * read "Rhea (Nashik team)". A new code signs the old one out everywhere.
+ */
+export interface StoreAccess {
+  code: string; // same alphabet as admin codes (ADMIN_CODE), unique across admins and stores
+  createdAt: string; // ISO, when this code was made (a new code = a new createdAt)
+}
+
+/**
+ * One of HQ's Steam accounts (HQ-only: field admins and store teams never receive the `accounts` kind).
+ * HQ hands a store one for the weekend; the store team sees only the login of the account given to them.
+ */
+export interface SteamAccount {
+  id: string;
+  label?: string; // HQ's own name for it: "ROG 01"
+  username: string; // the Steam ID people sign in with
+  password: string;
+  email?: string; // the account's e-mail, for HQ's reference
+  notes?: string;
+  createdAt: string; // ISO
+}
+
+export type SteamPurpose = 'play' | 'download';
+
+/**
+ * A store's Steam account for its weekend. `play` is exclusive per weekend (Steam lets one PC be online
+ * with an account at a time); `download` may be shared by any number of stores, and by a recce.
+ */
+export interface SteamAssignment {
+  accountId: string;
+  purpose: SteamPurpose;
+  assignedAt: string; // ISO
+}
+
+/** What the store's own team sees (Store.steamLogin): the assigned account's login, read-only. */
+export interface SteamLogin {
+  username: string;
+  password: string;
+  purpose: SteamPurpose;
+  email?: string;
+}
+
 export interface Admin {
   id: string;
   name: string;
@@ -281,4 +328,5 @@ export interface AppState {
   events: Record<string, TournamentEvent>;
   stores: Record<string, Store>;
   admins: Record<string, Admin>; // super admin only — always empty for field admins
+  accounts: Record<string, SteamAccount>; // HQ's Steam accounts — super admin only, always empty for field admins and store teams
 }

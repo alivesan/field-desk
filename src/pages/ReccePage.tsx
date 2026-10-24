@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { SteamCard } from '../components/SteamCard.tsx';
 import { discardWork, resizeLaptops, retryWork, sendCommand, updateStore, useApp, usePendingWork, useSync } from '../lib/db.ts';
 import { storeCrumbs } from '../lib/admins.ts';
 import { assess, type SectionKey, type SectionStatus } from '../lib/assess.ts';
@@ -9,6 +10,7 @@ import type { Laptop, PhotoRef, Recce, Store, TournamentEvent } from '../lib/typ
 import { success, warn } from '../lib/haptics.ts';
 import { cx, fmtDateTime } from '../lib/util.ts';
 import { askConfirm, Check, Choice, Field, notify, NotFound, NumberField, PageHead, Shell, YesNoField } from '../components/ui.tsx';
+import { useStoreName } from '../components/useStoreName.ts';
 import { BigTick, SegBar } from '../components/flair.tsx';
 import { LocationCheck, PhotoSlot } from '../components/PhotoSlot.tsx';
 import { SpeedTest } from '../components/SpeedTest.tsx';
@@ -18,6 +20,7 @@ const ORDER: SectionKey[] = ['venue', 'furniture', 'laptops', 'network', 'collat
 
 export function ReccePage({ storeId }: { storeId: string }) {
   const store = useApp((s) => s.stores[storeId]);
+  const { short: storeName } = useStoreName(store);
   const { role } = useSync();
   const event = useApp((s) => (store ? s.events[store.eventId] : undefined));
   const [open, setOpen] = useState<SectionKey | 'notes' | null | undefined>(undefined);
@@ -84,14 +87,14 @@ export function ReccePage({ storeId }: { storeId: string }) {
   if (sentBase !== null)
     return (
       <Shell crumbs={storeCrumbs(role, event, store, { label: 'Recce' })}>
-        <PageHead kicker={`Store recce · ${event.name}`} title={store.name} />
+        <PageHead kicker={`Store recce · ${event.name}`} title={storeName} />
         <SentCard store={store} st={st} base={sentBase} home={role === 'super' ? `#/event/${event.id}` : '#/'} onEdit={() => setSentBase(null)} />
       </Shell>
     );
 
   return (
     <Shell crumbs={storeCrumbs(role, event, store, { label: 'Recce' })}>
-      <PageHead kicker={`Store recce · ${event.name}`} title={store.name}>
+      <PageHead kicker={`Store recce · ${event.name}`} title={storeName}>
         <dl className="info">
           <div>
             <dt>Address</dt>
@@ -160,6 +163,7 @@ export function ReccePage({ storeId }: { storeId: string }) {
       </Section>
 
       <Section {...props('laptops', 3)}>
+        <SteamCard store={store} />
         <Laptops event={event} store={store} laptops={r.laptops} edit={edit} />
       </Section>
 

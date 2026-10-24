@@ -1,0 +1,134 @@
+/*
+ * HQ's Steam accounts and who has which for a weekend. Pure and Node-loadable (the server imports it
+ * to work out what a store team may see).
+ *
+ * A store is given one account (Store.steam) for its event weekend, for one of two purposes:
+ *   play      — only one PC can be online with an account at a time, so a play account is exclusive:
+ *               two stores whose event dates fall in the same weekend can't both play with it;
+ *   download  — many PCs can download at once, so any number of stores (and a recce) may share it.
+ * A "weekend" is the Saturday of the Monday–Sunday week the store's date falls in (weekends.ts) — an
+ * event on a weekday is bucketed with the rest of its own week.
+ */
+import type { AppState, SteamAccount, SteamLogin, SteamPurpose, Store } from './types.ts';
+import { storeDate } from './recce.ts';
+import { weekendOf, weekendLabel } from './weekends.ts';
+import { addDaysLocal } from './util.ts';
+
+export const STEAM_PURPOSES: SteamPurpose[] = ['play', 'download'];
+export const MAX_STEAM_TEXT = 200;
+
+type World = Pick<AppState, 'events' | 'stores'>;
+
+/** The weekend bucket of a date: that week's Saturday, yyyy-mm-dd. */
+export const weekKeyOf = (date: string) => weekendOf(date).sat;
+
+/** The weekend a store plays in (its Saturday), or null when its campaign is gone. */
+export function storeWeekend(world: World, store: Store): string | null {
+  const event = world.events[store.eventId];
+  const date = event ? storeDate(store, event) : store.date;
+  return date ? weekKeyOf(date) : null;
+}
+
+/** "Sat 31 Oct – Sun 1 Nov" for a weekend key. */
+export const weekendKeyLabel = (sat: string) => weekendLabel(weekendOf(sat));
+
+export const purposeLabel = (p: SteamPurpose) => (p === 'play' ? 'Play' : 'Downloads');
+
+/**
+ * Stores that already hold this account for playing in the same weekend as `storeId` — the reason it
+ * can't be given to this store for playing. Downloads never clash, and neither does a store with itself.
+ */
+export function steamConflicts(world: World, storeId: string, accountId: string, purpose: SteamPurpose): Store[] {
+  if (purpose !== 'play') return [];
+  const me = world.stores[storeId];
+  if (!me) return [];
+  const week = storeWeekend(world, me);
+  if (!week) return [];
+  return Object.values(world.stores)
+    .filter((s) => s.id !== storeId && s.steam?.accountId === accountId && s.steam.purpose === 'play' && storeWeekend(world, s) === week)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Everything the account is assigned to, nearest event first. */
+export interface SteamUse {
+  store: Store;
+  purpose: SteamPurpose;
+  date: string; // the store's event day
+  week: string; // its weekend (Saturday)
+}
+
+export function steamUses(world: World, accountId: string): SteamUse[] {
+  const out: SteamUse[] = [];
+  for (const store of Object.values(world.stores)) {
+    if (store.steam?.accountId !== accountId) continue;
+    const event = world.events[store.eventId];
+    const date = event ? storeDate(store, event) : store.date || '';
+    out.push({ store, purpose: store.steam.purpose, date, week: date ? weekKeyOf(date) : '' });
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date) || a.store.name.localeCompare(b.store.name));
+}
+
+/** How an account looks for one store's weekend, for the picker. */
+export interface SteamAvailability {
+  /** This store already has it. */
+  mine: boolean;
+  /** Stores playing with it this weekend (not counting this one). */
+  playingAt: Store[];
+  /** Stores using it for downloads this weekend (not counting this one). */
+  downloadingAt: Store[];
+  /** Free to give this store for playing. */
+  canPlay: boolean;
+}
+
+export function steamAvailability(world: World, store: Store, accountId: string): SteamAvailability {
+  const week = storeWeekend(world, store);
+  const others = steamUses(world, accountId).filter((u) => u.store.id !== store.id && week !== null && u.week === week);
+  const playingAt = others.filter((u) => u.purpose === 'play').map((u) => u.store);
+  return {
+    mine: store.steam?.accountId === accountId,
+    playingAt,
+    downloadingAt: others.filter((u) => u.purpose === 'download').map((u) => u.store),
+    canPlay: playingAt.length === 0,
+  };
+}
+
+/** The accounts, label first (else username), for lists. */
+export const steamAccountName = (a: Pick<SteamAccount, 'label' | 'username'>) => (a.label?.trim() ? `${a.label.trim()} · ${a.username}` : a.username);
+
+export function sortedAccounts(accounts: Record<string, SteamAccount>): SteamAccount[] {
+  const key = (a: SteamAccount) => (a.label?.trim() || a.username).toLowerCase();
+  return Object.values(accounts).sort((a, b) => key(a).localeCompare(key(b), undefined, { numeric: true }));
+}
+
+export type WeekFilter = 'this' | 'next' | 'all';
+
+/** The Saturday a filter means (null = every weekend). `today` is yyyy-mm-dd on the device. */
+export function weekFilterKey(filter: WeekFilter, today: string): string | null {
+  if (filter === 'all') return null;
+  const sat = weekKeyOf(today);
+  return filter === 'this' ? sat : addDaysLocal(sat, 7);
+}
+
+/** Whether the account has a play assignment in the weekend (`week` null = ever). */
+export function inUse(world: World, accountId: string, week: string | null): boolean {
+  return steamUses(world, accountId).some((u) => u.purpose === 'play' && (week === null || u.week === week));
+}
+
+/**
+ * What a store's team may see of its Steam account: the login, never the account's id or notes.
+ * Computed by the server on every read (visibleDocs) — never stored.
+ */
+export function steamLoginFor(store: Pick<Store, 'steam'>, accounts: Record<string, SteamAccount> | undefined): SteamLogin | undefined {
+  const a = store.steam && accounts?.[store.steam.accountId];
+  if (!store.steam || !a) return undefined;
+  // The account's email stays with HQ: the store team calls HQ for the Steam Guard code.
+  return { username: a.username, password: a.password, purpose: store.steam.purpose };
+}
+
+/** "this weekend" when the weekend is the current one, else "the weekend of Sat 31 Oct – Sun 1 Nov". */
+export const weekendPhrase = (sat: string, today: string) => (sat === weekKeyOf(today) ? 'this weekend' : `the weekend of ${weekendKeyLabel(sat)}`);
+
+/** What a clash is explained with: "Already playing at Incredible Technologies this weekend — …". */
+export function conflictMessage(clashes: Store[], shortName: (name: string) => string, when: string): string {
+  return `Already playing at ${clashes.map((s) => shortName(s.name)).join(', ')} ${when} — assign it for downloads only, or pick another account.`;
+}

@@ -11,6 +11,7 @@ function base(): Docs {
   return {
     events: {},
     admins: {},
+    accounts: {},
     stores: { s1: { id: 's1', recce: { venue: { photos: [photo('P1')] }, laptops: [laptop('L1'), laptop('L2'), laptop('L3')] }, day: { checkIn: {} } } },
   };
 }
@@ -74,7 +75,7 @@ test('re-applying the same ops is idempotent (insert of existing id, remove of m
 });
 
 test('insert position: after a known id, first for null, at the end when the anchor is gone', () => {
-  const docs: Docs = { events: {}, admins: {}, stores: { s: { list: [{ id: 'a' }, { id: 'b' }] } } };
+  const docs: Docs = { events: {}, admins: {}, accounts: {}, stores: { s: { list: [{ id: 'a' }, { id: 'b' }] } } };
   applyOps(docs, [
     { k: 'stores', id: 's', p: ['list'], ins: { id: 'x' }, after: 'a' },
     { k: 'stores', id: 's', p: ['list'], ins: { id: 'y' }, after: null },
@@ -89,7 +90,7 @@ test('insert position: after a known id, first for null, at the end when the anc
 });
 
 test('arrays without ids keep the old behaviour; reordering id arrays replaces the array', () => {
-  const docs: Docs = { events: { e: { games: ['A'], laps: [{ id: 'a' }, { id: 'b' }] } }, admins: {}, stores: {} };
+  const docs: Docs = { events: { e: { games: ['A'], laps: [{ id: 'a' }, { id: 'b' }] } }, admins: {}, accounts: {}, stores: {} };
   assert.deepEqual(
     edit(docs, (d) => d.events.e.games.push('B')),
     [{ k: 'events', id: 'e', p: ['games'], v: ['A', 'B'] }],

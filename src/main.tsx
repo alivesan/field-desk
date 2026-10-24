@@ -11,6 +11,7 @@ import './styles/app.css';
 import './styles/report.css';
 import './styles/sync.css';
 import './styles/flair.css';
+import './styles/team.css';
 
 const root = createRoot(document.getElementById('root')!);
 
@@ -27,7 +28,7 @@ if (checkInToken) {
     </StrictMode>,
   );
 } else {
-  // A field admin's personal link is https://host/K7Q2 — take the code, then tidy the URL.
+  // A field admin's personal link, or a store team's, is https://host/K7Q2 — take the code, then tidy the URL.
   const code = location.pathname.match(/^\/([A-Za-z0-9]{4})\/?$/)?.[1];
   if (code) history.replaceState(null, '', '/' + location.hash);
 

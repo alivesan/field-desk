@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { SteamCard } from '../components/SteamCard.tsx';
 import { logout, useApp, usePendingWork, useSync } from '../lib/db.ts';
 import { assess } from '../lib/assess.ts';
 import { computeQueue } from '../lib/bracket.ts';
@@ -11,6 +12,7 @@ import { PageHead, Shell, useNow } from '../components/ui.tsx';
 import { EmptyCard } from '../components/flair.tsx';
 import { daysUntil, greeting, whenLabel } from '../lib/stages.ts';
 import { winnersState } from '../lib/winnerInput.ts';
+import { useStoreName } from '../components/useStoreName.ts';
 
 /** Whether this device last left a store's submitted recce open. A convenience only — storage may be blocked. */
 const reccePref = (storeId: string) => {
@@ -69,6 +71,7 @@ export function AdminHome() {
 }
 
 function StoreTasks({ store, event, now, index }: { store: Store; event: TournamentEvent; now: number; index: number }) {
+  const { short, prefix } = useStoreName(store);
   const a = assess(event, store);
   const r = store.recce;
   const st = submissionState(store, usePendingWork(store.id));
@@ -150,8 +153,10 @@ function StoreTasks({ store, event, now, index }: { store: Store; event: Tournam
             {fmtDate(date, { weekday: 'short', day: 'numeric', month: 'short' })} · {event.name}
           </span>
         </div>
-        <h2>{store.name}</h2>
+        {prefix && <span className="label store-kicker">{prefix}</span>}
+        <h2>{short}</h2>
         <div className="task-where">{[store.city, store.address].filter(Boolean).join(' — ')}</div>
+        <SteamCard store={store} />
         <ol className="journey" aria-label="Your two steps">
           <li className={cx('jstep', sent ? 'done' : 'current')}>
             <span className={cx('jmark', sent && 'fd-pop')}>{sent ? <Tick /> : '01'}</span>
