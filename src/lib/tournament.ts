@@ -6,7 +6,7 @@
  * How `base` is used:
  *   bracket.load / bracket.reset — destructive: `base` must equal the current day version,
  *     so a device that hasn't seen the latest bracket can't replace or wipe it.
- *   stations.set / match.start / match.finish / match.undo / players.onspot / onspot.mark / onspot.remove / winners.set —
+ *   stations.set / match.start / match.finish / match.undo / players.onspot / onspot.mark / onspot.remove / winners.set / winners.clear —
  *     `base` is informational only.
  *     These are checked against the *current* state (station free, players checked in and
  *     not busy, match in the right status, nothing downstream started), which is the real
@@ -40,6 +40,7 @@ export const TOURNAMENT_COMMANDS: Record<string, Role[]> = {
   'onspot.remove': ['super'], // HQ deletes registrations (test data, mistakes)
   // The admin collects the winner's and runner-up's details after the final; HQ may correct them.
   'winners.set': ['super', 'admin'],
+  'winners.clear': ['super'], // the only way to remove them: test data, or details saved for a final that was later reset
 };
 
 const conflict = (msg: string) => new CommandError('conflict', msg);
@@ -104,6 +105,9 @@ export function tournamentCommand(store: Store, cmd: Command, ctx: CommandContex
       break;
     case 'winners.set':
       next = setWinners(day, cmd, ctx);
+      break;
+    case 'winners.clear':
+      next = clearWinners(day);
       break;
     default:
       throw invalid(`${(cmd as { type: string }).type} isn’t a tournament command`);
@@ -379,6 +383,19 @@ function setWinners(day: MatchDay, cmd: Extract<Command, { type: 'winners.set' }
   const runnerUp: WinnerDetails = { playerId: result.runnerUp, ...r.value };
   const winners: Winners = { winner, runnerUp, finalMatchId: final.id, at: day.winners?.at ?? ctx.now, updatedAt: ctx.now, by: ctx.actor.name };
   return { ...day, winners };
+}
+
+/* ---------- winners.clear ---------- */
+
+/**
+ * winners.clear: HQ drops the saved winner / runner-up details. The bracket, players and check-ins
+ * are not touched, so the admin's match-day page offers "Collect winner details" again once the final
+ * is done. `base` is informational, like winners.set; the real guard is that there is something to clear.
+ */
+function clearWinners(day: MatchDay): MatchDay {
+  if (!day.winners) throw conflict('There are no winner details saved for this store.');
+  const { winners: _gone, ...rest } = day;
+  return rest;
 }
 
 /* ---------- stations.set ---------- */

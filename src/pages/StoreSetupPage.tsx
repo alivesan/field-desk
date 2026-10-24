@@ -10,6 +10,7 @@ import { askConfirm, Chip, NotFound, NumberField, PageHead, Shell } from '../com
 import { AutoCheck, ToornamentImport } from '../components/ToornamentImport.tsx';
 import { RosterImport } from '../components/RosterImport.tsx';
 import { OnSpotList } from '../components/OnSpotList.tsx';
+import { ResetWinners } from './WinnersPage.tsx';
 import { onSpotByPlayer, onSpotOf, prettyPhone } from '../lib/onspot.ts';
 import '../styles/day.css';
 import '../styles/setup.css';
@@ -386,6 +387,11 @@ function BracketStep({ store, event, onBack }: { store: Store; event: Tournament
       </div>
       <AutoCheck store={store} event={event} />
       <BracketChart day={day} />
+      {day.winners && (
+        <p className="hint">
+          Winner and runner-up details are saved for this store. <ResetWinners store={store} link />
+        </p>
+      )}
       <div className="submit-bar">
         <a className="btn ghost" href={`#/store/${store.id}/day`}>
           Open match day

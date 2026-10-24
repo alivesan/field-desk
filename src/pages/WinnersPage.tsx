@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../lib/db.ts';
+import { dayVersion } from '../lib/commands.ts';
 import type { Store, TournamentEvent } from '../lib/types.ts';
 import { go } from '../lib/router.ts';
 import { prettyPhone } from '../lib/onspot.ts';
 import { FIELD_LABEL } from '../lib/winnerInput.ts';
 import { STATUS_LABEL, summarize, winnerRows, winnersCsv, type WinnerRow, type WinnerStatus } from '../lib/winners.ts';
 import { cx, downloadBlob, fmtDate, slug, todayLocal } from '../lib/util.ts';
-import { Chip, PageHead, Shell } from '../components/ui.tsx';
+import { askConfirm, Chip, notify, PageHead, Shell } from '../components/ui.tsx';
+import { useHqCommand } from '../components/hqCommand.ts';
 import '../styles/winners.css';
 
 type StatusFilter = 'all' | WinnerStatus;
@@ -118,6 +120,7 @@ export function WinnersPage({ eventId }: { eventId?: string }) {
 
 function StoreCard({ rows }: { rows: WinnerRow[] }) {
   const first = rows[0];
+  const store = useApp((s) => s.stores[first.storeId]);
   const open = !first.finalDone && rows.every((r) => r.status === 'no-final');
   return (
     <article className="wn-store">
@@ -132,7 +135,31 @@ function StoreCard({ rows }: { rows: WinnerRow[] }) {
         </div>
       </header>
       {open ? <p className="wn-open">Final not played yet.</p> : <div className="wn-places">{rows.map((r) => <Person key={r.place} row={r} />)}</div>}
+      {store?.day.winners && <ResetWinners store={store} />}
     </article>
+  );
+}
+
+/** HQ: clear the saved details (test data, or a final that was reset). The bracket is not touched; the admin can collect them again. */
+export function ResetWinners({ store, link }: { store: Store; link?: boolean }) {
+  const send = useHqCommand();
+  const reset = async () => {
+    if (!(await askConfirm(`Clear the winner and runner-up details saved for ${store.name}? Who won stays in the bracket; the admin can collect the details again.`, { ok: 'Reset winner details', danger: true }))) return;
+    const problem = send(store.id, (s) => ({ type: 'winners.clear', base: dayVersion(s) }));
+    if (problem) void notify(problem);
+  };
+  if (link)
+    return (
+      <button className="link warn" onClick={reset}>
+        Reset winner details
+      </button>
+    );
+  return (
+    <div className="wn-reset">
+      <button className="btn danger" onClick={reset}>
+        Reset winner details
+      </button>
+    </div>
   );
 }
 
