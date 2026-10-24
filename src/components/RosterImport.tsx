@@ -6,7 +6,7 @@ import { COLUMN_LABEL, decodeText, diffRoster, diffSummary, looksLikeHtml, parse
 import { maskPhone } from '../lib/phone.ts';
 import { keepOnSpot } from '../lib/onspot.ts';
 import { ago, cx } from '../lib/util.ts';
-import { askConfirm, Chip, useNow } from './ui.tsx';
+import { askConfirm, Chip, toast, useNow } from './ui.tsx';
 import '../styles/roster.css';
 import '../styles/onspot.css';
 
@@ -215,7 +215,10 @@ export function RosterImport({ event, stores, single, campaign, onLoaded }: { ev
     }
     setSent(ids);
     setRefused(bad);
-    if (ids.length && !bad.length) onLoaded?.();
+    if (ids.length && !bad.length) {
+      toast(ids.length === 1 ? 'Players loaded' : `Players loaded for ${ids.length} stores`);
+      onLoaded?.();
+    }
   };
 
   // This load's work plus any earlier player load for these stores still waiting or refused.

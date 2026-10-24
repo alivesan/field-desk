@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } fro
 import type { YesNo } from '../lib/types.ts';
 import { login, SIGNED_OUT_KEY, useSync } from '../lib/db.ts';
 import { cx } from '../lib/util.ts';
+import { useRoute } from '../lib/router.ts';
 import { SyncStatus } from './SyncStatus.tsx';
 
 /**
@@ -71,6 +72,9 @@ export function AccessGate() {
   );
 }
 
+/** From package.json via vite.config.ts `define`; tests that import this file outside Vite get a stand-in. */
+export const APP_VERSION = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : 'dev';
+
 export function Shell({ crumbs = [], children, wide }: { crumbs?: { label: string; href?: string }[]; children: ReactNode; wide?: boolean }) {
   const { role } = useSync();
   return (
@@ -80,6 +84,9 @@ export function Shell({ crumbs = [], children, wide }: { crumbs?: { label: strin
           <a href="#/" className="mast-mark">
             Field Desk
           </a>
+          <span className="beta" title={`Field Desk ${APP_VERSION} — beta. Tell HQ what feels off.`}>
+            Beta
+          </span>
           <nav className="crumbs">
             {crumbs.map((c, i) =>
               c.href ? (
@@ -105,19 +112,30 @@ export function Shell({ crumbs = [], children, wide }: { crumbs?: { label: strin
         </div>
       </header>
       <main className={cx('page', wide && 'wide')}>{children}</main>
+      <footer className={cx('foot', wide && 'wide')}>
+        <span>Field Desk</span>
+        <span>{/^\d/.test(APP_VERSION) ? `v${APP_VERSION}` : APP_VERSION}</span>
+        <span className="beta-note">beta</span>
+      </footer>
     </div>
   );
 }
 
 export function PageHead({ kicker, title, deck, children }: { kicker?: ReactNode; title: ReactNode; deck?: ReactNode; children?: ReactNode }) {
+  const route = useRoute().join('/'); // a new page (or another store/event) fades in again
   return (
-    <div className="phead">
+    <div className="phead fd-enter" key={route}>
       {kicker && <div className="kicker">{kicker}</div>}
       <h1>{title}</h1>
       {deck && <p className="deck">{deck}</p>}
       {children}
     </div>
   );
+}
+
+/** A placeholder bar while something loads: give it a size, it shimmers. Decorative (aria-hidden). */
+export function Skeleton({ w = '100%', h = 14, className }: { w?: number | string; h?: number | string; className?: string }) {
+  return <span className={cx('skeleton', 'fd-shimmer', className)} style={{ width: w, height: h }} aria-hidden />;
 }
 
 export const Label = ({ children }: { children: ReactNode }) => <div className="label">{children}</div>;
@@ -333,5 +351,92 @@ export function ConfirmHost() {
         </form>
       )}
     </dialog>
+  );
+}
+
+/* ---------- toasts (quiet, non-blocking confirmation) ---------- */
+
+/*
+ * For "Saved", "Copied", "Checked in" — things that need no answer. Anything the person must read
+ * and acknowledge (a failure, a refusal) stays on notify() / askConfirm(), which block until answered.
+ * Up to 3 stack, each leaves by itself after 3 s; <ToastHost /> is mounted once next to <ConfirmHost />.
+ */
+export type ToastTone = 'ok' | 'warn' | 'accent';
+interface ToastItem {
+  id: number;
+  message: string;
+  tone: ToastTone;
+  icon: ReactNode;
+  leaving: boolean;
+}
+const TOAST_MS = 3000;
+const TOAST_EXIT_MS = 200;
+const TOAST_MAX = 3;
+const TOAST_ICON: Record<ToastTone, string> = { ok: '✓', warn: '!', accent: '•' };
+let toasts: ToastItem[] = [];
+let toastSeq = 0;
+const toastTimers = new Map<number, ReturnType<typeof setTimeout>>();
+const toastListeners = new Set<() => void>();
+const toastChanged = () => toastListeners.forEach((f) => f());
+const toastSubscribe = (f: () => void) => (toastListeners.add(f), () => void toastListeners.delete(f));
+
+function toastEnd(id: number) {
+  clearTimeout(toastTimers.get(id));
+  toastTimers.delete(id);
+  toasts = toasts.filter((t) => t.id !== id);
+  toastChanged();
+}
+function toastLeave(id: number) {
+  clearTimeout(toastTimers.get(id));
+  if (!toasts.some((t) => t.id === id)) return;
+  toasts = toasts.map((t) => (t.id === id ? { ...t, leaving: true } : t));
+  toastChanged();
+  toastTimers.set(id, setTimeout(() => toastEnd(id), TOAST_EXIT_MS));
+}
+
+/** A short, self-dismissing message. The same text shown again just restarts its timer. */
+export function toast(message: string, opts: { tone?: ToastTone; icon?: ReactNode } = {}) {
+  const tone = opts.tone ?? 'ok';
+  const icon = opts.icon ?? TOAST_ICON[tone];
+  const same = toasts.find((t) => t.message === message && t.tone === tone && !t.leaving);
+  if (same) {
+    clearTimeout(toastTimers.get(same.id));
+    toastTimers.set(same.id, setTimeout(() => toastLeave(same.id), TOAST_MS));
+    return;
+  }
+  const id = ++toastSeq;
+  toasts = [...toasts, { id, message, tone, icon, leaving: false }];
+  for (const old of toasts.slice(0, Math.max(0, toasts.length - TOAST_MAX))) toastEnd(old.id); // oldest go first
+  toastChanged();
+  toastTimers.set(id, setTimeout(() => toastLeave(id), TOAST_MS));
+}
+
+export function ToastHost() {
+  const list = useSyncExternalStore(toastSubscribe, () => toasts);
+  const host = useRef<HTMLDivElement>(null);
+  // Sheets and confirms are modal <dialog>s in the browser's top layer, above any z-index.
+  // A manual popover joins that layer too; re-showing it moves it to the top, so a toast fired
+  // from inside a sheet ("Asha R. checked in") is visible above the sheet.
+  useEffect(() => {
+    const el = host.current as (HTMLDivElement & { showPopover?: () => void; hidePopover?: () => void }) | null;
+    if (!el?.showPopover || !list.length) return;
+    try {
+      if (el.matches(':popover-open')) el.hidePopover?.();
+      el.showPopover();
+    } catch {
+      /* older browsers: the fixed z-index fallback still applies */
+    }
+  }, [list]);
+  return (
+    <div ref={host} {...{ popover: 'manual' }} className="toasts" role="status" aria-live="polite" aria-relevant="additions">
+      {list.map((t) => (
+        <button key={t.id} type="button" className={cx('toast', t.tone, t.leaving && 'leaving')} onClick={() => toastLeave(t.id)}>
+          <span className="toast-icon" aria-hidden>
+            {t.icon}
+          </span>
+          <span className="toast-text">{t.message}</span>
+        </button>
+      ))}
+    </div>
   );
 }

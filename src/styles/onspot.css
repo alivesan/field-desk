@@ -245,3 +245,24 @@
   color: var(--accent);
   border-color: var(--accent);
 }
+
+/* Each store's walk-ins sit in a card, like the other HQ lists. */
+.os-store {
+  padding: 16px 16px 6px;
+  background: var(--paper-2);
+}
+.os-store .os-list {
+  border-top-color: var(--rule);
+}
+.os-store .os-row:last-child {
+  border-bottom: 0;
+}
+.os-store .os-note {
+  background: var(--paper);
+}
+.os-row {
+  transition: opacity var(--dur-2, 200ms) var(--ease-out, ease-out);
+}
+.os-row.added {
+  opacity: 0.8;
+}

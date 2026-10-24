@@ -209,8 +209,18 @@
   background: var(--accent);
   border-color: var(--accent);
 }
-.bstate.live i {
-  animation: pulse 1.4s ease-in-out infinite;
+.bdot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent);
+  --pulse: var(--accent);
+}
+.bstate i.bdot {
+  background: #fff;
+  --pulse: #fff;
 }
 .bstate.done {
   color: var(--paper);
@@ -240,14 +250,79 @@
   color: var(--warn);
 }
 
-/* round names: a strip that stays under the tabs and slides sideways with the chart */
-.bhead {
+/* round picker + round names: stays under the tabs while the page scrolls; the names slide sideways with the chart */
+.bnav {
   position: sticky;
   top: 103px;
   z-index: 6;
-  overflow: hidden;
   background: var(--paper);
   border-top: 1px solid var(--rule);
+}
+.bpick {
+  display: flex;
+  gap: 6px;
+  padding: 8px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.bpick::-webkit-scrollbar {
+  display: none;
+}
+.bchip {
+  appearance: none;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font: 500 12px/1 var(--mono);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background var(--dur-1), color var(--dur-1), border-color var(--dur-1), transform var(--dur-1);
+}
+.bchip:hover {
+  border-color: var(--ink);
+}
+.bchip:active {
+  transform: scale(0.97);
+}
+.bchip.on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+.bchip.done:not(.on) {
+  color: var(--muted);
+}
+.bchip:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.bfollowbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  background: var(--paper-2);
+  border-left: 3px solid var(--ink);
+  font-size: 14px;
+}
+.bfollowbar strong {
+  font-weight: 600;
+}
+.bfollowbar .link {
+  flex: none;
+}
+.bhead {
+  overflow: hidden;
 }
 .bhead .bracket {
   padding: 9px 0 7px;
@@ -268,11 +343,71 @@
 .bracket-scroll {
   border-top: 0;
   padding: 14px 0 8px;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
 }
 .bracket-scroll .bracket,
 .bhead .bracket {
-  grid-template-columns: repeat(var(--rounds), minmax(220px, 1fr));
-  min-width: calc(var(--rounds) * 220px + (var(--rounds) - 1) * 28px);
+  --col: 220px;
+  --gap: 36px;
+  grid-template-columns: repeat(var(--rounds), minmax(var(--col), 1fr));
+  column-gap: var(--gap);
+  min-width: calc(var(--rounds) * var(--col) + (var(--rounds) - 1) * var(--gap));
+}
+/* on a phone one round fills most of the screen and the next peeks in from the right */
+@media (max-width: 600px) {
+  .bracket-scroll .bracket,
+  .bhead .bracket {
+    --col: min(76vw, 290px);
+    --gap: 30px;
+  }
+}
+.bracket-scroll .bracket {
+  position: relative;
+}
+.bracket-scroll .bround {
+  scroll-snap-align: start;
+}
+
+/* connector lines (an SVG measured from the cards): winner's path in ink, live in accent, still to play faint */
+.bwires {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.bwire {
+  fill: none;
+  stroke: var(--rule);
+  stroke-width: 2;
+  transition: stroke var(--dur-2), opacity var(--dur-2), stroke-width var(--dur-2);
+}
+.bwire.rule {
+  stroke: color-mix(in srgb, var(--ink) 24%, transparent);
+}
+.bwire.ink {
+  stroke: var(--ink);
+}
+.bwire.live {
+  stroke: var(--accent);
+  stroke-dasharray: 7 6;
+  animation: bwire-flow 0.9s linear infinite;
+}
+.bwire.dim {
+  opacity: 0.22;
+}
+.bwire.on {
+  stroke-width: 3.5;
+}
+.bwire-sample {
+  justify-self: start;
+}
+@keyframes bwire-flow {
+  to {
+    stroke-dashoffset: -13;
+  }
 }
 
 .bracket-scroll .bmatch {
@@ -289,18 +424,100 @@
   background: var(--paper);
   box-shadow: none;
 }
-.bracket-scroll button.bmatch {
-  cursor: pointer;
-  transition: box-shadow 0.12s, transform 0.12s;
+.bracket-scroll .bmatch {
+  z-index: 1;
+  transition: box-shadow var(--dur-1), transform var(--dur-1), opacity var(--dur-2), border-color var(--dur-2), background var(--dur-2);
 }
-.bracket-scroll button.bmatch:hover {
+.bracket-scroll .bmatch:not(.bye):hover {
   box-shadow: 0 3px 0 var(--ink);
   transform: translateY(-1px);
 }
-.bracket-scroll button.bmatch:focus-visible,
-.bracket-scroll button.bmatch.open {
+.bracket-scroll .bmatch:has(> .bmatch-hit:active) {
+  transform: scale(0.985);
+  box-shadow: none;
+}
+/* the card is a div so a name can carry its own follow button: this transparent button covers it and opens the sheet */
+.bmatch-hit {
+  appearance: none;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.bmatch-hit:focus-visible,
+.bracket-scroll .bmatch.open {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
+}
+.bracket-scroll .bmatch.just-live {
+  animation: bm-ring 0.9s var(--ease-out);
+}
+@keyframes bm-ring {
+  from {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 12px color-mix(in srgb, var(--accent) 0%, transparent);
+  }
+}
+
+/* follow a player: the button beside each name, and the path it lights up */
+.bfollow {
+  appearance: none;
+  position: relative;
+  z-index: 2;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin: -6px -6px -6px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--muted);
+  opacity: 0.75;
+  cursor: pointer;
+  transition: color var(--dur-1), background var(--dur-1), opacity var(--dur-1);
+}
+.bfollow:hover {
+  color: var(--ink);
+  background: var(--paper-2);
+  opacity: 1;
+}
+.bfollow.on {
+  color: var(--paper);
+  background: var(--ink);
+  opacity: 1;
+}
+.bfollow:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+.bfollow.demo {
+  justify-self: start;
+  margin: 0;
+  pointer-events: none;
+}
+.bracket-scroll.following .bmatch:not(.onpath) {
+  opacity: 0.36;
+}
+.bracket-scroll .bmatch.onpath {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 1px var(--ink);
+}
+.bracket-scroll .bslot.mine {
+  background: var(--paper-3);
+  font-weight: 600;
 }
 .bracket-scroll .bmatch.ready {
   border-color: var(--ok);
@@ -371,7 +588,7 @@
   justify-content: flex-start;
   gap: 7px;
   min-height: 38px;
-  padding: 7px 8px;
+  padding: 7px 8px 7px 8px;
   font-size: 14px;
   line-height: 1.2;
 }
@@ -452,10 +669,13 @@
   overscroll-behavior: contain;
 }
 .sheet[open] {
-  animation: sheet-in 0.18s ease-out;
+  animation: sheet-in var(--dur-3) var(--ease-out);
 }
 .sheet::backdrop {
   background: rgba(22, 21, 19, 0.42);
+}
+.sheet[open]::backdrop {
+  animation: sheet-fade var(--dur-2) ease-out;
 }
 .sheet-body {
   position: relative;
@@ -501,9 +721,9 @@
     opacity: 0;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .sheet[open] {
-    animation: none;
+@keyframes sheet-fade {
+  from {
+    opacity: 0;
   }
 }
 
@@ -670,5 +890,227 @@ fieldset.sheet-actions[disabled] {
     grid-template-columns: 92px 1fr;
     font-size: 12.5px;
     line-height: 1.25;
+  }
+}
+
+/* ---------- stations: free or busy at a glance ---------- */
+
+.station {
+  transition: box-shadow var(--dur-2), background var(--dur-2);
+}
+.station.free {
+  box-shadow: inset 0 3px 0 var(--ok);
+}
+.station.free.idle {
+  box-shadow: inset 0 3px 0 var(--rule);
+}
+.station.live {
+  background: color-mix(in srgb, var(--accent-soft) 45%, var(--paper));
+}
+.station .live-dot::before {
+  --pulse: var(--accent);
+  animation: fd-pulse 1.8s ease-out infinite;
+}
+.station .free-dot {
+  color: var(--ok);
+}
+.station .free-dot::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+  vertical-align: 1px;
+}
+.station.free.idle .free-dot {
+  color: var(--muted);
+}
+.station.free.idle .free-dot::before {
+  background: var(--muted);
+}
+.station .btn.block:active,
+.qside .btn:active {
+  transform: scale(0.98);
+}
+
+/* ---------- confetti (Confetti.tsx): a full-screen canvas that never takes a tap ---------- */
+
+.confetti {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+}
+
+/* the champion's name rises into place and a red rule is drawn under it */
+@keyframes champ-rise {
+  from {
+    opacity: 0;
+    transform: translateY(0.2em) scale(0.985);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+@keyframes champ-rule {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* ---------- venue board: presence ---------- */
+
+.board {
+  overflow-x: clip; /* the champion's glow reaches past the edges */
+}
+.board .board-clock {
+  align-items: flex-end;
+  gap: 6px;
+}
+.board .board-head .board-time {
+  display: flex;
+  align-items: baseline;
+  font: 400 clamp(52px, 8.5vw, 136px) / 0.88 var(--serif);
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+}
+.board-time small {
+  margin-left: 0.3em;
+  font: 500 0.2em/1 var(--mono);
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+.board-time .colon {
+  margin: 0 0.02em;
+  animation: board-blink 2s steps(1) infinite;
+}
+@keyframes board-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+.board-date {
+  font: 500 clamp(12px, 1.3vw, 18px) / 1.2 var(--mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.board .board-livelabel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #f3f0e8;
+}
+.board-dot {
+  display: inline-block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  --pulse: var(--accent);
+}
+.board .board-live {
+  border-bottom-color: var(--rule);
+  box-shadow: inset 3px 0 0 var(--accent);
+  padding-left: 22px;
+}
+
+/* the champion fills the screen under the header */
+.board .board-champ {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: calc(100vh - 340px);
+  min-height: calc(100dvh - 340px);
+  padding: 4vh 0;
+}
+.board .board-champ::before {
+  content: '';
+  position: absolute;
+  inset: -8% -6%;
+  z-index: -1;
+  background: radial-gradient(55% 60% at 26% 52%, rgba(200, 54, 29, 0.3), transparent 72%);
+  animation: board-glow 6s ease-in-out infinite alternate;
+}
+@keyframes board-glow {
+  from {
+    opacity: 0.5;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.board .board-champ > .label {
+  font-size: clamp(13px, 1.6vw, 22px);
+  letter-spacing: 0.32em;
+  color: #f2b25c;
+}
+.board .board-champ h2 {
+  max-width: 14ch;
+  color: #f3f0e8;
+  font-size: clamp(72px, 14vw, 240px);
+  line-height: 0.95;
+  animation: champ-rise 0.9s var(--ease-out) 0.15s both;
+}
+.board .board-champ h2::after {
+  content: '';
+  display: block;
+  width: clamp(96px, 14vw, 240px);
+  height: clamp(4px, 0.5vw, 8px);
+  margin-top: clamp(16px, 2.4vw, 40px);
+  background: var(--accent);
+  transform-origin: left;
+  animation: champ-rule 0.9s var(--ease-out) 0.7s both;
+}
+.board .board-champ.waiting h2 {
+  max-width: none;
+  color: #f3f0e8;
+  animation: none;
+}
+.board .board-champ.waiting h2::after {
+  content: none;
+}
+.board .board-runner {
+  color: #cfc9bc;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet[open],
+  .sheet[open]::backdrop,
+  .bracket-scroll .bmatch,
+  .bracket-scroll .bmatch.just-live,
+  .bchip,
+  .bfollow {
+    animation: none;
+    transition: none;
+  }
+  .bwire,
+  .bwire.live,
+  .board-time .colon,
+  .board .board-champ::before,
+  .board .board-champ h2,
+  .board .board-champ h2::after,
+  .station .live-dot::before {
+    animation: none;
+    transition: none;
+  }
+  .bwire.live {
+    stroke-dasharray: none;
+  }
+  .confetti {
+    display: none;
   }
 }

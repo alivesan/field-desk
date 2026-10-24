@@ -7,7 +7,7 @@ import { AUTO_EVERY_MIN, autoFinished, autoLine, planFor } from '../lib/toorname
 import type { Store, TournamentEvent } from '../lib/types.ts';
 import { ago, cx } from '../lib/util.ts';
 import { useMarkOnSpot } from './OnSpotList.tsx';
-import { useNow } from './ui.tsx';
+import { toast, useNow } from './ui.tsx';
 import '../styles/toornament.css';
 import '../styles/onspot.css';
 
@@ -158,6 +158,7 @@ export function ToornamentImport({ store, event }: { store: Store; event: Tourna
     } catch (e) {
       return setProblem(`Couldn’t queue this on the device: ${(e as Error).message}`);
     }
+    toast('Bracket loaded from Toornament');
     const unmarked = plan.onSpotFound.filter((f) => !f.entry.toornament);
     setOffer(unmarked.length ? { ids: unmarked.map((f) => f.entry.id), names: unmarked.map((f) => f.entry.name) } : null);
     const at = new Date().toISOString();

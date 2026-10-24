@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildBracket } from '../src/lib/bracket.ts';
-import { feederOf, KIND_INFO, KIND_ORDER, matchState, playedFor, slotKind, stationSlots, telHref, undoBlockedBy } from '../src/lib/day-ui.ts';
+import { feederOf, KIND_INFO, KIND_ORDER, matchState, pathOf, playedFor, roundInPlay, roundShort, slotKind, stationSlots, telHref, undoBlockedBy, wireTone } from '../src/lib/day-ui.ts';
 import type { Match, MatchDay, Player } from '../src/lib/types.ts';
 
 const players: Player[] = ['a', 'b', 'c', 'd', 'e'].map((id, i) => ({ id, name: id.toUpperCase(), seed: i + 1 }));
@@ -108,4 +108,26 @@ test('playedFor and stationSlots', () => {
       [3, undefined],
     ],
   );
+});
+
+test('roundShort / roundInPlay / pathOf / wireTone: the bracket chart helpers', () => {
+  assert.deepEqual([0, 1, 2, 3].map((r) => roundShort(r, 4)), ['R1', 'QF', 'SF', 'Final']);
+  assert.deepEqual([0, 1, 2].map((r) => roundShort(r, 3)), ['QF', 'SF', 'Final']);
+  assert.deepEqual([0, 1].map((r) => roundShort(r, 5)), ['R1', 'R2']);
+
+  const d = day(); // 5 players: round 0 holds byes (done) and one real match
+  const real = d.matches.find((m) => m.round === 0 && !m.bye)!;
+  assert.equal(roundInPlay(d.matches), 0); // the real first-round match is still to play
+  const live = swap(d, real, { status: 'live', station: 1 });
+  assert.equal(roundInPlay(live.matches), 0);
+  const done = swap(d, real, { status: 'done', winner: real.a });
+  assert.equal(roundInPlay(done.matches), 1); // round 0 is over: the day moves on
+  assert.equal(wireTone(real), 'rule');
+  assert.equal(wireTone({ ...real, status: 'live' }), 'live');
+  assert.equal(wireTone({ ...real, status: 'done', winner: real.a }), 'ink');
+  assert.equal(wireTone(d.matches.find((m) => m.bye)!), 'rule'); // a bye is "done" but decided nothing
+
+  const a = pathOf(d.matches, 'a');
+  assert.ok(a.size >= 2 && [...a].every((id) => d.matches.find((m) => m.id === id && (m.a === 'a' || m.b === 'a'))));
+  assert.equal(pathOf(d.matches, 'nobody').size, 0);
 });

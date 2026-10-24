@@ -1,0 +1,108 @@
+/*
+ * Motion tokens + utilities. Imported once from src/main.tsx (not inlined into exported reports).
+ *
+ * Tokens
+ *   --ease-out     decelerating curve for things arriving (default for enters and feedback)
+ *   --ease-spring  slight overshoot for success pops
+ *   --dur-1 / --dur-2 / --dur-3   120ms (press, hover) / 200ms (state change) / 320ms (enter)
+ *
+ * Classes (all are no-ops under prefers-reduced-motion)
+ *   .fd-enter     fade + 6px rise on mount. Optional delay: style={{ '--fd-delay': '80ms' }}
+ *   .fd-pop       success scale 1 -> 1.06 -> 1. Re-trigger by changing the element's `key`
+ *   .fd-pulse     live dot: soft ring that breathes out. Colour: --pulse (defaults to currentColor)
+ *   .fd-shimmer   skeleton sweep; give the element a size, it paints its own paper-toned bar
+ *   .fd-stagger   on a parent: its children fade/rise one after another.
+ *                 Each child sets style={{ '--i': index }}; delay = min(--i, 8) * 45ms
+ *
+ * Rules of thumb: feedback 120-200ms, enters 320ms, success scale never above 1.06,
+ * never animate layout (width/height/margin) - transform and opacity only.
+ */
+
+:root {
+  --ease-out: cubic-bezier(0.22, 0.8, 0.28, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-1: 120ms;
+  --dur-2: 200ms;
+  --dur-3: 320ms;
+}
+
+@keyframes fd-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fd-pop {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.06);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes fd-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--pulse, currentColor) 45%, transparent);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--pulse, currentColor) 0%, transparent);
+  }
+}
+
+@keyframes fd-shimmer {
+  from {
+    background-position: 160% 0;
+  }
+  to {
+    background-position: -60% 0;
+  }
+}
+
+.fd-enter {
+  animation: fd-enter var(--dur-3) var(--ease-out) both;
+  animation-delay: var(--fd-delay, 0ms);
+}
+
+.fd-pop {
+  animation: fd-pop 280ms var(--ease-spring);
+}
+
+.fd-pulse {
+  animation: fd-pulse 1.8s ease-out infinite;
+}
+
+.fd-shimmer {
+  background-color: var(--paper-3);
+  background-image: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.55) 50%, transparent 70%);
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  animation: fd-shimmer 1.5s linear infinite;
+}
+
+.fd-stagger > * {
+  animation: fd-enter var(--dur-3) var(--ease-out) both;
+  animation-delay: calc(min(var(--i, 0), 8) * 45ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fd-enter,
+  .fd-pop,
+  .fd-pulse,
+  .fd-stagger > * {
+    animation: none;
+  }
+  .fd-shimmer {
+    animation: none;
+    background-image: none;
+  }
+}

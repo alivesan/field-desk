@@ -36,9 +36,12 @@ function api(mode: string): Plugin {
   };
 }
 
+const appVersion = (JSON.parse(fs.readFileSync('package.json', 'utf8')) as { version: string }).version;
+
 // `npm run dev:phone` serves over HTTPS on the LAN — phones only allow
 // camera + geolocation on secure origins.
 export default defineConfig(({ mode }) => ({
   plugins: [react(), api(mode), ...(mode === 'phone' ? [basicSsl()] : [])],
+  define: { __APP_VERSION__: JSON.stringify(appVersion) },
   server: { watch: { ignored: ['**/.data/**', '**/data/**', '**/.env.local'] } },
 }));

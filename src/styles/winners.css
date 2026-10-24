@@ -265,3 +265,91 @@
     width: 100%;
   }
 }
+
+/* ---------- podium: the winner in an ink block, the runner-up quieter ---------- */
+
+.wn-person {
+  padding: 12px 14px 14px;
+  background: var(--paper-2);
+}
+.wn-place {
+  justify-content: flex-start;
+  gap: 10px;
+}
+.wn-place .chip {
+  margin-left: auto;
+}
+.wn-rank {
+  font: 400 38px/0.8 var(--serif);
+  letter-spacing: -0.03em;
+  color: var(--muted);
+}
+.wn-person.first {
+  padding: 14px 16px 16px;
+  background: var(--ink);
+  color: var(--paper);
+  border-top: 3px solid var(--accent);
+}
+.wn-person.first .wn-rank {
+  color: var(--accent);
+  font-size: 46px;
+}
+.wn-person.first .label {
+  color: color-mix(in srgb, var(--paper) 62%, transparent);
+}
+.wn-person.first .wn-name {
+  font-size: 30px;
+}
+.wn-person.first .wn-name.list,
+.wn-person.first .ign,
+.wn-person.first .wn-saved,
+.wn-person.first .wn-line dd.none {
+  color: color-mix(in srgb, var(--paper) 66%, transparent);
+}
+.wn-person.first .wn-line {
+  border-top-color: color-mix(in srgb, var(--paper) 18%, transparent);
+}
+.wn-person.first .wn-line dd a {
+  color: var(--paper);
+}
+.wn-person.first .wn-line dd a:hover {
+  color: #ff8d77;
+}
+.wn-person.first .chip {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--paper) 35%, transparent);
+  color: var(--paper);
+}
+.wn-person.first .chip.ok {
+  color: #8fd1a1;
+}
+.wn-person.first .chip.warn {
+  color: #f0bd62;
+}
+.wn-person.first .chip.accent {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.wn-person.second .wn-name {
+  font-size: 22px;
+}
+@media (max-width: 640px) {
+  .wn-person.first .wn-name {
+    font-size: 27px;
+  }
+  .wn-person.second .wn-name {
+    font-size: 21px;
+  }
+}
+.wn-person.first .wn-note {
+  background: color-mix(in srgb, var(--paper) 10%, transparent);
+  border-left-color: color-mix(in srgb, var(--paper) 40%, transparent);
+  color: var(--paper);
+}
+.wn-person.first .wn-note.warn {
+  border-left-color: #f0bd62;
+}
+.wn-person.first .wn-note.bad {
+  border-left-color: #ff8d77;
+}

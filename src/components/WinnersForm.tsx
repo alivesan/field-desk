@@ -5,7 +5,9 @@ import { isPhone, MAX_IGN } from '../lib/phone.ts';
 import type { MatchDay, Player, WinnerDetails } from '../lib/types.ts';
 import { cleanWinnerInput, FIELD_LABEL, MAX_EMAIL, MAX_REAL_NAME, missingFields, parseEmail, parseInstagram, type FinalResult, type WinnerField, type Who } from '../lib/winnerInput.ts';
 import { cx, fmtTime } from '../lib/util.ts';
+import { success } from '../lib/haptics.ts';
 import { Sheet } from './Sheet.tsx';
+import { toast } from './ui.tsx';
 import '../styles/winners-form.css';
 
 /*
@@ -90,6 +92,8 @@ function WinnersForm({ day, result, matchLabel, save, onClose }: { day: MatchDay
     }
     const refused = save(asInput(win), asInput(run));
     if (refused) return setError(refused);
+    success();
+    toast('Winner details saved');
     onClose();
   };
 

@@ -9,7 +9,9 @@ import { computeQueue } from '../lib/bracket.ts';
 import { go } from '../lib/router.ts';
 import { ago, fmtDate } from '../lib/util.ts';
 import { dateSpan, storeDate } from '../lib/recce.ts';
-import { askConfirm, Chip, Field, NotFound, NumberField, PageHead, Progress, Shell, useNow } from '../components/ui.tsx';
+import { askConfirm, Chip, Field, NotFound, NumberField, PageHead, Progress, Shell, toast, useNow } from '../components/ui.tsx';
+import { EmptyCard, StageTrack } from '../components/flair.tsx';
+import { storeStages } from '../lib/stages.ts';
 import { detailsOf, StoreForm, type StoreDetails } from '../components/StoreForm.tsx';
 import { applyToornamentLink, HH_MM } from '../lib/toornament.ts';
 import { autoFrom } from '../lib/toornament-auto.ts';
@@ -55,6 +57,7 @@ export function EventPage({ eventId }: { eventId: string }) {
     if ((all[id]?.adminId ?? '') !== d.adminId) assignStore(id, d.adminId || null);
     setAdding(false);
     setEditing(null);
+    toast(storeId ? 'Store details saved' : 'Store added');
   };
 
   const remove = async () => {
@@ -63,6 +66,7 @@ export function EventPage({ eventId }: { eventId: string }) {
       delete d.events[eventId];
       for (const s of stores) delete d.stores[s.id];
     });
+    toast('Campaign deleted');
     go('/');
   };
 
@@ -87,15 +91,15 @@ export function EventPage({ eventId }: { eventId: string }) {
 
         {adding && <StoreForm initial={detailsOf(undefined, event.date)} admins={admins} submitLabel="Add store" onSave={(d) => save(null, d)} onCancel={() => setAdding(false)} />}
 
-        <ol className="stores">
-          {stores.map((s) => {
+        <ol className="stores fd-stagger">
+          {stores.map((s, i) => {
             const a = assess(event, s);
             const sub = submissionState(s, []); // HQ's view of the server state — another device's outbox isn't visible here
             const q = s.day.matches.length ? computeQueue(s.day) : null;
             const names = Object.fromEntries(s.day.players.map((p) => [p.id, p.name]));
             const walkIns = onSpotCounts([s]);
             return (
-              <li key={s.id} className="store-row">
+              <li key={s.id} className="store-row" style={{ ['--i' as string]: i }}>
                 <div className="store-main">
                   <h3>{s.name}</h3>
                   <span className="label">{[fmtDate(storeDate(s, event), { weekday: 'short', day: 'numeric', month: 'short' }), [s.city, s.state].filter(Boolean).join(', ')].filter(Boolean).join(' · ')}</span>
@@ -145,6 +149,7 @@ export function EventPage({ eventId }: { eventId: string }) {
                     Match day
                   </a>
                 </div>
+                <StageTrack stages={storeStages(s)} />
                 {editing === s.id && (
                   <div className="store-edit">
                     <StoreForm initial={detailsOf(s, event.date)} admins={admins} submitLabel="Save" onSave={(d) => save(s.id, d)} onCancel={() => setEditing(null)} />
@@ -153,7 +158,18 @@ export function EventPage({ eventId }: { eventId: string }) {
               </li>
             );
           })}
-          {!stores.length && !adding && <li className="empty">No stores yet. Add the venues for this campaign, or import them from a sheet.</li>}
+          {!stores.length && !adding && (
+            <li className="empty-li">
+              <EmptyCard mark="stores" title="No stores yet." hint="Add the venues for this campaign one by one, or bring them all in from a sheet.">
+                <button className="btn accent" onClick={() => setAdding(true)}>
+                  Add store
+                </button>
+                <button className="link" onClick={() => setImporting(true)}>
+                  Import from a sheet →
+                </button>
+              </EmptyCard>
+            </li>
+          )}
         </ol>
       </section>
 

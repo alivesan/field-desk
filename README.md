@@ -1,5 +1,7 @@
 # Field Desk
 
+**Beta — 1.0.0-beta.1.** The whole flow works and is tested, but it hasn't run a live event yet. See [CHANGELOG.md](CHANGELOG.md).
+
 Internal tool for in-store tournaments. HQ (the super admin) runs campaigns, stores, the team and every bracket; each field admin gets a personal link that shows only their own stores and what's left to do; players check themselves in with a QR at the venue.
 
 ## Who does what

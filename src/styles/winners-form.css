@@ -245,3 +245,28 @@
     width: 100%;
   }
 }
+
+/* the champion moment: the name rises into place, a red rule is drawn under it (keyframes in day.css) */
+.wb-champ.reveal {
+  animation: champ-rise 0.8s var(--ease-out) both;
+}
+.wb-champ.reveal::after {
+  content: '';
+  display: block;
+  width: 96px;
+  height: 4px;
+  margin-top: 14px;
+  background: var(--accent);
+  transform-origin: left;
+  animation: champ-rule 0.8s var(--ease-out) 0.5s both;
+}
+.wb.hero .wb-champ.reveal::after {
+  width: 160px;
+  height: 5px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wb-champ.reveal,
+  .wb-champ.reveal::after {
+    animation: none;
+  }
+}

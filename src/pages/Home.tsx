@@ -6,10 +6,13 @@ import { missingSummary } from '../lib/evidence.ts';
 import { parseGames } from '../lib/games.ts';
 import { submissionsOf } from '../lib/submission.ts';
 import { onSpotCounts } from '../lib/onspot.ts';
+import { storeDate } from '../lib/recce.ts';
+import { campaignProgress, isLiveNow, nextEventDate, unreviewedReports, whenLabel, winnersMissing } from '../lib/stages.ts';
 import { seedDemo } from '../lib/demo.ts';
 import { go } from '../lib/router.ts';
-import { downloadBlob, fmtDate, fmtDateTime, todayLocal } from '../lib/util.ts';
-import { askConfirm, Field, notify, PageHead, Shell } from '../components/ui.tsx';
+import { cx, downloadBlob, fmtDate, fmtDateTime, todayLocal } from '../lib/util.ts';
+import { askConfirm, Chip, Field, notify, PageHead, Shell, toast, useNow } from '../components/ui.tsx';
+import { CountUp, EmptyCard, MiniBar, Ring } from '../components/flair.tsx';
 import { PhoneAccess } from '../components/PhoneAccess.tsx';
 import { ReportsInbox } from '../components/ReportsInbox.tsx';
 import '../styles/evidence.css';
@@ -20,17 +23,21 @@ export function Home() {
   const stores = useApp((s) => s.stores);
   const [form, setForm] = useState<null | { name: string; date: string; games: string }>(null);
   const list = Object.values(events).sort((a, b) => b.date.localeCompare(a.date));
+  const now = useNow(60000);
 
   const create = () => {
     if (!form?.name.trim()) return;
     const ev = newEvent({ name: form.name.trim(), date: form.date || todayLocal(), games: parseGames(form.games) });
     update((d) => (d.events[ev.id] = ev));
+    toast('Campaign created');
     go(`/event/${ev.id}`);
   };
 
   return (
     <Shell>
       <PageHead kicker="Tournament operations" title="Every venue, ready on the day." deck="Store recce with timestamped, geotagged proof — then attendance, the bracket, and who plays next on tournament day." />
+
+      <TodayStrip />
 
       <PhoneAccess />
       <ReportsInbox />
@@ -62,20 +69,43 @@ export function Home() {
         )}
 
         {list.length ? (
-          <ol className="events">
-            {list.map((ev) => {
+          <ol className="ev-cards fd-stagger">
+            {list.map((ev, i) => {
               const ss = Object.values(stores).filter((s) => s.eventId === ev.id);
               const sent = ss.filter((s) => submissionsOf(s).length > 0).length;
               const walkIns = onSpotCounts(ss).todo;
+              const p = campaignProgress(ss);
+              const next = nextEventDate(ss.length ? ss.map((s) => storeDate(s, ev)) : [ev.date], todayLocal(new Date(now)));
               return (
-                <li key={ev.id}>
+                <li key={ev.id} style={{ ['--i' as string]: i }}>
                   <a href={`#/event/${ev.id}`}>
-                    <span className="ev-date">{fmtDate(ev.date, { day: '2-digit', month: 'short' })}</span>
-                    <span className="ev-name">{ev.name}</span>
-                    <span className="ev-meta">
-                      {ss.length} store{ss.length === 1 ? '' : 's'} · {sent} recce report{sent === 1 ? '' : 's'} in
-                      {walkIns > 0 && <span className="ev-onspot"> · {walkIns} on-spot to add to Toornament</span>}
+                    <span className="ev-day">
+                      <b>{fmtDate(next?.date ?? ev.date, { day: '2-digit' })}</b>
+                      <span>{fmtDate(next?.date ?? ev.date, { month: 'short' })}</span>
                     </span>
+                    <span className="ev-main">
+                      <span className="ev-name">{ev.name}</span>
+                      <span className="row">
+                        {next && !next.past && <Chip tone={next.days <= 1 ? 'accent' : undefined}>{whenLabel(next.days)}</Chip>}
+                        <span className="ev-meta">
+                          {ss.length} store{ss.length === 1 ? '' : 's'} · {sent} recce report{sent === 1 ? '' : 's'} in
+                          {walkIns > 0 && <span className="ev-onspot"> · {walkIns} on-spot to add to Toornament</span>}
+                        </span>
+                      </span>
+                    </span>
+                    {p.stores > 0 && (
+                      <span className="ev-ring">
+                        <Ring value={p.overall} label={`${Math.round(p.overall * 100)} percent of the steps done across ${p.stores} stores`} />
+                      </span>
+                    )}
+                    {p.stores > 0 && (
+                      <span className="ev-bars">
+                        <MiniBar label="Recce" n={p.recce} of={p.stores} />
+                        <MiniBar label="Players" n={p.players} of={p.stores} />
+                        <MiniBar label="Brackets" n={p.brackets} of={p.stores} />
+                        <MiniBar label="Winners" n={p.winners} of={p.stores} />
+                      </span>
+                    )}
                   </a>
                 </li>
               );
@@ -83,18 +113,90 @@ export function Home() {
           </ol>
         ) : (
           !form && (
-            <div className="empty-state">
-              <p>No campaigns yet.</p>
-              <button className="link" onClick={() => go(`/event/${seedDemo()}`)}>
-                Load a demo campaign to look around →
+            <EmptyCard mark="campaign" title="No campaigns yet." hint="A campaign is a set of stores playing on one date. Create the first one, or load a demo to look around.">
+              <button className="btn accent" onClick={() => setForm({ name: '', date: todayLocal(), games: '' })}>
+                New campaign
               </button>
-            </div>
+              <button
+                className="link"
+                onClick={() => {
+                  go(`/event/${seedDemo()}`);
+                  toast('Demo campaign added');
+                }}
+              >
+                Load a demo campaign →
+              </button>
+            </EmptyCard>
           )
         )}
       </section>
 
       <DataTools showDemo={list.length > 0} />
     </Shell>
+  );
+}
+
+/** HQ's "today / next up" strip: the next event day, what is live right now and what is waiting on HQ. */
+function TodayStrip() {
+  const events = useApp((s) => s.events);
+  const all = useApp((s) => s.stores);
+  const now = useNow(60000);
+  const stores = Object.values(all).filter((s) => events[s.eventId]);
+  if (!Object.keys(events).length) return null;
+  const today = todayLocal(new Date(now));
+  const dates = [...stores.map((s) => storeDate(s, events[s.eventId])), ...Object.values(events).filter((e) => !stores.some((s) => s.eventId === e.id)).map((e) => e.date)];
+  const next = nextEventDate(dates, today);
+  const onThatDay = next ? stores.filter((s) => storeDate(s, events[s.eventId]) === next.date) : [];
+  const campaigns = [...new Set(onThatDay.length ? onThatDay.map((s) => events[s.eventId].name) : Object.values(events).filter((e) => e.date === next?.date).map((e) => e.name))];
+  const live = stores.filter(isLiveNow).length;
+  const reports = unreviewedReports(stores);
+  const walkIns = onSpotCounts(stores).todo;
+  const winners = stores.filter(winnersMissing).length;
+  const soon = !!next && !next.past && next.days <= 1;
+
+  return (
+    <section className="today fd-enter" aria-label="Today and next up">
+      <div className="today-tile">
+        <span className="label">{next?.past ? 'Last event' : 'Next up'}</span>
+        {next ? (
+          <>
+            <span className="today-date">{fmtDate(next.date, { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+            <span className={cx('today-when', soon && 'near', next.past && 'past')}>{whenLabel(next.days)}</span>
+            <span className="today-sub">
+              {onThatDay.length ? `${onThatDay.length} store${onThatDay.length === 1 ? '' : 's'} · ` : ''}
+              {campaigns.join(', ')}
+            </span>
+          </>
+        ) : (
+          <span className="today-sub">No event date yet.</span>
+        )}
+      </div>
+      <div className={cx('today-tile', live === 0 && 'zero')}>
+        <span className="today-n">
+          {live > 0 && <span className="today-dot fd-pulse" aria-hidden />}
+          <CountUp value={live} />
+        </span>
+        <span className="label">{live === 1 ? 'Store live now' : 'Stores live now'}</span>
+      </div>
+      <button type="button" className={cx('today-tile', reports === 0 && 'zero')} onClick={() => document.querySelector('.inbox')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+        <span className="today-n">
+          <CountUp value={reports} />
+        </span>
+        <span className="label">{reports === 1 ? 'Recce report to review' : 'Recce reports to review'}</span>
+      </button>
+      <div className={cx('today-tile', walkIns === 0 && 'zero')}>
+        <span className="today-n">
+          <CountUp value={walkIns} />
+        </span>
+        <span className="label">{walkIns === 1 ? 'Walk-in to add' : 'Walk-ins to add'}</span>
+      </div>
+      <a className={cx('today-tile', winners === 0 && 'zero')} href="#/winners">
+        <span className="today-n">
+          <CountUp value={winners} />
+        </span>
+        <span className="label">{winners === 1 ? 'Winner missing details' : 'Winners missing details'}</span>
+      </a>
+    </section>
   );
 }
 
@@ -114,6 +216,7 @@ function DataTools({ showDemo }: { showDemo: boolean }) {
   const download = async (p: PreparedBackup) => {
     const f = await p.build();
     downloadBlob(f, f.name);
+    toast('Backup downloaded');
   };
 
   const exportNow = async () => {

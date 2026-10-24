@@ -8,6 +8,8 @@ import { isLegacy, revLabel, submissionState } from '../lib/submission.ts';
 import type { Store, TournamentEvent } from '../lib/types.ts';
 import { cx, fmtDate, fmtDateTime, fmtTime, todayLocal } from '../lib/util.ts';
 import { PageHead, Shell, useNow } from '../components/ui.tsx';
+import { EmptyCard } from '../components/flair.tsx';
+import { daysUntil, greeting, whenLabel } from '../lib/stages.ts';
 import { winnersState } from '../lib/winnerInput.ts';
 
 /** Whether this device last left a store's submitted recce open. A convenience only — storage may be blocked. */
@@ -43,20 +45,17 @@ export function AdminHome() {
     <Shell crumbs={[{ label: 'My stores' }]}>
       <PageHead
         kicker="Your work"
-        title={first ? `Hi ${first}.` : 'Your stores.'}
+        title={first ? `${greeting(new Date(now).getHours())}, ${first}.` : 'Your stores.'}
         deck={mine.length ? `${mine.length === 1 ? 'One store is' : `${mine.length} stores are`} assigned to you. Here’s everything left to do.` : undefined}
       />
 
       {!mine.length && (
-        <div className="empty-state">
-          <p>No stores assigned yet.</p>
-          <span className="hint">When HQ assigns you a store it appears here by itself — no need to refresh.</span>
-        </div>
+        <EmptyCard mark="stores" title="No stores assigned yet." hint="When HQ assigns you a store it appears here by itself — no need to refresh." />
       )}
 
-      <div className="tasks">
-        {mine.map((s) => (
-          <StoreTasks key={s.id} store={s} event={events[s.eventId]} now={now} />
+      <div className="tasks fd-stagger">
+        {mine.map((s, i) => (
+          <StoreTasks key={s.id} store={s} event={events[s.eventId]} now={now} index={i} />
         ))}
       </div>
 
@@ -69,7 +68,7 @@ export function AdminHome() {
   );
 }
 
-function StoreTasks({ store, event, now }: { store: Store; event: TournamentEvent; now: number }) {
+function StoreTasks({ store, event, now, index }: { store: Store; event: TournamentEvent; now: number; index: number }) {
   const a = assess(event, store);
   const r = store.recce;
   const st = submissionState(store, usePendingWork(store.id));
@@ -93,11 +92,28 @@ function StoreTasks({ store, event, now }: { store: Store; event: TournamentEven
   const collect = ws.kind === 'collect' || (ws.kind === 'saved' && ws.missing) || (ws.kind === 'stale' && !!q?.champion);
   const selfIn = Object.keys(day.checkIn).filter((pid) => day.checkInSource?.[pid] === 'self').length;
 
-  const d = new Date(now);
-  const today = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const date = storeDate(store, event);
-  const days = Math.round((new Date(date + 'T00:00:00').getTime() - today) / 864e5);
-  const when = days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : days > 1 ? `In ${days} days` : `${-days} day${days === -1 ? '' : 's'} ago`;
+  const days = daysUntil(date, todayLocal(new Date(now)));
+  const when = whenLabel(days);
+
+  const recceNote = sent
+    ? `${st.kind === 'reviewed' ? 'Reviewed by HQ' : 'Sent to HQ'}${isLegacy(st.acknowledged) ? '' : ` · ${revLabel(st.acknowledged!)}`}`
+    : st.kind === 'waiting'
+      ? 'Sending — goes when there’s signal'
+      : st.kind === 'failed'
+        ? 'Not sent — open it to retry'
+        : st.acknowledged
+          ? `Edited since ${revLabel(st.acknowledged)}`
+          : `${a.sections.filter((x) => x.done).length} of ${a.sections.length} sections done`;
+  const dayNote = !open
+    ? `Opens when HQ checks your recce, or on ${fmtDate(date, { day: 'numeric', month: 'short' })}`
+    : q?.champion && !collect
+      ? 'Finished'
+      : collect
+        ? 'Collect the winners’ details'
+        : day.players.length
+          ? `${here} of ${day.players.length} players here`
+          : 'Open — HQ sends the bracket';
 
   const base = `#/store/${store.id}`;
   const next =
@@ -126,13 +142,33 @@ function StoreTasks({ store, event, now }: { store: Store; event: TournamentEven
   );
 
   return (
-    <article className="task-card">
+    <article className={cx('task-card', sent && 'sent')} style={{ ['--i' as string]: index }}>
       <header>
-        <div className="label">
-          {fmtDate(date, { weekday: 'short', day: 'numeric', month: 'short' })} · <span className={cx(days <= 1 && days >= 0 && 'soon')}>{when}</span> · {event.name}
+        <div className="countdown">
+          <span className={cx('count-pill', days >= 0 && days <= 1 && 'near', days < 0 && 'past')}>{when}</span>
+          <span className="label">
+            {fmtDate(date, { weekday: 'short', day: 'numeric', month: 'short' })} · {event.name}
+          </span>
         </div>
         <h2>{store.name}</h2>
         <div className="task-where">{[store.city, store.address].filter(Boolean).join(' — ')}</div>
+        <ol className="journey" aria-label="Your two steps">
+          <li className={cx('jstep', sent ? 'done' : 'current')}>
+            <span className={cx('jmark', sent && 'fd-pop')}>{sent ? <Tick /> : '01'}</span>
+            <span>
+              <b>Recce</b>
+              <small>{recceNote}</small>
+            </span>
+          </li>
+          <li className="jline" aria-hidden />
+          <li className={cx('jstep', !open ? 'locked' : q?.champion && !collect ? 'done' : 'current')}>
+            <span className={cx('jmark', open && q?.champion && !collect && 'fd-pop')}>{open && q?.champion && !collect ? <Tick /> : '02'}</span>
+            <span>
+              <b>Match day</b>
+              <small>{dayNote}</small>
+            </span>
+          </li>
+        </ol>
         <a className="btn accent" href={next.href}>
           {next.label} →
         </a>
@@ -152,6 +188,9 @@ function StoreTasks({ store, event, now }: { store: Store; event: TournamentEven
           >
             <h3>
               <span>01</span> Store recce
+              <span className="h3-tick fd-pop">
+                <Tick />
+              </span>
             </h3>
             <small>{sentLine}</small>
             <em>{recceOpen ? 'Hide' : 'Show'}</em>
@@ -159,6 +198,11 @@ function StoreTasks({ store, event, now }: { store: Store; event: TournamentEven
         ) : (
           <h3>
             <span>01</span> Before the event — store recce
+            {sent && (
+              <span className="h3-tick fd-pop">
+                <Tick />
+              </span>
+            )}
           </h3>
         )}
         {recceOpen && (
@@ -246,3 +290,10 @@ function StoreTasks({ store, event, now }: { store: Store; event: TournamentEven
     </article>
   );
 }
+
+/** A check mark that takes the colour of its container. */
+const Tick = () => (
+  <svg viewBox="0 0 16 16" aria-hidden>
+    <path d="M3 8.5l3.2 3.2L13 5" />
+  </svg>
+);
