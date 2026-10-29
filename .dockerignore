@@ -34,3 +34,6 @@ Dockerfile
 .github
 deploy
 .audit
+
+# The OTP automation (its own stack, deployed separately)
+automation
