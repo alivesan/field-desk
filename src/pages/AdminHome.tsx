@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { SteamCard } from '../components/SteamCard.tsx';
+import { PrintEntry } from '../components/PrintEntry.tsx';
 import { logout, useApp, usePendingWork, useSync } from '../lib/db.ts';
 import { assess } from '../lib/assess.ts';
 import { computeQueue } from '../lib/bracket.ts';
@@ -157,6 +158,7 @@ function StoreTasks({ store, event, now, index }: { store: Store; event: Tournam
         <h2>{short}</h2>
         <div className="task-where">{[store.city, store.address].filter(Boolean).join(' — ')}</div>
         <SteamCard store={store} />
+        <PrintEntry store={store} />
         <ol className="journey" aria-label="Your two steps">
           <li className={cx('jstep', sent ? 'done' : 'current')}>
             <span className={cx('jmark', sent && 'fd-pop')}>{sent ? <Tick /> : '01'}</span>

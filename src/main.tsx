@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App.tsx';
 import { ErrorBoundary, StartupFailure } from './components/ErrorBoundary.tsx';
 import { CheckInPage } from './pages/CheckInPage.tsx';
+import { PrintDeskPage } from './pages/PrintDeskPage.tsx';
 import { ConfirmHost, ToastHost } from './components/ui.tsx';
 import { loadState } from './lib/db.ts';
 import './styles/base.css';
@@ -19,7 +20,19 @@ const root = createRoot(document.getElementById('root')!);
 // no local storage of anyone's data — just the check-in form. Never starts the staff app.
 const checkInToken = location.pathname.match(/^\/c\/([A-Za-z0-9_-]{16,64})\/?$/)?.[1];
 
-if (checkInToken) {
+// The print desk's link is https://host/p/<token>: public too — this week's print files, no sign-in, no sync engine.
+const printToken = location.pathname.match(/^\/p\/([A-Za-z0-9_-]{16,64})\/?$/)?.[1];
+
+if (printToken) {
+  root.render(
+    <StrictMode>
+      <ErrorBoundary>
+        <PrintDeskPage token={printToken} />
+        <ToastHost />
+      </ErrorBoundary>
+    </StrictMode>,
+  );
+} else if (checkInToken) {
   root.render(
     <StrictMode>
       <ErrorBoundary>

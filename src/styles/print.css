@@ -1,0 +1,670 @@
+/*
+ * Print files: the store team's page (pages/PrintPage.tsx), the print desk's public page
+ * (pages/PrintDeskPage.tsx), the file card they share (components/PrintCards.tsx), the way in from the
+ * admin home and the recce (components/PrintEntry.tsx) and HQ's section on the campaign page
+ * (components/PrintImport.tsx, PrintDeskLink.tsx, PrintSpecs.tsx). Tokens come from base.css.
+ */
+
+/* ---------- a file's thumbnail: its own shape, never cropped ---------- */
+
+.pf-thumb-link {
+  display: block;
+  text-decoration: none;
+  min-width: 0;
+}
+.pf-thumb {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  overflow: hidden;
+  background: var(--paper-3);
+}
+.pf-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.pf-thumb.failed {
+  min-height: 64px;
+  font: 500 10.5px/1.3 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* ---------- a file card ---------- */
+
+.pf-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pf-list.big {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 16px;
+}
+.pf {
+  min-width: 0;
+}
+.pf-label {
+  font: 400 30px/1.05 var(--serif);
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+.pf-spec {
+  margin: 6px 0 0;
+  font-size: 15px;
+  color: var(--ink-2);
+}
+.pf-saved {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--ok);
+  overflow-wrap: anywhere;
+}
+.pf-saved span {
+  font-weight: 700;
+}
+.pf-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+.pf-actions .btn {
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: normal;
+  text-align: center;
+}
+
+.pf.big {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 14px 16px;
+  background: var(--paper-2);
+  border-top: 3px solid var(--ink);
+}
+.pf.big.saved {
+  border-top-color: var(--ok);
+}
+.pf.big .pf-thumb {
+  max-height: 300px;
+}
+.pf.big .pf-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+.pf.big .pf-actions {
+  margin-top: auto;
+  padding-top: 14px;
+}
+.pf.big .pf-actions .btn {
+  min-height: 50px;
+  font-size: 15px;
+}
+.pf.big.missing {
+  background: transparent;
+  border: 1px dashed var(--rule);
+  border-top: 3px solid var(--rule);
+}
+.pf.big.missing .pf-label {
+  color: var(--muted);
+}
+
+.pf.slim {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.pf.slim .pf-thumb {
+  max-height: 150px;
+}
+.pf.slim .pf-label {
+  font-size: 22px;
+}
+.pf.slim .pf-spec {
+  margin-top: 4px;
+  font-size: 14px;
+}
+.pf.slim .pf-actions {
+  margin-top: 10px;
+}
+.pf.slim .pf-actions .btn {
+  min-height: 44px;
+  padding: 0 12px;
+}
+
+/* ---------- the store team's page ---------- */
+
+.pf-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 16px;
+}
+.pf-note {
+  margin: 0 0 20px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--warn);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 14px;
+}
+.pf-shop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px 24px;
+  margin: 0 0 12px;
+  padding: 18px;
+  background: var(--paper-2);
+  border-top: 3px solid var(--accent);
+}
+.pf-shop h2 {
+  font-size: 30px;
+}
+.pf-shop .hint {
+  margin: 6px 0 0;
+  max-width: 52ch;
+}
+.pf-shop .btn {
+  min-height: 52px;
+  font-size: 16px;
+}
+.pf-tip {
+  margin: 0 0 28px;
+  padding: 0 0 0 12px;
+  border-left: 2px solid var(--rule);
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.pf-zip {
+  margin: 28px 0 0;
+  text-align: center;
+}
+
+@media (max-width: 520px) {
+  .pf-shop {
+    padding: 16px 14px;
+  }
+  .pf-shop .btn {
+    width: 100%;
+  }
+  .pf-label {
+    font-size: 28px;
+  }
+}
+
+/* ---------- the way in: admin home card, recce link ---------- */
+
+.pe {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0 0 20px;
+  padding: 14px 16px;
+  background: var(--paper-2);
+  border-left: 3px solid var(--accent);
+  color: inherit;
+  text-decoration: none;
+  transition: background var(--dur-1, 120ms) var(--ease-out, ease-out);
+}
+.pe:hover {
+  background: var(--paper-3);
+}
+.pe.done {
+  border-left-color: var(--ok);
+}
+.pe-text b {
+  display: block;
+  font: 500 15px/1.3 var(--sans);
+}
+.pe-text small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+.pe-go {
+  font-size: 18px;
+}
+.pe.line {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+}
+.pe.line.done {
+  border-left-color: var(--ok);
+}
+@media (max-width: 420px) {
+  .pe-text small {
+    display: none;
+  }
+}
+
+/* ---------- the print desk's page (/p/<token>) ---------- */
+
+.pd {
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: max(28px, 5vh) 16px 64px;
+}
+.pd-inner {
+  width: min(980px, 100%);
+  margin: 0 auto;
+}
+.pd-kicker {
+  margin-bottom: 18px;
+  font: 500 11px/1.3 var(--mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+.pd h1 {
+  font-size: clamp(36px, 10vw, 60px);
+  line-height: 0.98;
+  overflow-wrap: anywhere;
+}
+.pd-deck {
+  margin: 16px 0 0;
+  max-width: 60ch;
+  font-size: 17px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.pd-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  margin: 24px 0 8px;
+}
+.pd-btn {
+  min-height: 54px;
+  font-size: 16px;
+}
+.pd-skel {
+  display: grid;
+  gap: 14px;
+  margin-top: 28px;
+}
+.pd-day + .pd-day {
+  margin-top: 16px;
+}
+.pd-date {
+  margin: 36px 0 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rule);
+}
+.pd-store {
+  margin-top: 28px;
+  border-top: 2px solid var(--ink);
+}
+.pd-store > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 14px 0 6px;
+}
+.pd-store > header > div:first-child {
+  min-width: 0;
+}
+.pd-store h2 {
+  font-size: 32px;
+  overflow-wrap: anywhere;
+}
+.pd-store-side {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+.pd-store .pf-list.slim {
+  border-top: 1px solid var(--rule);
+}
+@media (min-width: 820px) {
+  .pd-store .pf-list.slim {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 40px;
+  }
+}
+
+/* ---------- HQ: the campaign page section ---------- */
+
+.pi {
+  margin-top: 64px;
+}
+.pi .index-head {
+  margin-bottom: 16px;
+}
+.pi-form .field {
+  padding: 0;
+}
+.pi-form .roster-link {
+  flex-wrap: wrap;
+}
+.pi-form .roster-link input {
+  min-width: min(100%, 240px);
+}
+.pi-done {
+  margin: 16px 0 0;
+  padding: 10px 12px;
+  background: var(--paper);
+  border-left: 3px solid var(--ok);
+  color: var(--ok);
+  font-size: 14px;
+}
+.pi-preview {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+}
+.pi-preview > .label {
+  margin: 0 0 14px;
+}
+.pi-tab + .pi-tab {
+  margin-top: 28px;
+}
+.pi-tab-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--ink);
+}
+.pi-tab-head h3 {
+  font: 400 24px/1.2 var(--serif);
+  letter-spacing: -0.015em;
+}
+.pi-use {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.pi-use input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--ink);
+}
+.pi-tab.off .pi-tab-head h3 {
+  color: var(--muted);
+}
+.pi-blocks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pi-block {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.pi-block.off {
+  opacity: 0.5;
+}
+.pi-block-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+.pi-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  font: 400 18px/1.25 var(--serif);
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+.pi-arrow {
+  color: var(--muted);
+}
+.pi-pick {
+  flex: 1 1 200px;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 38px;
+  font: 400 15px/1.3 var(--sans);
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  padding: 4px 8px;
+}
+.pi-pick:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+.pi-files {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  max-width: 520px;
+}
+.pi-file {
+  min-width: 0;
+}
+.pi-file .pf-thumb {
+  aspect-ratio: 1 !important; /* a small square window; the picture inside keeps its own shape */
+}
+.pi-file .pf-thumb.failed {
+  min-height: 0;
+  font-size: 9px;
+}
+.pi-file.missing .pf-thumb {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.pi-kind {
+  display: block;
+  margin-top: 4px;
+  font: 500 9.5px/1.2 var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.pi-problems {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  background: var(--warn-soft);
+  border-left: 3px solid var(--warn);
+  font-size: 13px;
+  color: var(--warn);
+}
+.pi-problems li + li {
+  margin-top: 2px;
+}
+.pi-note {
+  margin: 14px 0 0;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.pi-note.warn {
+  padding: 8px 10px;
+  background: var(--warn-soft);
+  border-left: 3px solid var(--warn);
+  color: var(--warn);
+}
+
+.pi-kits {
+  margin-top: 32px;
+}
+.pi-kits-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--ink);
+}
+.pi-kits-head h3 {
+  font: 400 24px/1.2 var(--serif);
+  letter-spacing: -0.015em;
+}
+.pi-kit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pi-kit {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.6fr) auto auto;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.pi-kit-who {
+  min-width: 0;
+}
+.pi-kit-who b {
+  display: block;
+  font: 400 18px/1.25 var(--serif);
+  overflow-wrap: anywhere;
+}
+.pi-dots {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.pi-dots li {
+  padding: 3px 6px;
+  border: 1px solid var(--rule);
+  font: 500 10px/1 var(--mono);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.pi-dots li.on {
+  background: var(--ok-soft);
+  border-color: transparent;
+  color: var(--ok);
+}
+.pi-dots li.none {
+  text-decoration: line-through;
+  opacity: 0.5;
+}
+@media (max-width: 720px) {
+  .pi-kit {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .pi-dots {
+    grid-column: 1 / -1;
+    order: 3;
+  }
+}
+
+.pdl {
+  display: grid;
+  gap: 10px;
+  margin-top: 32px;
+  padding: 16px 18px;
+  background: var(--paper-2);
+  border-left: 3px solid var(--ink);
+}
+.pdl .hint {
+  margin: 4px 0 0;
+  max-width: 62ch;
+}
+.pdl:not(.on) {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+@media (max-width: 560px) {
+  .pdl:not(.on) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pi-specs {
+  margin-top: 20px;
+}
+.ps {
+  margin-top: 14px;
+  max-width: 640px;
+}
+.ps-head,
+.ps-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 1.1fr) minmax(0, 1.6fr) 90px 52px;
+  gap: 10px 14px;
+  align-items: center;
+}
+.ps-head {
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--ink);
+}
+.ps-row {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.ps-label {
+  font: 400 17px/1.2 var(--serif);
+}
+.ps-field input {
+  width: 100%;
+  min-height: 38px;
+  font: 400 15px/1.3 var(--sans);
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  padding: 4px 8px;
+}
+.ps-field.qty input {
+  font-family: var(--mono);
+  text-align: right;
+}
+.ps-field input:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+.ps-reset {
+  justify-self: end;
+}
+.ps > .hint {
+  margin: 12px 0 0;
+}
+@media (max-width: 560px) {
+  .ps-head {
+    display: none;
+  }
+  .ps-row {
+    grid-template-columns: minmax(0, 1fr) 80px;
+  }
+  .ps-label {
+    grid-column: 1 / -1;
+  }
+  .ps-reset {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+}

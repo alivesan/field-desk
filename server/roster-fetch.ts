@@ -19,7 +19,8 @@ import net from 'node:net';
  *     in a private one between check and connect;
  *   - 10 s for the whole thing, ≤ 2 MB, text-like content only;
  *   - optionally (allowHost) only some hosts, on every hop — server/toornament-fetch.ts reuses all
- *     of this for play.toornament.com's JSON.
+ *     of this for play.toornament.com's JSON, and server/print.ts (via followGuarded) for the creatives
+ *     sheet and the Drive files, whose bodies are binary and so are read by the caller.
  *
  * Content types: text/csv, text/plain, text/tab-separated-values, text/comma-separated-values,
  * application/csv, application/json, and text/html (Google serves some published and error pages
@@ -216,43 +217,31 @@ function httpsGet(url: URL, addr: LookupAddress, signal: AbortSignal): Promise<H
 const TEXT_TYPES = new Set(['text/csv', 'text/plain', 'text/tab-separated-values', 'text/comma-separated-values', 'application/csv', 'application/json', 'text/html']);
 const SNIFF_TYPES = new Set(['', 'application/octet-stream', 'application/vnd.ms-excel']);
 
-const header = (h: HopResponse['headers'], k: string) => {
+export const header = (h: HopResponse['headers'], k: string) => {
   const v = h[k];
   return Array.isArray(v) ? v[0] : v;
 };
 
-/** Fetches a roster link for HQ. See the header comment for every rule. */
-export async function fetchRoster(raw: string, opts: RosterFetchOptions = {}) {
+/**
+ * GETs `start` and follows redirects by hand, checking every hop (see the header). Returns the first 2xx
+ * response, body unread, and the URL it came from; anything else is a RosterFetchError.
+ */
+export async function followGuarded(start: URL, opts: RosterFetchOptions, signal: AbortSignal): Promise<{ res: HopResponse; url: URL }> {
   const lookup = opts.lookup ?? defaultLookup;
   const get = opts.get ?? httpsGet;
-  const maxBytes = opts.maxBytes ?? ROSTER_MAX_BYTES;
-  const now = opts.now ?? Date.now;
-  let cur: URL;
-  try {
-    if (typeof raw !== 'string' || !raw.trim() || raw.length > 2000) throw new Error();
-    cur = new URL(raw.trim());
-  } catch {
-    throw new RosterFetchError(400, 'bad-url', 'That isn’t a link.');
-  }
-  checkUrl(cur, 0, opts.allowHost);
-  cur = sheetsCsvUrl(cur);
-
-  const signal = AbortSignal.timeout(opts.timeoutMs ?? ROSTER_TIMEOUT_MS);
-  const upstream = (e: unknown, what: string) =>
-    e instanceof RosterFetchError ? e : new RosterFetchError(502, 'upstream', signal.aborted ? 'The site took too long to answer.' : what);
-
+  let cur = start;
   for (let hop = 0; ; hop++) {
-    const host = checkUrl(cur, hop, opts.allowHost);
-    // Signing in to Google means the sheet isn't public.
-    if (hop && host === 'accounts.google.com') {
+    // Signing in to Google means the sheet isn't public (said before allowHost can call it an odd redirect).
+    if (hop && cur.hostname === 'accounts.google.com') {
       throw new RosterFetchError(502, 'upstream', 'That sheet isn’t public — share it “Anyone with the link” or “Publish to the web”, then try again.', { reason: 'not-shared' });
     }
+    const host = checkUrl(cur, hop, opts.allowHost);
     const addr = await resolveSafe(host, lookup);
     let res: HopResponse;
     try {
       res = await get(cur, addr, signal);
     } catch (e) {
-      throw upstream(e, 'Couldn’t reach that site.');
+      throw upstreamError(e, signal, 'Couldn’t reach that site.');
     }
     const location = header(res.headers, 'location');
     if (res.status >= 300 && res.status < 400 && res.status !== 304) {
@@ -270,51 +259,74 @@ export async function fetchRoster(raw: string, opts: RosterFetchOptions = {}) {
       res.close();
       throw new RosterFetchError(502, 'upstream', `The site answered ${res.status}${res.status === 401 || res.status === 403 ? ' — is the sheet shared publicly?' : ''}.`, { status: res.status });
     }
-
-    const contentType = header(res.headers, 'content-type') ?? '';
-    const mime = contentType.split(';')[0].trim().toLowerCase();
-    if (!TEXT_TYPES.has(mime) && !SNIFF_TYPES.has(mime)) {
-      res.close();
-      throw new RosterFetchError(415, 'unsupported-media', `That link returns ${mime || 'unknown content'}, not a CSV or text list.`);
-    }
-    const declared = Number(header(res.headers, 'content-length'));
-    if (declared > maxBytes) {
-      res.close();
-      throw new RosterFetchError(413, 'too-large', `That file is over ${Math.round(maxBytes / 1048576)} MB.`);
-    }
-    const chunks: Uint8Array[] = [];
-    let size = 0;
-    try {
-      for await (const c of res.body) {
-        size += c.length;
-        if (size > maxBytes) {
-          res.close();
-          throw new RosterFetchError(413, 'too-large', `That file is over ${Math.round(maxBytes / 1048576)} MB.`);
-        }
-        chunks.push(c);
-      }
-    } catch (e) {
-      throw upstream(e, 'The download broke off.');
-    }
-    const buf = Buffer.concat(chunks);
-    let text: string;
-    if (SNIFF_TYPES.has(mime)) {
-      try {
-        text = new TextDecoder('utf-8', { fatal: true }).decode(buf);
-      } catch {
-        throw new RosterFetchError(415, 'unsupported-media', 'That link doesn’t return a text list.');
-      }
-      if (text.includes('\0')) throw new RosterFetchError(415, 'unsupported-media', 'That link doesn’t return a text list.');
-    } else {
-      const charset = contentType.match(/charset="?([\w-]+)/i)?.[1];
-      let dec: TextDecoder;
-      try {
-        dec = new TextDecoder(charset ?? 'utf-8');
-      } catch {
-        dec = new TextDecoder('utf-8');
-      }
-      text = dec.decode(buf);
-    }
-    return { url: cur.href, contentType, text: text.replace(/^﻿/, ''), fetchedAt: new Date(now()).toISOString() };
+    return { res, url: cur };
   }
+}
+
+/** A failure while talking to the site, as a RosterFetchError: timeouts say so. */
+export const upstreamError = (e: unknown, signal: AbortSignal, what: string) =>
+  e instanceof RosterFetchError ? e : new RosterFetchError(502, 'upstream', signal.aborted ? 'The site took too long to answer.' : what);
+
+/** Fetches a roster link for HQ. See the header comment for every rule. */
+export async function fetchRoster(raw: string, opts: RosterFetchOptions = {}) {
+  const maxBytes = opts.maxBytes ?? ROSTER_MAX_BYTES;
+  const now = opts.now ?? Date.now;
+  let cur: URL;
+  try {
+    if (typeof raw !== 'string' || !raw.trim() || raw.length > 2000) throw new Error();
+    cur = new URL(raw.trim());
+  } catch {
+    throw new RosterFetchError(400, 'bad-url', 'That isn’t a link.');
+  }
+  checkUrl(cur, 0, opts.allowHost);
+  cur = sheetsCsvUrl(cur);
+
+  const signal = AbortSignal.timeout(opts.timeoutMs ?? ROSTER_TIMEOUT_MS);
+  const upstream = (e: unknown, what: string) => upstreamError(e, signal, what);
+  const { res, url } = await followGuarded(cur, opts, signal);
+  const contentType = header(res.headers, 'content-type') ?? '';
+  const mime = contentType.split(';')[0].trim().toLowerCase();
+  if (!TEXT_TYPES.has(mime) && !SNIFF_TYPES.has(mime)) {
+    res.close();
+    throw new RosterFetchError(415, 'unsupported-media', `That link returns ${mime || 'unknown content'}, not a CSV or text list.`);
+  }
+  const declared = Number(header(res.headers, 'content-length'));
+  if (declared > maxBytes) {
+    res.close();
+    throw new RosterFetchError(413, 'too-large', `That file is over ${Math.round(maxBytes / 1048576)} MB.`);
+  }
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for await (const c of res.body) {
+      size += c.length;
+      if (size > maxBytes) {
+        res.close();
+        throw new RosterFetchError(413, 'too-large', `That file is over ${Math.round(maxBytes / 1048576)} MB.`);
+      }
+      chunks.push(c);
+    }
+  } catch (e) {
+    throw upstream(e, 'The download broke off.');
+  }
+  const buf = Buffer.concat(chunks);
+  let text: string;
+  if (SNIFF_TYPES.has(mime)) {
+    try {
+      text = new TextDecoder('utf-8', { fatal: true }).decode(buf);
+    } catch {
+      throw new RosterFetchError(415, 'unsupported-media', 'That link doesn’t return a text list.');
+    }
+    if (text.includes('\0')) throw new RosterFetchError(415, 'unsupported-media', 'That link doesn’t return a text list.');
+  } else {
+    const charset = contentType.match(/charset="?([\w-]+)/i)?.[1];
+    let dec: TextDecoder;
+    try {
+      dec = new TextDecoder(charset ?? 'utf-8');
+    } catch {
+      dec = new TextDecoder('utf-8');
+    }
+    text = dec.decode(buf);
+  }
+  return { url: url.href, contentType, text: text.replace(/^﻿/, ''), fetchedAt: new Date(now()).toISOString() };
 }

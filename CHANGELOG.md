@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.0-beta.3
+
+- **Print files:** HQ pastes the weekly creatives sheet (a tab per date, a block of 5 Drive links per store) and presses Refresh; blocks are matched to the campaign's stores by name, city and date (fix any match by hand), then applied.
+- Each store team gets a **Print files** page (from its home and the recce's Collateral step): Standee, A3 Poster, A5 Pamphlet, Winner and Runner-up cheques — each with a true-shape preview, print size and copies, **Save to phone** with a proper file name ("Subham Infotech - A3 Poster.jpg") and **Share** with a caption; **Send to print shop** (one WhatsApp message with every original-quality link) and a zip.
+- **Print desk link** (no sign-in) for whoever handles printing: this week's stores, every file, a zip per store or everything.
+- Print instructions per campaign (defaults: standee 6×3 ft ×1, A3 ×10, A5 ×100, cheques 2×1 ft ×1 each). HQ sees who saved which file.
+
 ## 1.0.0-beta.2
 
 - **Store team links:** one sign-in link per store, shared by the whole store team (2–4 people). Each person types their name once, so history reads "Rhea (Nashik team)". New code / Turn off signs the old phones out. Named admins are optional now, for someone covering several stores.

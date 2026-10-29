@@ -14,6 +14,7 @@ import { useStoreName } from '../components/useStoreName.ts';
 import { BigTick, SegBar } from '../components/flair.tsx';
 import { LocationCheck, PhotoSlot } from '../components/PhotoSlot.tsx';
 import { SpeedTest } from '../components/SpeedTest.tsx';
+import { PrintEntry } from '../components/PrintEntry.tsx';
 import '../styles/evidence.css';
 
 const ORDER: SectionKey[] = ['venue', 'furniture', 'laptops', 'network', 'collateral'];
@@ -184,6 +185,7 @@ export function ReccePage({ storeId }: { storeId: string }) {
       </Section>
 
       <Section {...props('collateral', 5)}>
+        <PrintEntry store={store} line />
         <Check checked={r.collateral.posters} onChange={(v) => edit((r) => (r.collateral.posters = v))} hint="Keep them with you — they go to the promotion team (or you, if you’re promoting)">
           Posters printed
         </Check>
