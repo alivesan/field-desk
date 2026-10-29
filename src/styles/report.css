@@ -1,13 +1,14 @@
-/* The recce report. Also inlined into the exported HTML file. */
+/* The recce report. Also inlined into the exported HTML file, so print rules here shape both the app's PDF and the file's. */
 
 .report {
   max-width: 880px;
   margin: 0 auto;
 }
 
+/* Slim masthead: kicker, store name, one meta line, verdict + a row of small tiles. */
 .rp-mast {
   border-top: 3px solid var(--ink);
-  padding-top: 14px;
+  padding-top: 10px;
 }
 .rp-kicker {
   display: flex;
@@ -16,56 +17,41 @@
   font: 500 11px/1.3 var(--mono);
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--ink);
 }
 .rp-kicker span:first-child {
   color: var(--accent);
 }
+.rp-kicker span:last-child {
+  color: var(--muted);
+  text-align: right;
+}
 .rp-mast h1 {
-  font-size: clamp(44px, 9.5vw, 84px);
-  line-height: 0.92;
-  margin: 28px 0 32px;
+  font-size: clamp(28px, 6vw, 40px);
+  line-height: 1;
+  margin: 8px 0 6px;
 }
 .rp-meta {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  border-top: 1px solid var(--rule);
-  border-bottom: 1px solid var(--rule);
   margin: 0;
+  font-size: 13px;
+  color: var(--ink-2);
 }
-.rp-meta > div {
-  padding: 12px 12px 12px 0;
-}
-.rp-meta > div + div {
-  padding-left: 12px;
-  border-left: 1px solid var(--rule);
-}
-.rp-meta dd,
 .report dd {
   margin: 4px 0 0;
   font-size: 14px;
 }
-@media (max-width: 640px) {
-  .rp-meta {
-    grid-template-columns: 1fr 1fr;
-  }
-  .rp-meta > div:nth-child(3) {
-    border-left: 0;
-    padding-left: 0;
-  }
-  .rp-meta > div:nth-child(n + 3) {
-    border-top: 1px solid var(--rule);
-  }
-}
 
 .rp-verdict {
-  margin: 40px 0;
-  padding: 28px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px 24px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding: 12px 0;
+  border-top: 1px solid var(--rule);
   border-bottom: 1px solid var(--rule);
 }
 .rp-verdict-word {
-  font: italic 300 clamp(36px, 7vw, 60px) / 1.02 var(--serif);
+  font: italic 300 26px/1.05 var(--serif);
 }
 .rp-verdict.ready .rp-verdict-word {
   color: var(--ok);
@@ -77,45 +63,46 @@
   color: var(--muted);
 }
 .rp-stats {
+  flex: 1;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  margin-top: 28px;
+  gap: 10px;
+  min-width: 280px;
 }
 .rp-stats > div {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  border-top: 1px solid var(--ink);
-  padding-top: 10px;
+  gap: 3px;
+  border-left: 2px solid var(--ink);
+  padding-left: 8px;
 }
 .rp-stats strong {
-  font: 400 36px/1 var(--serif);
+  font: 400 20px/1 var(--serif);
 }
 .rp-stats strong small {
-  font-size: 0.5em;
+  font-size: 0.55em;
   color: var(--muted);
 }
 .rp-stats span {
-  font: 500 11px/1.3 var(--mono);
-  letter-spacing: 0.08em;
+  font: 500 10px/1.2 var(--mono);
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
 }
-@media (max-width: 640px) {
+@media (max-width: 560px) {
   .rp-stats {
     grid-template-columns: 1fr 1fr;
   }
 }
 .rp-issues {
-  margin: 28px 0 0;
-  padding: 16px 20px;
+  margin: 10px 0 0;
+  padding: 8px 12px;
   background: var(--warn-soft);
   list-style: none;
-  font-size: 14px;
+  font-size: 13px;
 }
 .rp-issues li {
-  padding: 3px 0 3px 20px;
+  padding: 1px 0 1px 18px;
   position: relative;
 }
 .rp-issues li::before {
@@ -125,48 +112,29 @@
   color: var(--warn);
 }
 
-.rp-quote {
-  margin: 0 0 40px;
-  padding: 0 0 0 24px;
-  border-left: 3px solid var(--accent);
-}
-.rp-quote p {
-  font: italic 400 clamp(22px, 4vw, 30px) / 1.3 var(--serif);
-  margin: 0;
-  white-space: pre-line;
-}
-.rp-quote cite {
-  display: block;
-  margin-top: 12px;
-  font: 500 11px/1 var(--mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  font-style: normal;
-  color: var(--muted);
-}
-
 .rp-sec {
-  padding: 32px 0;
-  break-inside: avoid-page;
+  padding: 22px 0 0;
+  break-inside: avoid;
 }
 .rp-sec header {
   display: flex;
   align-items: baseline;
-  gap: 14px;
-  border-top: 2px solid var(--ink);
-  padding-top: 12px;
-  margin-bottom: 16px;
+  gap: 10px;
+  border-top: 1px solid var(--ink);
+  padding-top: 8px;
+  margin-bottom: 8px;
+  break-after: avoid;
 }
 .rp-n {
-  font: 500 13px/1 var(--mono);
+  font: 500 12px/1 var(--mono);
   color: var(--accent);
 }
 .rp-sec h2 {
-  font-size: 30px;
+  font-size: 22px;
   flex: 1;
 }
 .rp-state {
-  font: 500 11px/1 var(--mono);
+  font: 500 10px/1 var(--mono);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--warn);
@@ -174,24 +142,42 @@
 .rp-state.done {
   color: var(--ok);
 }
+/* Facts: two columns of label / value; long values take the whole row. */
 .rp-sec dl {
   margin: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 28px;
 }
 .rp-sec dl > div {
   display: grid;
-  grid-template-columns: 180px 1fr;
-  gap: 16px;
-  padding: 10px 0;
+  grid-template-columns: 110px 1fr;
+  gap: 10px;
+  padding: 5px 0;
   border-bottom: 1px solid var(--rule);
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+.rp-sec dl > div.wide {
+  grid-column: 1 / -1;
+}
+.rp-sec dt {
+  color: var(--muted);
 }
 .rp-sec dl dd {
   margin: 0;
+  font-size: inherit;
   white-space: pre-line;
 }
-@media (max-width: 560px) {
+@media (max-width: 640px) {
+  .rp-sec dl {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 460px) {
   .rp-sec dl > div {
     grid-template-columns: 1fr;
-    gap: 4px;
+    gap: 2px;
   }
 }
 
@@ -200,37 +186,38 @@
   overflow-x: auto;
   width: 100%;
   border-collapse: collapse;
-  margin-top: 20px;
+  margin-top: 10px;
   font-size: 13px;
 }
 .rp-table th {
-  font: 500 10.5px/1.2 var(--mono);
+  font: 500 10px/1.2 var(--mono);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
   text-align: left;
   border-bottom: 1px solid var(--ink);
-  padding: 8px 14px 8px 0;
+  padding: 5px 12px 5px 0;
   white-space: nowrap;
 }
 .rp-table td {
-  padding: 8px 14px 8px 0;
+  padding: 5px 12px 5px 0;
   border-bottom: 1px solid var(--rule);
   vertical-align: top;
 }
 
+/* Photos are shown whole (the stamp burned into the bottom is the proof); print crops nothing either. */
 .rp-photos {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 16px;
-  margin-top: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
 }
 .rp-photos figure {
   margin: 0;
   break-inside: avoid;
 }
-/* Never crop — the burned-in stamp at the bottom is the proof. */
 .rp-photos img {
+  display: block;
   width: 100%;
   height: auto;
   background: var(--paper-3);
@@ -241,19 +228,9 @@
   background: var(--paper-3);
 }
 .rp-photos figcaption {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding-top: 8px;
-  font: 400 11px/1.45 var(--mono);
-  color: var(--muted);
-}
-.rp-photos figcaption strong {
-  font: 500 13px/1.3 var(--sans);
-  color: var(--ink);
-}
-.rp-photos figcaption .warn {
-  color: var(--warn);
+  padding-top: 4px;
+  font: 500 12px/1.3 var(--sans);
+  color: var(--ink-2);
 }
 .rp-photos a,
 .rp-photos img {
@@ -262,30 +239,62 @@
 .rp-none {
   color: var(--muted);
   font-size: 13px;
-  margin: 16px 0 0;
+  margin: 10px 0 0;
+}
+
+.rp-notes p {
+  margin: 0;
+  font: italic 400 17px/1.4 var(--serif);
+  white-space: pre-line;
+}
+.rp-notes cite {
+  display: block;
+  margin-top: 6px;
+  font: 500 10px/1 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-style: normal;
+  color: var(--muted);
+}
+.rp-pnotes ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .rp-foot {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
+  gap: 4px 16px;
   flex-wrap: wrap;
-  margin-top: 40px;
-  padding-top: 14px;
-  border-top: 3px solid var(--ink);
-  font: 500 10.5px/1.5 var(--mono);
+  margin-top: 26px;
+  padding-top: 8px;
+  border-top: 1px solid var(--ink);
+  font: 500 10px/1.5 var(--mono);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--muted);
+  break-inside: avoid;
 }
 
+/*
+ * Print / Save as PDF — and the exported file when it is printed. A4, tight, 4 photos to a row:
+ * a typical recce (5 sections, ~20 photos, a handful of laptops) lands on 2–3 pages.
+ */
 @media print {
   @page {
-    margin: 14mm;
+    size: A4;
+    margin: 10mm 11mm;
   }
+  html,
   body {
     background: #fff;
-    font-size: 12px;
+  }
+  body {
+    font-size: 9pt;
+    line-height: 1.4;
+    letter-spacing: 0;
   }
   .mast,
   .no-print {
@@ -299,41 +308,153 @@
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
+  .report {
+    max-width: none;
+  }
+
+  .rp-mast {
+    border-top-width: 2px;
+    padding-top: 5px;
+  }
+  .rp-kicker {
+    font-size: 6.5pt;
+  }
   .rp-mast h1 {
-    font-size: 46px;
-    margin: 16px 0 18px;
+    font-size: 20pt;
+    margin: 3px 0 2px;
+  }
+  .rp-meta {
+    font-size: 8pt;
   }
   .rp-verdict {
-    margin: 22px 0;
-    padding: 16px 0;
-    break-inside: avoid;
+    margin-top: 6px;
+    padding: 5px 0;
+    gap: 4px 14px;
+    flex-wrap: nowrap;
   }
   .rp-verdict-word {
-    font-size: 40px;
+    font-size: 13pt;
+    white-space: nowrap;
+  }
+  .rp-stats {
+    min-width: 0;
+    gap: 8px;
+  }
+  .rp-stats > div {
+    gap: 1px;
+    padding-left: 6px;
   }
   .rp-stats strong {
-    font-size: 28px;
+    font-size: 12pt;
   }
+  .rp-stats span {
+    font-size: 5.8pt;
+  }
+  .rp-issues {
+    margin-top: 5px;
+    padding: 4px 8px;
+    font-size: 8pt;
+    line-height: 1.35;
+  }
+  .rp-issues li {
+    padding: 0 0 0 13px;
+  }
+
+  /* A section may run onto the next page (its photos flow in whole figures); its heading and facts stay together. */
   .rp-sec {
-    padding: 18px 0;
+    padding: 11px 0 0;
     break-inside: auto;
   }
+  .rp-sec dl,
+  .rp-table tr {
+    break-inside: avoid;
+  }
   .rp-sec header {
-    break-after: avoid;
+    padding-top: 4px;
+    margin-bottom: 4px;
+    gap: 7px;
+  }
+  .rp-n {
+    font-size: 7pt;
   }
   .rp-sec h2 {
-    font-size: 24px;
+    font-size: 12.5pt;
   }
-  .rp-photos {
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
+  .rp-state {
+    font-size: 6pt;
   }
-  .rp-photos img {
-    max-height: 62mm;
-    object-fit: contain;
-    background: none;
+  .rp-sec dl {
+    column-gap: 18px;
   }
+  .rp-sec dl > div {
+    grid-template-columns: 27mm 1fr;
+    gap: 6px;
+    padding: 2px 0;
+    font-size: 8.5pt;
+    line-height: 1.3;
+  }
+  .ev-sub {
+    font-size: 6.5pt;
+    line-height: 1.3;
+  }
+
   .rp-table {
     display: table;
+    margin-top: 5px;
+    font-size: 8pt;
+  }
+  .rp-table th {
+    font-size: 6pt;
+    padding: 2px 8px 2px 0;
+  }
+  .rp-table td {
+    padding: 2px 8px 2px 0;
+  }
+
+  .rp-photos {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 3mm 3.5mm;
+    margin-top: 5px;
+  }
+  .rp-photos figure {
+    display: flex;
+    flex-direction: column;
+  }
+  /* A fixed frame so rows line up; contain keeps the whole picture and its stamp, whatever the phone's orientation. */
+  .rp-photos img {
+    height: 41mm;
+    object-fit: contain;
+    object-position: center top;
+    background: #f0ede6;
+  }
+  .rp-photos .ph {
+    height: 41mm;
+    aspect-ratio: auto;
+  }
+  .rp-photos figcaption {
+    padding-top: 1.5px;
+    font-size: 7pt;
+    line-height: 1.25;
+  }
+  .rp-none {
+    font-size: 8pt;
+    margin-top: 4px;
+  }
+
+  .rp-notes p {
+    font-size: 10pt;
+  }
+  .rp-notes cite {
+    font-size: 6pt;
+  }
+  .rp-pnotes ul {
+    font-size: 8pt;
+  }
+
+  .rp-foot {
+    margin-top: 12px;
+    padding-top: 4px;
+    font-size: 6pt;
+    border-top-width: 2px;
   }
 }
