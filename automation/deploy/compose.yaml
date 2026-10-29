@@ -1,0 +1,68 @@
+name: field-desk-automation
+
+services:
+  caddy:
+    image: caddy:2.11.7-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      N8N_DOMAIN: ${N8N_DOMAIN:?Set N8N_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - n8n
+
+  n8n:
+    image: n8nio/n8n:2.44.6
+    restart: unless-stopped
+    ports:
+      - "${PRIVATE_IP:?Set PRIVATE_IP in .env}:5678:5678"
+    environment:
+      TZ: Asia/Kolkata
+      GENERIC_TIMEZONE: Asia/Kolkata
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?Set N8N_ENCRYPTION_KEY in .env}
+      N8N_HOST: ${N8N_DOMAIN:?Set N8N_DOMAIN in .env}
+      N8N_PROTOCOL: https
+      N8N_PORT: "5678"
+      N8N_PROXY_HOPS: "1"
+      N8N_WEBHOOK_URL: https://${N8N_DOMAIN:?Set N8N_DOMAIN in .env}/
+      N8N_EDITOR_BASE_URL: https://${N8N_DOMAIN:?Set N8N_DOMAIN in .env}/
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: none
+      EXECUTIONS_DATA_SAVE_ON_ERROR: none
+      EXECUTIONS_DATA_SAVE_ON_PROGRESS: "false"
+      EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS: "false"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_UNVERIFIED_PACKAGES_ENABLED: "false"
+      N8N_CONCURRENCY_PRODUCTION_LIMIT: "2"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      - otp-worker
+
+  otp-worker:
+    image: node:24-alpine
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "/app/worker/server.mjs"]
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8787"
+      STATE_PATH: /data/state.json
+      WORKER_TOKEN: ${WORKER_TOKEN:?Set WORKER_TOKEN in .env}
+      FD_API_KEY: ${FD_API_KEY:?Set FD_API_KEY in .env}
+      FD_WEBHOOK_SECRET: ${FD_WEBHOOK_SECRET:?Set FD_WEBHOOK_SECRET in .env}
+      MAILBOXES: ${MAILBOXES:?Set MAILBOXES in .env}
+      FIELD_DESK_BASE_URL: ${FIELD_DESK_BASE_URL:?Set FIELD_DESK_BASE_URL in .env}
+    volumes:
+      - ../:/app:ro
+      - worker_data:/data
+
+volumes:
+  caddy_data:
+  caddy_config:
+  n8n_data:
+  worker_data:

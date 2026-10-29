@@ -1,0 +1,16 @@
+# Oracle acceptance tests: keep the real Field Desk API disconnected.
+services:
+  otp-worker:
+    environment:
+      FIELD_DESK_BASE_URL: http://mock:8790/api/v1
+  mock:
+    image: node:24-alpine
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "/app/mock/server.mjs"]
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8790"
+      FD_API_KEY: ${FD_API_KEY:?Set FD_API_KEY in .env}
+    volumes:
+      - ../:/app:ro

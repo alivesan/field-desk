@@ -1,0 +1,461 @@
+{
+  "name": "Steam OTP - central Gmail mailbox",
+  "active": false,
+  "nodes": [
+    {
+      "id": "every-15-seconds",
+      "name": "Every 15 seconds",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 15
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "mailbox-id",
+      "name": "MAILBOX ID",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "mailbox-id",
+              "name": "mailbox",
+              "value": "central-gmail",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ask-worker-if-due",
+      "name": "Ask worker if due",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://otp-worker:8787/due",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "mailbox",
+              "value": "={{ $json.mailbox }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "OTP Worker"
+        }
+      }
+    },
+    {
+      "id": "due-",
+      "name": "Due?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "boolean-check",
+              "leftValue": "={{ $json.due === true && typeof $json.query === \"string\" && $json.query.length > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "list-recent-messages",
+      "name": "List recent messages",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $('Ask worker if due').first().json.query }}"
+            },
+            {
+              "name": "maxResults",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "pageToken",
+                    "value": "={{ $response.body.nextPageToken }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.nextPageToken }}",
+              "requestInterval": 100
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Central Gmail mailbox"
+        }
+      }
+    },
+    {
+      "id": "page-has-messages-",
+      "name": "Page has messages?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "boolean-check",
+              "leftValue": "={{ Array.isArray($json.messages) && $json.messages.length > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "one-message-per-item",
+      "name": "One message per item",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "fieldToSplitOut": "messages",
+        "include": "noOtherFields",
+        "options": {}
+      }
+    },
+    {
+      "id": "get-full-message",
+      "name": "Get full message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ \"https://gmail.googleapis.com/gmail/v1/users/me/messages/\" + encodeURIComponent($json.id) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "format",
+              "value": "full"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Central Gmail mailbox"
+        }
+      }
+    },
+    {
+      "id": "process-in-worker",
+      "name": "Process in worker",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://otp-worker:8787/process",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ mailbox: $('MAILBOX ID').first().json.mailbox, provider: 'gmail', message: $json }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "OTP Worker"
+        }
+      }
+    },
+    {
+      "id": "mark-processed-",
+      "name": "Mark processed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1980,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "boolean-check",
+              "leftValue": "={{ $json.markProcessed === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "mark-message-read",
+      "name": "Mark message read",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2200,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ \"https://gmail.googleapis.com/gmail/v1/users/me/messages/\" + encodeURIComponent($json.messageId) + \"/modify\" }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "{\"removeLabelIds\":[\"UNREAD\"]}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Central Gmail mailbox"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 15 seconds": {
+      "main": [
+        [
+          {
+            "node": "MAILBOX ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MAILBOX ID": {
+      "main": [
+        [
+          {
+            "node": "Ask worker if due",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask worker if due": {
+      "main": [
+        [
+          {
+            "node": "Due?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Due?": {
+      "main": [
+        [
+          {
+            "node": "List recent messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List recent messages": {
+      "main": [
+        [
+          {
+            "node": "Page has messages?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Page has messages?": {
+      "main": [
+        [
+          {
+            "node": "One message per item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One message per item": {
+      "main": [
+        [
+          {
+            "node": "Get full message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get full message": {
+      "main": [
+        [
+          {
+            "node": "Process in worker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process in worker": {
+      "main": [
+        [
+          {
+            "node": "Mark processed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark processed?": {
+      "main": [
+        [
+          {
+            "node": "Mark message read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false
+  }
+}

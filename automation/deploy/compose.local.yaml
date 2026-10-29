@@ -1,0 +1,64 @@
+name: field-desk-automation-local
+
+services:
+  n8n:
+    image: n8nio/n8n:2.44.6
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      TZ: Asia/Kolkata
+      GENERIC_TIMEZONE: Asia/Kolkata
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?Set N8N_ENCRYPTION_KEY in .env}
+      N8N_HOST: localhost
+      N8N_PROTOCOL: http
+      N8N_PORT: "5678"
+      N8N_WEBHOOK_URL: http://localhost:5678/
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: none
+      EXECUTIONS_DATA_SAVE_ON_ERROR: none
+      EXECUTIONS_DATA_SAVE_ON_PROGRESS: "false"
+      EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS: "false"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_UNVERIFIED_PACKAGES_ENABLED: "false"
+      N8N_CONCURRENCY_PRODUCTION_LIMIT: "2"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      - otp-worker
+      - mock
+
+  otp-worker:
+    image: node:24-alpine
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "/app/worker/server.mjs"]
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8787"
+      STATE_PATH: /data/state.json
+      WORKER_TOKEN: ${WORKER_TOKEN:?Set WORKER_TOKEN in .env}
+      FD_API_KEY: ${FD_API_KEY:?Set FD_API_KEY in .env}
+      FD_WEBHOOK_SECRET: ${FD_WEBHOOK_SECRET:?Set FD_WEBHOOK_SECRET in .env}
+      MAILBOXES: ${MAILBOXES:?Set MAILBOXES in .env}
+      FIELD_DESK_BASE_URL: ${FIELD_DESK_BASE_URL:-http://mock:8790/api/v1}
+    volumes:
+      - ../:/app:ro
+      - worker_data:/data
+
+  mock:
+    image: node:24-alpine
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "/app/mock/server.mjs"]
+    ports:
+      - "127.0.0.1:8790:8790"
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8790"
+      FD_API_KEY: ${FD_API_KEY:?Set FD_API_KEY in .env}
+    volumes:
+      - ../:/app:ro
+
+volumes:
+  n8n_data:
+  worker_data:

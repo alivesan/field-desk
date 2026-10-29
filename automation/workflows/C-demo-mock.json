@@ -1,0 +1,67 @@
+{
+  "name": "MOCK ONLY - Steam OTP synthetic Gmail demo",
+  "active": false,
+  "nodes": [
+    {
+      "id": "mock-only-manual-trigger",
+      "name": "MOCK ONLY - manual trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {},
+      "notes": "Synthetic demo only. Remove this workflow before production.",
+      "notesInFlow": true
+    },
+    {
+      "id": "mock-only-process-synthetic-mail",
+      "name": "MOCK ONLY - process synthetic mail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://otp-worker:8787/process",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={\"mailbox\":\"central-gmail\",\"provider\":\"gmail\",\"message\":{\"id\":\"mock-demo-{{ Date.now() }}\",\"internalDate\":\"{{ String(Date.now()) }}\",\"payload\":{\"mimeType\":\"text/plain\",\"headers\":[{\"name\":\"From\",\"value\":\"Steam <noreply@steampowered.com>\"},{\"name\":\"To\",\"value\":\"login-alpha@example.invalid\"},{\"name\":\"Subject\",\"value\":\"Your Steam Guard code\"},{\"name\":\"Authentication-Results\",\"value\":\"mx.google.com; dmarc=pass header.from=steampowered.com\"},{\"name\":\"Date\",\"value\":\"{{ new Date().toUTCString() }}\"}],\"body\":{\"data\":\"RGVhciBzdG9yZV9hbHBoYSwKU3RlYW0gR3VhcmQgY29kZSBpczogQTFCMkMK\"}}}}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "OTP Worker"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "MOCK ONLY - manual trigger": {
+      "main": [
+        [
+          {
+            "node": "MOCK ONLY - process synthetic mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false
+  }
+}
