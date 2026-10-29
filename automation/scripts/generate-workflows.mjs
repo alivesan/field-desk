@@ -88,12 +88,15 @@ function mockDemoWorkflow() {
     { name: 'To', value: 'login-alpha@example.invalid' },
     { name: 'Subject', value: 'Your Steam Guard code' },
     { name: 'Authentication-Results', value: 'mx.google.com; dmarc=pass header.from=steampowered.com' },
+    { name: 'Date', value: '{{ new Date().toUTCString() }}' },
   ], body: { data: Buffer.from('Dear store_alpha,\nSteam Guard code is: A1B2C\n').toString('base64url') } };
   const nodes = [
     node('MOCK ONLY - manual trigger', 'manualTrigger', 0, 0, {}, { notes: 'Synthetic demo only. Remove this workflow before production.', notesInFlow: true }),
     http('MOCK ONLY - process synthetic mail', 260, 0, {
       method: 'POST', url: `${worker}/process`, ...workerAuth, sendBody: true, contentType: 'json', specifyBody: 'json',
-      jsonBody: `={{ JSON.stringify({ mailbox: 'central-gmail', provider: 'gmail', message: { id: 'mock-demo-' + Date.now(), internalDate: String(Date.now()), payload: { ...${JSON.stringify(payload)}, headers: [...${JSON.stringify(payload.headers)}, { name: 'Date', value: new Date().toUTCString() }] } } }) }}`,
+      jsonBody: '=' + JSON.stringify({ mailbox: 'central-gmail', provider: 'gmail', message: {
+        id: 'mock-demo-{{ Date.now() }}', internalDate: '{{ String(Date.now()) }}', payload,
+      } }),
     }, workerAuth),
   ];
   const connections = {};

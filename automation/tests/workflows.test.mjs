@@ -83,8 +83,19 @@ test('mock-only manual demo posts a fresh synthetic Gmail message without real m
   const process = byName(workflow, 'MOCK ONLY - process synthetic mail');
   assert.equal(process.credentials.httpHeaderAuth.name, 'OTP Worker');
   assert.equal(process.parameters.url, 'http://otp-worker:8787/process');
-  for (const expected of ['central-gmail', 'login-alpha@example.invalid', 'store_alpha', 'A1B2C', 'mx.google.com', 'dmarc=pass', 'Date.now()', "name: 'Date', value: new Date().toUTCString()"] ) {
+  for (const expected of ['central-gmail', 'login-alpha@example.invalid', 'store_alpha', 'A1B2C', 'mx.google.com', 'dmarc=pass', '{{ Date.now() }}', '{{ new Date().toUTCString() }}']) {
     assert.ok(process.parameters.jsonBody.includes(expected) || (expected === 'store_alpha' || expected === 'A1B2C') && Buffer.from(process.parameters.jsonBody.match(/"data":"([^"]+)"/)[1], 'base64url').toString().includes(expected), expected);
   }
+  const renderedBody = process.parameters.jsonBody.slice(1)
+    .replace('{{ Date.now() }}', '1700000000000')
+    .replace('{{ String(Date.now()) }}', '1700000000000')
+    .replace('{{ new Date().toUTCString() }}', 'Tue, 14 Nov 2023 22:13:20 GMT');
+  const input = JSON.parse(renderedBody);
+  assert.equal(input.mailbox, 'central-gmail');
+  assert.equal(input.provider, 'gmail');
+  assert.equal(input.message.id, 'mock-demo-1700000000000');
+  assert.equal(input.message.internalDate, '1700000000000');
+  assert.equal(input.message.payload.headers.find((header) => header.name === 'Date').value, 'Tue, 14 Nov 2023 22:13:20 GMT');
+  assert.match(Buffer.from(input.message.payload.body.data, 'base64url').toString(), /Dear store_alpha,\nSteam Guard code is: A1B2C/);
   assert.equal(workflow.nodes.some((node) => node.credentials?.gmailOAuth2), false);
 });

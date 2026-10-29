@@ -29,13 +29,15 @@ services:
       N8N_PROTOCOL: https
       N8N_PORT: "5678"
       N8N_PROXY_HOPS: "1"
-      WEBHOOK_URL: https://${N8N_DOMAIN:?Set N8N_DOMAIN in .env}/
+      N8N_WEBHOOK_URL: https://${N8N_DOMAIN:?Set N8N_DOMAIN in .env}/
       N8N_EDITOR_BASE_URL: https://${N8N_DOMAIN:?Set N8N_DOMAIN in .env}/
       EXECUTIONS_DATA_SAVE_ON_SUCCESS: none
       EXECUTIONS_DATA_SAVE_ON_ERROR: none
       EXECUTIONS_DATA_SAVE_ON_PROGRESS: "false"
       EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS: "false"
       N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_UNVERIFIED_PACKAGES_ENABLED: "false"
+      N8N_CONCURRENCY_PRODUCTION_LIMIT: "2"
     volumes:
       - n8n_data:/home/node/.n8n
     depends_on:

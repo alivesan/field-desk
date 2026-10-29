@@ -12,11 +12,38 @@ The `automation` directory is mounted read only at `/app`; the worker saves its 
 
 ## Oracle Ubuntu 24.04 preparation
 
-For initial acceptance testing, use `-f compose.yaml -f compose.mock.yaml -f compose.bootstrap.yaml` and start only `n8n otp-worker mock`. The bootstrap override binds n8n to loopback, uses temporary HTTP cookies, and runs without Caddy. Connect through an SSH tunnel forwarding local 5678 to remote 127.0.0.1:5678, and let the owner complete account setup directly. The mock has no host port; forward local 8790 to its container IP if a synthetic card preview is needed. Remove the bootstrap override before HTTPS operation; remove the mock override only after the real API is approved. Never launch Caddy with the bootstrap override. All stages share the same persistent volumes. The owner has not yet completed n8n setup or central Gmail OAuth.
+For initial acceptance testing, use `-f compose.yaml -f compose.mock.yaml -f compose.bootstrap.yaml` and start only `n8n otp-worker mock`. This stack is now running on the VM. The bootstrap override binds n8n to loopback, uses temporary HTTP cookies, and runs without Caddy. Connect through an SSH tunnel forwarding local 5678 to remote `127.0.0.1:5678`; n8n `/healthz` was verified on VM loopback and through the tunnel. The owner profile still needs completion. The bootstrap override publishes the mock only at VM localhost port 8790; the private demo tunnel forwards PC localhost port 8791 to that port. Open http://localhost:8791/mock/store for synthetic cards. Remove the bootstrap override before HTTPS operation; remove the mock override only after the real API is approved. Never launch Caddy with the bootstrap override. All stages share the same persistent volumes. Central Gmail OAuth has not been configured, and its workflow remains disabled.
 
 Use a host with an assigned `10.0.0.0/16` private IPv4 address. Choose `N8N_DOMAIN=n8n.<public-ip-with-dots-replaced-by-dashes>.sslip.io` and confirm that it resolves to the host's public IPv4. In the Oracle security list or network security group, allow public TCP 80 and 443, retain the existing SSH rule, and allow TCP 5678 only from `10.0.0.0/16`. Restrict SSH to your own source address if that is your existing policy.
 
-The Oracle Always Free VM `field-desk-automation` is already created at public IPv4 `129.225.72.140` and private IPv4 `10.0.0.230`. Docker 29.9.2, Compose 5.6.1 and 2 GB swap were confirmed active on 29 October 2026; no containers had started at that checkpoint. `setup.sh` remains the reproducible Ubuntu 24.04 preparation script. It installs Docker from its official repository, adds swap only when needed, and inserts persistent port rules without flushing existing firewall or SSH rules. Before first startup, check `sudo systemctl status fielddesk-automation-firewall.service`, `sudo iptables -S INPUT`, and `sudo iptables -S DOCKER-USER`. Confirm Oracle ingress and host firewall allow public 80/443 and private 5678 only as intended.
+The Oracle Always Free VM `field-desk-automation` is already created at public IPv4 `129.225.72.140` and private IPv4 `10.0.0.230`. Docker 29.9.2, Compose 5.6.1 and 2 GB swap were confirmed active on 29 October 2026. `setup.sh` remains the reproducible Ubuntu 24.04 preparation script. It installs Docker from its official repository, adds swap only when needed, and inserts persistent port rules without flushing existing firewall or SSH rules. Its persistent rule now allows loopback TCP 5678 for the SSH tunnel before dropping non-private sources. The machine firewall was updated; Oracle's shared ingress rules were not changed. Check `sudo systemctl status fielddesk-automation-firewall.service`, `sudo iptables -S INPUT`, and `sudo iptables -S DOCKER-USER` after Docker restarts. Confirm Oracle ingress and host firewall allow public 80/443 and private 5678 only as intended.
+
+### VM import and mock check
+
+`python3 automation/scripts/init-vm.py --private-ip 10.0.0.230 --domain n8n.129-225-72-140.sslip.io`, run from the repository root, creates `automation/deploy/.env` on the VM with fresh secrets and the mock endpoint. It uses exclusive creation and refuses to overwrite an existing file; it does not print secrets. Do not run it again over the existing VM configuration.
+
+`python3 automation/scripts/prepare-n8n-import.py`, run from the repository root, creates inactive workflow exports and a temporary `automation/data/n8n-import/credentials.json` containing the worker bearer token. On the Ubuntu host, the checkout owner is UID 1001 while n8n runs as UID/GID 1000. Before a read-only CLI import, set group 1000 and permissions 750 on `automation/data/n8n-import` and 640 on its JSON files. For example, from the repository root:
+
+```bash
+sudo chgrp 1000 automation/data/n8n-import automation/data/n8n-import/*.json
+chmod 750 automation/data/n8n-import
+chmod 640 automation/data/n8n-import/*.json
+```
+
+From `automation/deploy`, the imports used a read-only bind mount and a one-off n8n process:
+
+```bash
+sudo docker compose -f compose.yaml -f compose.mock.yaml -f compose.bootstrap.yaml run --rm --no-deps -v /home/ubuntu/field-desk/automation/data/n8n-import:/import:ro n8n import:credentials --input=/import/credentials.json
+sudo docker compose -f compose.yaml -f compose.mock.yaml -f compose.bootstrap.yaml run --rm --no-deps -v /home/ubuntu/field-desk/automation/data/n8n-import:/import:ro n8n import:workflow --input=/import/workflows.json
+```
+
+Three workflows are imported. After a successful import, the plaintext `credentials.json` was removed from the VM; do not retain or commit it. The synthetic `C-demo-mock` workflow returned `SUCCESS` through an actual n8n CLI execution. The default worker check also passed against the mock:
+
+```bash
+sudo docker compose -f compose.yaml -f compose.mock.yaml -f compose.bootstrap.yaml exec -T otp-worker node /app/scripts/check-runtime.mjs
+```
+
+The optional `--n8n` mode passed through the actual published n8n webhook: valid signed request 202, duplicate 200, modified body 401. It verifies raw-body HMAC and response status forwarding through n8n. It can be repeated from `automation/deploy` with `sudo docker compose -f compose.yaml -f compose.mock.yaml -f compose.bootstrap.yaml exec -T otp-worker node /app/scripts/check-runtime.mjs --n8n`. The synthetic demo also returned `status: delivered` and `SUCCESS` through n8n CLI. Keep the mock endpoint in place. n8n currently uses `N8N_WEBHOOK_URL` rather than the deprecated `WEBHOOK_URL` setting, and production execution concurrency is capped at two.
 
 For production, make a separate `.env` containing all four random secrets, the one central Gmail `MAILBOXES` entry with the owner's four exact `trustedForwarders` addresses, `PRIVATE_IP`, `N8N_DOMAIN`, and `FIELD_DESK_BASE_URL`. **The owner must authorize use of `https://fieldesk.runs-at.dev/api/v1` before setting it or activating any live workflow.** Do not configure the source accounts to forward until the owner confirms them. Check the values with `docker compose -f compose.yaml config --quiet`, then start only after authorization with `docker compose -f compose.yaml up -d`. Caddy obtains HTTPS for the supplied domain. n8n publishes 5678 on the private IP, while the worker has no published port.
 

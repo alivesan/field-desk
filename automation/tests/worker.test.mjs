@@ -132,3 +132,28 @@ test('duplicate request cannot extend a boost but a new request can refresh it',
   clock = instant + 2 * TTL - 30_000;
   assert.equal((await service.due('central-gmail')).body.boosted, false);
 });
+
+test('a fresh pre-request email delivers without clearing the newer account boost', async t => {
+  const parent = new URL('../test-output/', import.meta.url); await mkdir(parent, { recursive: true });
+  const dir = await mkdtemp(new URL('fd-otp-pre-request-', parent)); t.after(() => rm(dir, { recursive: true, force: true }));
+  let clock = instant + 60_000;
+  let posts = 0;
+  const secret = 'pre-request-secret';
+  const service = await createService({ statePath: join(dir, 'state.json'), mailboxes: [{ id: 'central-gmail', provider: 'gmail' }], baseUrl: 'http://mock/api/v1', apiKey: 'synthetic', webhookSecret: secret, now: () => clock, fetchImpl: async (url) => {
+    if (url.endsWith('/steam/accounts')) return Response.json(accounts);
+    posts++; return Response.json({ ok: true });
+  } });
+  const raw = Buffer.from(JSON.stringify({ id: 'new-login-request', type: 'steam.otp.requested', at: new Date(clock).toISOString(), accountUsername: 'store_alpha' }));
+  const signature = `sha256=${createHmac('sha256', secret).update(raw).digest('hex')}`;
+  assert.equal((await service.webhook(raw, signature)).status, 202);
+  assert.equal((await service.due('central-gmail')).body.mode, 'normal');
+  const olderMail = { mailbox: 'central-gmail', provider: 'gmail', message: gmail({ id: 'unprocessed-before-request' }) };
+  assert.equal((await service.process(olderMail)).body.status, 'delivered');
+  assert.equal(posts, 1);
+  assert.equal((await service.process(olderMail)).body.status, 'already_delivered');
+  clock += 15_000;
+  const next = (await service.due('central-gmail')).body;
+  assert.equal(next.mode, 'boosted');
+  assert.equal(next.boosted, true);
+  assert.match(next.query, /store_alpha/);
+});

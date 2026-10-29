@@ -2,6 +2,8 @@
 
 Only automation/ is changed. No application changes are made by this branch.
 
+As of 29 October 2026, the Oracle n8n/worker/mock stack is running and one synthetic `C-demo-mock` n8n CLI execution returned `SUCCESS` with `status: delivered`. The published n8n webhook returned 202 for a valid signed body, 200 for its duplicate, and 401 for a modified body. The live Field Desk endpoint has not been used. Owner profile, central Gmail OAuth, exact forwarding addresses and real Steam samples are pending; Caddy/HTTPS is not started.
+
 ## Required before live delivery
 
 1. **Scope:** define the exact scope for GET /steam/accounts. The supplied scope list includes `read`, `results:write`, `brackets:write`, `steam-otp:write`, but refers to an unspecified HQ scope. Return a bare array per spec. Use a separate HQ credential with only account-read + steam-otp:write access.

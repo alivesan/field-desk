@@ -64,6 +64,7 @@ ensure_rule INPUT -p tcp --dport 80 -j ACCEPT
 ensure_rule INPUT -p tcp --dport 443 -j ACCEPT
 ensure_rule INPUT -d "\$PRIVATE_IP" -s 10.0.0.0/16 -p tcp --dport 5678 -j ACCEPT
 ensure_rule INPUT -p tcp --dport 5678 ! -s 10.0.0.0/16 -j DROP
+ensure_rule INPUT -i lo -p tcp --dport 5678 -j ACCEPT
 if ! iptables -n -L DOCKER-USER >/dev/null 2>&1; then
   echo 'Docker DOCKER-USER chain is missing; refusing incomplete firewall setup.' >&2
   exit 1

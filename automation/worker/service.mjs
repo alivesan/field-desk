@@ -61,7 +61,13 @@ export async function createService({ statePath, mailboxes, baseUrl, apiKey, web
         // Recheck age after network delay. Never persist the code or the provider payload.
         if (now() - Date.parse(parsed.receivedAt) >= TTL) throw new Error('expired_or_invalid_time');
         await fd('/steam/otp', { method: 'POST', headers: { 'Idempotency-Key': `steam-email-${id}` }, body: JSON.stringify({ accountUsername: account.username, code: parsed.code, receivedAt: parsed.receivedAt }) });
-        state.delivered[id] = now(); delete state.boosts[digest(String(account.username).toLowerCase())]; await save();
+        state.delivered[id] = now();
+        const boostId = digest(String(account.username).toLowerCase());
+        const boost = state.boosts[boostId];
+        // Backlog mail must not close a newer login request's fast-poll window.
+        // Sender Date headers have second resolution; allow one second rounding.
+        if (boost && Date.parse(parsed.receivedAt) >= boost.until - TTL - 1000) delete state.boosts[boostId];
+        await save();
         return { status: 200, body: { status: 'delivered', markProcessed: true, messageId: email.id } };
       } catch (error) {
         const reason = safeReasons.has(error.message) ? error.message : 'processing_failed';
