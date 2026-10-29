@@ -30,6 +30,9 @@ export function weekendOf(date: string): Weekend {
   return { sat, sun: addDaysLocal(sat, 1) };
 }
 
+/** The weekend after the one this date is in. */
+export const nextWeekendOf = (date: string): Weekend => weekendOf(addDaysLocal(weekendOf(date).sun, 1));
+
 /** "Sat 31 Oct" */
 export function shortDay(date: string) {
   const [, m, d] = date.split('-').map(Number);
@@ -38,6 +41,14 @@ export function shortDay(date: string) {
 
 /** "Sat 31 Oct – Sun 1 Nov" */
 export const weekendLabel = (w: Weekend) => `${shortDay(w.sat)} – ${shortDay(w.sun)}`;
+
+/** The span of some dates: "Sat 31 Oct", or "Sat 31 Oct – Sat 14 Nov". Empty when there are none. */
+export function dateRange(dates: string[]) {
+  const sorted = [...new Set(dates)].filter(Boolean).sort();
+  if (!sorted.length) return '';
+  const [a, b] = [sorted[0], sorted[sorted.length - 1]];
+  return a === b ? shortDay(a) : `${shortDay(a)} – ${shortDay(b)}`;
+}
 
 export type WeekGroup = 'this' | 'upcoming' | 'past';
 
