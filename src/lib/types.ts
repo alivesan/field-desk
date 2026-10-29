@@ -246,6 +246,8 @@ export interface Store {
   submissions?: Submission[]; // append-only revision history, newest last (server commands only)
   roster?: RosterSource; // HQ-only
   access?: StoreAccess; // HQ-only: the store team's shared sign-in code (never sent to admins)
+  print?: PrintKit; // the store's print files (HQ imports them from the creatives sheet); the store team sees them
+  printDownloads?: Partial<Record<PrintKind, PrintDownload>>; // who on the store team saved each file (admin-writable)
   toornament?: ToornamentSource; // HQ-only
   steam?: SteamAssignment; // HQ-only: which Steam account this store was given, and for what
   steamLogin?: SteamLogin; // computed by the server for the store's own team / admin on every read — never stored, never written
@@ -261,6 +263,9 @@ export interface TournamentEvent {
   minDownMbps: number;
   createdAt: string;
   storeSheet?: StoreSheetSource; // HQ-only: the sheet the campaign's stores are imported from
+  printSheet?: PrintSheetSource; // HQ-only: the creatives sheet (one tab per date, a block of 5 Drive links per store)
+  printDesk?: PrintDesk; // HQ-only: the no-sign-in link for whoever downloads every store's print files
+  printSpec?: Partial<Record<PrintKind, PrintSpec>>; // print instructions; missing kinds use PRINT_DEFAULTS
   toornamentAuto?: { from: string }; // 'HH:MM' India time: when the server starts checking Toornament for each store's bracket on its day (default 12:30)
 }
 
@@ -276,6 +281,47 @@ export interface StoreSheetSource {
  * `/<code>` signs a phone in to that store only; each person types their name once so actions
  * read "Rhea (Nashik team)". A new code signs the old one out everywhere.
  */
+/** The five collaterals every store gets for an event. */
+export type PrintKind = 'standee' | 'poster' | 'pamphlet' | 'chequeWinner' | 'chequeRunnerUp';
+
+/** One Drive file of a store's print kit. Files are "Anyone with the link" JPG/PDFs on Google Drive. */
+export interface PrintFile {
+  kind: PrintKind;
+  driveId: string; // the /file/d/<id>/ part of the link
+  url: string; // the link as given in the sheet
+  name?: string; // Drive's own file name (e.g. ROG_Showdown_Tekken_Cheque-C.jpg), when known
+}
+
+/** A store's print kit, from one block of the creatives sheet. Kept on the store until a later refresh replaces it. */
+export interface PrintKit {
+  files: PrintFile[];
+  tab?: string; // the sheet tab it came from ("31-Oct")
+  label?: string; // the block's store name as written in the sheet ("Shubham info Bhubneshwar")
+  importedAt: string; // ISO — equals event.printSheet.importedAt for kits from the latest refresh ("this week")
+}
+
+export interface PrintDownload {
+  at: string; // ISO
+  by: string; // who saved it ("Rhea (Subham Infotech team)")
+}
+
+export interface PrintSheetSource {
+  url: string; // the Google Sheets link HQ pasted
+  importedAt?: string; // ISO, the last refresh applied
+}
+
+/** A public, unguessable link (/p/<token>) that shows this week's print files of every store — no sign-in. */
+export interface PrintDesk {
+  token: string; // 16+ url-safe random chars; a new token stops the old link
+  createdAt: string;
+}
+
+/** A print instruction: physical size and how many copies. */
+export interface PrintSpec {
+  size: string; // "6 × 3 ft", "A3 (297 × 420 mm)"
+  qty: number;
+}
+
 export interface StoreAccess {
   code: string; // same alphabet as admin codes (ADMIN_CODE), unique across admins and stores
   createdAt: string; // ISO, when this code was made (a new code = a new createdAt)
@@ -330,3 +376,4 @@ export interface AppState {
   admins: Record<string, Admin>; // super admin only — always empty for field admins
   accounts: Record<string, SteamAccount>; // HQ's Steam accounts — super admin only, always empty for field admins and store teams
 }
+

@@ -10,3 +10,6 @@ data
 *.pem
 *.key
 *.log
+
+# outside audit runs (logs, test copies) — never committed or shipped
+.audit

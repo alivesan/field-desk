@@ -20,6 +20,7 @@ import { ensureRecce } from './recce.ts';
 import { HH_MM, toornamentLinkProblem } from './toornament.ts';
 import { MAX_IGN } from './phone.ts';
 import { INSTAGRAM_HANDLE } from './winnerInput.ts';
+import { PRINT_KINDS } from './print.ts';
 
 export type DocKind = 'events' | 'stores' | 'admins' | 'accounts';
 
@@ -40,6 +41,10 @@ export const ADMIN_CODE = /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{4}$/;
 export const MAX_STATIONS = 64;
 /** Self check-in token — the only thing in the venue QR (/c/<token>). Must match the client route. */
 export const CHECKIN_TOKEN = /^[A-Za-z0-9_-]{16,64}$/;
+/** The print desk's token — the only thing in its public link (/p/<token>). Same shape as the check-in token. */
+export const PRINT_TOKEN = /^[A-Za-z0-9_-]{16,64}$/;
+/** A Google Drive file id (the /file/d/<id>/ part of a share link). */
+export const DRIVE_ID = /^[\w-]{20,128}$/;
 /** A stored player phone: normalized digits (normalizePhone in phone.ts). */
 export const PHONE_DIGITS = /^\d{6,15}$/;
 
@@ -116,7 +121,7 @@ export function validateDocument(kind: DocKind, doc: unknown, ctx: ValidationCon
   const out: string[] = [];
   const c = checker(out);
   if (!c.obj(doc, '')) return out;
-  if (kind === 'events') validateEvent(c, doc);
+  if (kind === 'events') validateEvent(c, doc, ctx);
   else if (kind === 'admins') validateAdmin(c, doc, ctx);
   else if (kind === 'accounts') validateAccount(c, doc, ctx);
   else if (kind === 'stores') validateStore(c, doc, ctx);
@@ -124,7 +129,7 @@ export function validateDocument(kind: DocKind, doc: unknown, ctx: ValidationCon
   return out;
 }
 
-function validateEvent(c: C, e: Rec) {
+function validateEvent(c: C, e: Rec, ctx: ValidationContext) {
   c.id(e.id, 'id');
   c.str(e.name, 'name', 200);
   c.date(e.date, 'date');
@@ -135,6 +140,23 @@ function validateEvent(c: C, e: Rec) {
   if (e.storeSheet !== undefined && c.obj(e.storeSheet, 'storeSheet')) {
     c.str(e.storeSheet.url, 'storeSheet.url', 2000);
     c.time(e.storeSheet.fetchedAt, 'storeSheet.fetchedAt');
+  }
+  if (e.printSheet !== undefined && c.obj(e.printSheet, 'printSheet')) {
+    c.str(e.printSheet.url, 'printSheet.url', 2000);
+    c.optTime(e.printSheet.importedAt, 'printSheet.importedAt');
+  }
+  if (e.printDesk !== undefined && c.obj(e.printDesk, 'printDesk')) {
+    const token = e.printDesk.token;
+    if (typeof token !== 'string' || !PRINT_TOKEN.test(token)) c.bad('printDesk.token', 'must be 16–64 letters, digits, _ or -');
+    else if (ctx.events && Object.values(ctx.events).some((o) => o && o.id !== e.id && o.printDesk?.token === token)) c.bad('printDesk.token', 'is already used by another campaign');
+    c.time(e.printDesk.createdAt, 'printDesk.createdAt');
+  }
+  if (e.printSpec !== undefined && c.obj(e.printSpec, 'printSpec')) {
+    for (const [k, v] of Object.entries(e.printSpec)) {
+      if (!c.oneOf(k, `printSpec.${k}`, PRINT_KINDS) || !c.obj(v, `printSpec.${k}`)) continue;
+      if (typeof v.size !== 'string' || !v.size.trim() || v.size.length > 60) c.bad(`printSpec.${k}.size`, 'must be text of 1–60 characters');
+      c.num(v.qty, `printSpec.${k}.qty`, 1, 100000, true);
+    }
   }
   if (e.toornamentAuto !== undefined && c.obj(e.toornamentAuto, 'toornamentAuto')) {
     if (typeof e.toornamentAuto.from !== 'string' || !HH_MM.test(e.toornamentAuto.from)) c.bad('toornamentAuto.from', 'must be a time of day, HH:MM (24-hour)');
@@ -231,6 +253,32 @@ function validateStore(c: C, s: Rec, ctx: ValidationContext) {
       if (a.lastResult !== undefined) c.oneOf(a.lastResult, 'toornament.auto.lastResult', ['waiting', 'not-placed', 'applied', 'skipped-underway', 'skipped-manual', 'error']);
       c.optStr(a.message, 'toornament.auto.message', 400);
       c.optTime(a.appliedAt, 'toornament.auto.appliedAt');
+    }
+  }
+  if (s.print !== undefined && c.obj(s.print, 'print')) {
+    const seen = new Set<unknown>();
+    if (c.list(s.print.files, 'print.files', PRINT_KINDS.length)) {
+      (s.print.files as unknown[]).forEach((f, i) => {
+        const p = `print.files[${i}]`;
+        if (!c.obj(f, p)) return;
+        if (c.oneOf(f.kind, `${p}.kind`, PRINT_KINDS)) {
+          if (seen.has(f.kind)) c.bad(`${p}.kind`, 'is listed twice');
+          seen.add(f.kind);
+        }
+        if (typeof f.driveId !== 'string' || !DRIVE_ID.test(f.driveId)) c.bad(`${p}.driveId`, 'must be a Google Drive file id');
+        if (typeof f.url !== 'string' || f.url.length > 500 || !/^https:\/\/(?:drive|docs)\.google\.com\/\S+$/.test(f.url)) c.bad(`${p}.url`, 'must be a Google Drive link (https://drive.google.com/…) of at most 500 characters');
+        c.optStr(f.name, `${p}.name`, 300);
+      });
+    }
+    c.optStr(s.print.tab, 'print.tab', 100);
+    c.optStr(s.print.label, 'print.label', 300);
+    c.time(s.print.importedAt, 'print.importedAt');
+  }
+  if (s.printDownloads !== undefined && c.obj(s.printDownloads, 'printDownloads')) {
+    for (const [k, v] of Object.entries(s.printDownloads)) {
+      if (!c.oneOf(k, `printDownloads.${k}`, PRINT_KINDS) || !c.obj(v, `printDownloads.${k}`)) continue;
+      c.time(v.at, `printDownloads.${k}.at`);
+      c.str(v.by, `printDownloads.${k}.by`, 120);
     }
   }
   c.optTime(s.updatedAt, 'updatedAt');

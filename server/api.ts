@@ -3,12 +3,15 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import path from 'node:path';
 import fs from 'node:fs';
 import { applyOps, diffDocs, DOC_KINDS, safeParse, validateOps, type Docs, type DocKind, type Op } from '../src/lib/ops.ts';
-import { ADMIN_CODE, normalizeStore, validateDocument } from '../src/lib/schema.ts';
+import { ADMIN_CODE, normalizeStore, PRINT_TOKEN, validateDocument } from '../src/lib/schema.ts';
 import { applyCommand, COMMAND_ROLES, CommandError, validateCommand, type Command, type CommandContext } from '../src/lib/commands.ts';
-import type { Store, ToornamentSource } from '../src/lib/types.ts';
+import type { PrintKind, Store, ToornamentSource, TournamentEvent } from '../src/lib/types.ts';
 import { AUTO_ACTOR } from '../src/lib/toornament-auto.ts';
 import { cleanPersonName, shortStoreName, teamActorName } from '../src/lib/teams.ts';
 import { steamLoginFor } from '../src/lib/steam.ts';
+import { isPrintKind, PRINT_KINDS, printSpecOf, thisWeekKits } from '../src/lib/print.ts';
+import { campaignStoreNames, storeShortName } from '../src/lib/names.ts';
+import { storeDate } from '../src/lib/recce.ts';
 import { openDatabase, photoIds } from './migrate.ts';
 import { acquireLock } from './lock.ts';
 import { createSessions, hashToken, TOKEN } from './sessions.ts';
@@ -17,6 +20,7 @@ import { createPhotoStore, PhotoConflict, PhotoQuota } from './photos.ts';
 import { consoleLogger, errorFields, type Logger } from './log.ts';
 import { createPublicLimiter, DEFAULT_PUBLIC_LIMITS, selfCheckIn, storeByToken, type PublicLimitConfig } from './public.ts';
 import { fetchRoster, RosterFetchError, type RosterFetchOptions } from './roster-fetch.ts';
+import { createPrinter } from './print.ts';
 import { fetchToornament } from './toornament-fetch.ts';
 import { createToornamentAuto, type ToornamentAutoOptions } from './toornament-auto.ts';
 import { lanOrigins, listensOnAll } from './lan.ts';
@@ -57,6 +61,13 @@ export { ADMIN_CODE };
  *   GET  /api/roster/fetch?url=<https link>   HQ only: { url, contentType, text, fetchedAt } (server/roster-fetch.ts)
  *   GET  /api/toornament/fetch?url=<toornament link>&stage=<stageId>   HQ only: tournament, stages,
  *        participants, the stage's first round (server/toornament-fetch.ts, src/lib/toornament.ts)
+ *   GET  /api/print/sheet?url=<Google Sheets link>&year=<yyyy>   HQ only: the creatives sheet read into
+ *        tabs → blocks → Drive files with their real names (PrintSheetParse, src/lib/print.ts; server/print.ts)
+ *   GET  /api/print/file/:storeId/:kind[?inline=1]   HQ, or that store's team / admin: one print file from Google
+ *        Drive, streamed under its proper name ("Subham Infotech - A3 Poster.jpg")
+ *   GET  /api/print/zip/:storeId       the same store's files as one zip
+ *   Nothing is recorded when a file is downloaded: the client writes store.printDownloads itself (a store field a
+ *   team may write); store.print, event.printSheet / printDesk / printSpec are HQ's.
  *
  * No request for these: from 12:30 on a store's day the server checks its Toornament stage every 5
  * minutes and loads the bracket once the players are placed (server/toornament-auto.ts; off in
@@ -65,6 +76,9 @@ export { ADMIN_CODE };
  * Public — no session, for players at the venue (server/public.ts has the limits):
  *   GET  /api/public/checkin/:token   { store, campaign, date, open } — nothing about players
  *   POST /api/public/checkin/:token   { phone } -> { ok, name: "First L.", already }
+ *   GET  /api/public/print/:token     the print desk (event.printDesk.token): { campaign: { id, name }, stores: [{ id, name, city,
+ *        date, files: [{ kind, label, size, qty, driveId }], downloaded: [kind] }] } — this week's stores only, nothing else about them
+ *   GET  /api/public/print/:token/file/:storeId/:kind[?inline=1], /zip/:storeId, /zip (every store, a folder each)
  *
  * Errors are JSON { code, error, ... }: bad-request / invalid (+ problems) 400, unauthenticated
  * 401, forbidden / protected / closed 403, not-found / no-match 404, batch-id-reused / conflict /
@@ -92,6 +106,10 @@ export interface ApiOptions {
   loginLimits?: Partial<LimitConfig>;
   /** Player self check-in limits (server/public.ts). */
   publicLimits?: Partial<PublicLimitConfig>;
+  /** The print desk's per-address limits (same shape; a wrong token costs more). */
+  printLimits?: Partial<PublicLimitConfig>;
+  /** Print file downloads (server/print.ts): size caps and how many run at once. Fetches use `rosterFetch`. */
+  print?: { maxFileBytes?: number; maxSheetBytes?: number; maxDownloads?: number };
   /** Roster link and Toornament fetches: DNS / transport / limits, for tests (server/roster-fetch.ts). */
   rosterFetch?: RosterFetchOptions;
   /** The Toornament auto-check (server/toornament-auto.ts). Off unless `enabled` — server/index.ts turns it on. */
@@ -122,7 +140,7 @@ const COMMAND_ID = /^[\w-]{6,48}$/;
 const PHOTO_ID = /^[a-z0-9]{6,40}$/;
 const MAX_JSON = 4 * 1024 * 1024;
 /** Store fields a field admin may change. Everything else (name, assignment, the team code `access`…) is HQ's. */
-const ADMIN_WRITABLE = new Set(['recce', 'day', 'pin', 'updatedAt']);
+const ADMIN_WRITABLE = new Set(['recce', 'day', 'pin', 'printDownloads', 'updatedAt']);
 /** Store state that changes only through commands — never through generic batches, from anyone. */
 const PROTECTED: [string, (s: any) => unknown][] = [
   ['day.players', (s) => s?.day?.players ?? []],
@@ -212,6 +230,10 @@ export function createApi(opts: ApiOptions) {
   const photos = createPhotoStore(db, path.join(dataDir, 'photos'), now);
   const limiter = createLoginLimiter({ ...DEFAULT_LIMITS, ...opts.loginLimits }, now);
   const publicLimiter = createPublicLimiter({ ...DEFAULT_PUBLIC_LIMITS, ...opts.publicLimits }, now);
+  // The print desk's link is a bearer token like the check-in QR, but its downloads are heavy: one address gets
+  // 120 requests / 10 min, a wrong token costs 10 (so ~12 guesses).
+  const printLimiter = createPublicLimiter({ perIp: 120, perIpWindowMs: 10 * 60000, perStore: Infinity, perStoreWindowMs: 10 * 60000, failCost: 10, ...opts.printLimits }, now);
+  const printer = createPrinter({ now, fetch: opts.rosterFetch, log, ...opts.print });
 
   /* ---------- sessions ---------- */
 
@@ -297,7 +319,8 @@ export function createApi(opts: ApiOptions) {
         Object.entries(docs.events)
           .filter(([id]) => eventIds.has(id))
           .map(([id, e]) => {
-            const { storeSheet: _hq, ...rest } = e as typeof e & { storeSheet?: unknown };
+            // The creatives sheet link and the print desk's token are capabilities too (the desk link is public).
+            const { storeSheet: _hq, printSheet: _sheet, printDesk: _desk, ...rest } = e as typeof e & { storeSheet?: unknown; printSheet?: unknown; printDesk?: unknown };
             return [id, rest as typeof e];
           }),
       ),
@@ -586,6 +609,9 @@ export function createApi(opts: ApiOptions) {
     // Players at the venue: no session, whoever's cookie this browser happens to carry.
     const checkin = url.pathname.match(/^\/api\/public\/checkin\/([^/]+)$/);
     if (checkin) return publicCheckIn(req, res, checkin[1]);
+    // Whoever downloads the week's print files: the link is the key.
+    const desk = url.pathname.match(/^\/api\/public\/print\/([^/]+)(\/[^?]*)?$/);
+    if (desk) return publicPrint(req, res, url, desk[1], desk[2] ?? '');
 
     const session = sessionOf(req);
     const who = session?.who ?? null;
@@ -766,6 +792,29 @@ export function createApi(opts: ApiOptions) {
       }
     }
 
+    if (route === 'GET /api/print/sheet') {
+      if (who.role !== 'super') return send(res, 403, { code: 'forbidden', error: 'HQ only' });
+      const year = Number(url.searchParams.get('year'));
+      try {
+        const parse = await printer.sheet(url.searchParams.get('url') ?? '', Number.isInteger(year) && year >= 2000 && year <= 2100 ? year : new Date(now()).getUTCFullYear());
+        log('info', 'print-sheet', { tabs: parse.tabs.length, blocks: parse.tabs.reduce((n, t) => n + t.blocks.length, 0) }); // never the link: a sheet id is a capability
+        return send(res, 200, parse);
+      } catch (e) {
+        if (!(e instanceof RosterFetchError)) throw e;
+        log('warn', 'print-sheet-failed', { code: e.code, status: e.status });
+        return send(res, e.status, { code: e.code, error: e.message, ...e.extra });
+      }
+    }
+
+    const printRoute = req.method === 'GET' ? url.pathname.match(/^\/api\/print\/(file|zip)\/([\w-]{1,64})(?:\/(\w{1,20}))?$/) : null;
+    if (printRoute) {
+      const store = docs.stores[printRoute[2]];
+      // Same ownership as any store read; a store that isn't yours looks like one that doesn't exist.
+      if (!store || !owns(who, store)) return send(res, 404, { code: 'not-found', error: 'No such store.' });
+      log('info', 'print-download', { principal: who.principal, store: store.id, what: printRoute[1] === 'zip' ? 'zip' : printRoute[3] });
+      return sendPrint(res, store, printRoute[1] === 'zip' ? null : printRoute[3] ?? '', url.searchParams.get('inline') === '1');
+    }
+
     const photo = url.pathname.match(/^\/api\/photos\/([^/]+)$/);
     if (photo) {
       const id = photo[1];
@@ -809,6 +858,73 @@ export function createApi(opts: ApiOptions) {
     }
 
     return send(res, 404, { code: 'not-found', error: 'not found' });
+  }
+
+  /* ---------- print files ---------- */
+
+  /** One of a store's print files (kind) or all of them as a zip (kind null). */
+  async function sendPrint(res: ServerResponse, store: Store, kind: string | null, inline: boolean) {
+    const files = store.print?.files ?? [];
+    if (kind === null) {
+      const items = PRINT_KINDS.flatMap((k) => files.filter((f) => f.kind === k)).map((file) => ({ store, file }));
+      if (!items.length) return send(res, 404, { code: 'not-found', error: 'This store has no print files yet.' });
+      await printer.sendZip(res, `${storeShortName(store.name)} - print files`, items, false);
+      return true;
+    }
+    const file = isPrintKind(kind) ? files.find((f) => f.kind === kind) : undefined;
+    if (!file) return send(res, 404, { code: 'not-found', error: 'This store has no such print file.' });
+    await printer.sendFile(res, store, file, inline);
+    return true;
+  }
+
+  /** The print desk: a campaign's link (event.printDesk.token) shows this week's stores and their files. No session, no store data beyond that. */
+  async function publicPrint(req: IncomingMessage, res: ServerResponse, url: URL, token: string, rest: string) {
+    if (req.method !== 'GET') return send(res, 405, { code: 'bad-request', error: 'GET only' });
+    const ip = clientIp(req, trustProxy);
+    const wait = printLimiter.ipBlockedFor(ip);
+    if (wait) return tooMany(res, wait);
+    const event = PRINT_TOKEN.test(token) ? Object.values(docs.events).find((e) => e.printDesk?.token === token) : undefined;
+    printLimiter.attempt(ip, null, !event);
+    if (!event) return send(res, 404, { code: 'not-found', error: 'This print link isn’t valid any more — ask HQ for a new one.' });
+    const all = Object.values(docs.stores);
+    const kits = thisWeekKits(event, all).sort((a, b) => storeDate(a, event).localeCompare(storeDate(b, event)) || a.name.localeCompare(b.name));
+
+    if (rest === '') return send(res, 200, deskView(event, kits, all));
+    const file = rest.match(/^\/file\/([\w-]{1,64})\/(\w{1,20})$/);
+    if (file) {
+      const store = kits.find((s) => s.id === file[1]);
+      const f = store && isPrintKind(file[2]) ? store.print?.files.find((x) => x.kind === file[2]) : undefined;
+      if (!store || !f) return send(res, 404, { code: 'not-found', error: 'No such file this week.' });
+      log('info', 'print-desk-download', { store: store.id, what: f.kind });
+      await printer.sendFile(res, store, f, url.searchParams.get('inline') === '1');
+      return true;
+    }
+    const zip = rest.match(/^\/zip(?:\/([\w-]{1,64}))?$/);
+    if (zip) {
+      const chosen = zip[1] ? kits.filter((s) => s.id === zip[1]) : kits;
+      if (!chosen.length) return send(res, 404, { code: 'not-found', error: zip[1] ? 'No such store this week.' : 'There are no print files this week.' });
+      const items = chosen.flatMap((store) => PRINT_KINDS.flatMap((k) => (store.print?.files ?? []).filter((f) => f.kind === k)).map((file) => ({ store, file })));
+      log('info', 'print-desk-download', { store: zip[1] ?? 'all', what: 'zip' });
+      await printer.sendZip(res, zip[1] ? `${storeShortName(chosen[0].name, campaignStoreNames(all, event.id))} - print files` : `${event.name} - print files`, items, !zip[1]);
+      return true;
+    }
+    return send(res, 404, { code: 'not-found', error: 'not found' });
+  }
+
+  /** What the print desk shows: this week's stores with their files and print instructions — never players, phones, Steam logins or codes. */
+  function deskView(event: TournamentEvent, kits: Store[], all: Store[]) {
+    const names = campaignStoreNames(all, event.id);
+    return {
+      campaign: { id: event.id, name: event.name },
+      stores: kits.map((s) => ({
+        id: s.id,
+        name: storeShortName(s.name, names),
+        city: s.city,
+        date: storeDate(s, event),
+        files: PRINT_KINDS.flatMap((kind) => (s.print?.files ?? []).filter((f) => f.kind === kind).map((f) => ({ kind, ...printSpecOf(event, kind), driveId: f.driveId }))),
+        downloaded: PRINT_KINDS.filter((k: PrintKind) => !!s.printDownloads?.[k]),
+      })),
+    };
   }
 
   /* ---------- public self check-in ---------- */
@@ -867,9 +983,17 @@ export function createApi(opts: ApiOptions) {
       try {
         return await handle(req, res);
       } catch (e) {
+        // A download that failed upstream (print files): the same JSON as the HQ fetches.
+        if (e instanceof RosterFetchError) {
+          log('warn', 'print-upstream-failed', { code: e.code, status: e.status });
+          if (res.headersSent) res.destroy();
+          else send(res, e.status, { code: e.code, error: e.message, ...e.extra });
+          return true;
+        }
         const known = e instanceof HttpError;
         const status = known ? e.status : (e as { status?: number }).status ?? 500;
-        if (status >= 500) log('error', 'request-failed', { route: `${req.method} ${(req.url ?? '').split('?')[0].slice(0, 200)}`, ...errorFields(e) });
+        // The public links carry their token in the path: logged as ":token".
+        if (status >= 500) log('error', 'request-failed', { route: `${req.method} ${(req.url ?? '').split('?')[0].replace(/^\/api\/public\/(checkin|print)\/[^/]+/, '/api/public/$1/:token').slice(0, 200)}`, ...errorFields(e) });
         if (!res.headersSent) {
           if (status === 413) res.setHeader('Connection', 'close');
           send(res, status, known ? { code: e.code, error: e.message, ...e.extra } : { code: status === 413 ? 'too-large' : 'server-error', error: status >= 500 ? 'Server error' : (e as Error).message });

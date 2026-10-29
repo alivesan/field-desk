@@ -11,6 +11,7 @@ import { AdminHome } from './pages/AdminHome.tsx';
 import { TeamPage } from './pages/TeamPage.tsx';
 import { EventPage } from './pages/EventPage.tsx';
 import { ReccePage } from './pages/ReccePage.tsx';
+import { PrintPage } from './pages/PrintPage.tsx';
 import { ReportPage } from './pages/ReportPage.tsx';
 import { DayPage } from './pages/DayPage.tsx';
 import { BoardPage } from './pages/BoardPage.tsx';
@@ -42,6 +43,7 @@ export function App() {
   if (a === 'store' && id) {
     if (view === 'recce') return <ReccePage key={id} storeId={id} />;
     if (view === 'report') return <ReportPage key={id} storeId={id} />;
+    if (view === 'print') return <PrintPage key={id} storeId={id} />; // not behind the match-day gate: the files are needed before the event
     if (view === 'day' || view === 'board') return <MatchDayRoute key={id} storeId={id} view={view} role={role} />;
     if (view === 'players') return role === 'super' ? <StoreSetupPage key={id} storeId={id} /> : <NotFound />;
   }

@@ -22,6 +22,7 @@ import { OnSpotList } from '../components/OnSpotList.tsx';
 import { EventWinners } from './WinnersPage.tsx';
 import { onSpotCounts } from '../lib/onspot.ts';
 import { StoreTeamLink } from '../components/StoreTeamLink.tsx';
+import { PrintImport } from '../components/PrintImport.tsx';
 import { SteamAssign } from '../components/SteamAssign.tsx';
 import '../styles/evidence.css';
 import '../styles/storesheet.css';
@@ -188,6 +189,8 @@ export function EventPage({ eventId }: { eventId: string }) {
           )}
         </ol>
       </section>
+
+      {stores.length > 0 && <PrintImport event={event} stores={stores} />}
 
       {stores.length > 0 && <EventWinners event={event} stores={stores} />}
 

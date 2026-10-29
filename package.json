@@ -1,7 +1,7 @@
 {
   "name": "field-desk",
   "private": true,
-  "version": "1.0.0-beta.2",
+  "version": "1.0.0-beta.3",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,7 @@
     "build": "tsc --noEmit && vite build",
     "start": "node server/index.ts",
     "pc": "npm run build && node scripts/pc.mjs",
-    "test": "node --test --test-concurrency=1 \"tests/**/*.test.ts\"",
+    "test": "node --test --test-concurrency=1 --test-timeout=120000 \"tests/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
