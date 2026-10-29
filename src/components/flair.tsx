@@ -84,15 +84,18 @@ export function MiniBar({ label, n, of }: { label: string; n: number; of: number
   );
 }
 
-/** Recce → Reviewed → Players → Bracket → Live → Winners: a dot per step (done ink, current accent, to-do a rule). */
+/** Recce → Approved → Players → Bracket → Live → Winners → Finished: a dot per step (done ink, current accent, to-do a rule). */
 export function StageTrack({ stages, className }: { stages: Stage[]; className?: string }) {
   const now = stages.find((s) => s.state === 'current');
   return (
-    <ol className={cx('track', className)} aria-label={now ? `Next step: ${now.label}` : 'Every step done'}>
+    <ol className={cx('track', className)} style={{ gridTemplateColumns: `repeat(${stages.length}, minmax(0, 1fr))` }} aria-label={now ? `Next step: ${now.label}` : 'Every step done'}>
       {stages.map((s) => (
-        <li key={s.key} className={cx(s.state === 'todo' ? 'later' : s.state, s.live && 'live')} aria-current={s.state === 'current' ? 'step' : undefined}>
+        <li key={s.key} className={cx(s.state === 'todo' ? 'later' : s.state, s.live && 'live')} aria-current={s.state === 'current' ? 'step' : undefined} title={s.state === 'done' ? s.note : undefined}>
           <span className={cx('track-dot', s.live && 'fd-pulse')} aria-hidden />
-          <span className="track-label">{s.label}</span>
+          <span className="track-label">
+            {s.label}
+            {s.state === 'done' && (s.key === 'reviewed' || s.key === 'finished') ? ' ✓' : ''}
+          </span>
           <span className="sr-only">{s.state === 'done' ? ' (done)' : s.state === 'current' ? (s.live ? ' (live now)' : ' (next)') : ' (to do)'}</span>
         </li>
       ))}

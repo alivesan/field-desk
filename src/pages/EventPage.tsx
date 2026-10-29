@@ -1,17 +1,19 @@
 import { useEffect, useState } from 'react';
 import { newStore, update, useApp } from '../lib/db.ts';
 import { assignStore } from '../lib/admins.ts';
-import type { Admin } from '../lib/types.ts';
+import type { Admin, Store } from '../lib/types.ts';
 import { assess, verdictLabel } from '../lib/assess.ts';
 import { parseGames, sameGames } from '../lib/games.ts';
 import { submissionLabel, submissionState } from '../lib/submission.ts';
 import { computeQueue } from '../lib/bracket.ts';
 import { go } from '../lib/router.ts';
-import { ago, fmtDate } from '../lib/util.ts';
+import { ago, fmtDate, todayLocal } from '../lib/util.ts';
 import { dateSpan, storeDate } from '../lib/recce.ts';
 import { askConfirm, Chip, Field, NotFound, NumberField, PageHead, Progress, Shell, toast, useNow } from '../components/ui.tsx';
 import { EmptyCard, StageTrack } from '../components/flair.tsx';
 import { storeStages } from '../lib/stages.ts';
+import { storeFinished } from '../lib/done.ts';
+import { groupStoresByWeekend, thisGroupLabel, weekendOf, weekendShort } from '../lib/weekends.ts';
 import { sharedPrefix, storePrefix, storeShortName } from '../lib/names.ts';
 import { detailsOf, StoreForm, type StoreDetails } from '../components/StoreForm.tsx';
 import { applyToornamentLink, HH_MM } from '../lib/toornament.ts';
@@ -22,8 +24,11 @@ import { OnSpotList } from '../components/OnSpotList.tsx';
 import { EventWinners } from './WinnersPage.tsx';
 import { onSpotCounts } from '../lib/onspot.ts';
 import { StoreTeamLink } from '../components/StoreTeamLink.tsx';
+import { CampaignReports } from '../components/ReportsInbox.tsx';
 import { PrintImport } from '../components/PrintImport.tsx';
 import { SteamAssign } from '../components/SteamAssign.tsx';
+import { StoreFinish } from '../components/StoreFinish.tsx';
+import { CampaignClose } from '../components/CampaignClose.tsx';
 import '../styles/evidence.css';
 import '../styles/storesheet.css';
 
@@ -47,6 +52,19 @@ export function EventPage({ eventId }: { eventId: string }) {
   // Stores go by their short name; what they all share ("ASUS ROG Exclusive Store") is said once, above the list.
   const storeNames = stores.map((s) => s.name);
   const shared = sharedPrefix(storeNames);
+  // The same weekend rules as HQ's home: this weekend, next weekend, later ones, then done (played, or marked finished).
+  const today = todayLocal(new Date(now));
+  const groups = groupStoresByWeekend(
+    stores.map((s) => ({ s, date: storeDate(s, event) })),
+    today,
+    (x) => storeFinished(x.s, event).finished,
+  );
+  const sections: { key: string; title: string; label?: string; rows: Store[] }[] = [
+    ...(groups.this.length ? [{ key: 'this', title: thisGroupLabel(groups.this.map((x) => x.date)), label: weekendShort(weekendOf(groups.this[0].date)), rows: groups.this.map((x) => x.s) }] : []),
+    ...(groups.next.length ? [{ key: 'next', title: 'Next weekend', label: weekendShort(weekendOf(groups.next[0].date)), rows: groups.next.map((x) => x.s) }] : []),
+    ...groups.later.map((w) => ({ key: w.weekend.sat, title: 'Later', label: weekendShort(w.weekend), rows: w.items.map((x) => x.s) })),
+  ];
+  const doneRows = groups.done.map((x) => x.s);
 
   const save = (storeId: string | null, d: StoreDetails) => {
     const fields = { name: d.name, city: d.city.trim(), state: d.state.trim(), exclusive: d.exclusive, date: d.date, phone: d.phone.trim(), address: d.address.trim(), mapsUrl: d.mapsUrl.trim(), venue: d.venue.trim(), geo: d.geo };
@@ -77,10 +95,86 @@ export function EventPage({ eventId }: { eventId: string }) {
     go('/');
   };
 
+  const storeRow = (s: Store, i: number) => {
+    const a = assess(event, s);
+    const sub = submissionState(s, []); // HQ's view of the server state — another device's outbox isn't visible here
+    const q = s.day.matches.length ? computeQueue(s.day) : null;
+    const names = Object.fromEntries(s.day.players.map((p) => [p.id, p.name]));
+    const walkIns = onSpotCounts([s]);
+    return (
+      <li key={s.id} className="store-row" style={{ ['--i' as string]: i }}>
+        <div className="store-main">
+          {!shared && storePrefix(s.name, storeNames) && <span className="label store-kicker">{storePrefix(s.name, storeNames)}</span>}
+          <h3>{storeShortName(s.name, storeNames)}</h3>
+          <span className="label">{[fmtDate(storeDate(s, event), { weekday: 'short', day: 'numeric', month: 'short' }), [s.city, s.state].filter(Boolean).join(', ')].filter(Boolean).join(' · ')}</span>
+          {s.exclusive && (
+            <div className="store-tags">
+              <Chip>ROG Exclusive</Chip>
+            </div>
+          )}
+          <div className="store-people">
+            {/* The store team's shared link comes first; a named admin is optional (someone covering several stores). */}
+            <StoreTeamLink store={s} />
+            <AdminSelect admins={admins} value={s.adminId && adminsById[s.adminId] ? s.adminId : ''} onChange={(v) => assignStore(s.id, v || null)} />
+            <SteamAssign store={s} />
+          </div>
+          {s.updatedAt && <span className="label updated">Updated {ago(s.updatedAt, now)}</span>}
+          <button className="link" onClick={() => setEditing(editing === s.id ? null : s.id)}>
+            {!s.address || !s.mapsUrl ? 'Add address & Maps link' : 'Edit details'}
+          </button>
+        </div>
+        <div className="store-status">
+          <div>
+            <span className="label">Recce</span>
+            <div className="row tight">
+              {/* Once approved, that's the whole story — no readiness verdict beside it. */}
+              {sub.kind !== 'reviewed' && <Chip tone={a.verdict === 'ready' ? 'ok' : a.verdict === 'attention' ? 'warn' : 'muted'}>{verdictLabel(a.verdict, !!sub.acknowledged && !sub.edited)}</Chip>}
+              {sub.acknowledged && <Chip tone={sub.kind === 'reviewed' ? 'ok' : sub.edited ? 'warn' : undefined}>{submissionLabel(sub)}</Chip>}
+            </div>
+            <Progress value={a.progress} tone={a.verdict === 'ready' ? 'ok' : undefined} />
+          </div>
+          <div>
+            <span className="label">Match day</span>
+            <div className="store-day">
+              {q ? (q.champion ? `Won by ${names[q.champion]}` : `${Object.keys(s.day.checkIn).length}/${s.day.players.length} here · ${q.live.length} live`) : s.day.players.length ? `${s.day.players.length} players · no bracket yet` : 'No players yet'}
+            </div>
+            {walkIns.total > 0 && (
+              <a className="os-badge" href={`#/store/${s.id}/players`} title="Walk-ins registered at the desk — to add to Toornament">
+                <Chip tone={walkIns.todo ? 'warn' : 'ok'}>{walkIns.todo ? `${walkIns.todo} on-spot to add` : `${walkIns.total} on-spot · all added`}</Chip>
+              </a>
+            )}
+          </div>
+        </div>
+        <div className="store-actions">
+          <a className="btn ghost" href={`#/store/${s.id}/recce`}>
+            Recce
+          </a>
+          <a className="btn ghost" href={`#/store/${s.id}/report`}>
+            Report
+          </a>
+          <a className="btn ghost" href={`#/store/${s.id}/players`}>
+            Players & bracket
+          </a>
+          <a className="btn" href={`#/store/${s.id}/day`}>
+            Match day
+          </a>
+          <StoreFinish store={s} />
+        </div>
+        <StageTrack stages={storeStages(s)} />
+        {editing === s.id && (
+          <div className="store-edit">
+            <StoreForm initial={detailsOf(s, event.date)} admins={admins} submitLabel="Save" onSave={(d) => save(s.id, d)} onCancel={() => setEditing(null)} />
+          </div>
+        )}
+      </li>
+    );
+  };
+
   return (
     <Shell crumbs={[{ label: 'Campaigns', href: '#/' }, { label: event.name }]}>
       <i className="hq-wide" hidden />
       <PageHead kicker={`Campaign · ${dateSpan(event, stores)}`} title={event.name} deck={event.games.length ? event.games.join(' · ') : 'No games set yet — add them in settings.'} />
+      <CampaignClose event={event} />
 
       <section className="index">
         <div className="index-head">
@@ -102,80 +196,24 @@ export function EventPage({ eventId }: { eventId: string }) {
 
         {adding && <StoreForm initial={detailsOf(undefined, event.date)} admins={admins} submitLabel="Add store" onSave={(d) => save(null, d)} onCancel={() => setAdding(false)} />}
 
-        <ol className="stores fd-stagger">
-          {stores.map((s, i) => {
-            const a = assess(event, s);
-            const sub = submissionState(s, []); // HQ's view of the server state — another device's outbox isn't visible here
-            const q = s.day.matches.length ? computeQueue(s.day) : null;
-            const names = Object.fromEntries(s.day.players.map((p) => [p.id, p.name]));
-            const walkIns = onSpotCounts([s]);
-            return (
-              <li key={s.id} className="store-row" style={{ ['--i' as string]: i }}>
-                <div className="store-main">
-                  {!shared && storePrefix(s.name, storeNames) && <span className="label store-kicker">{storePrefix(s.name, storeNames)}</span>}
-                  <h3>{storeShortName(s.name, storeNames)}</h3>
-                  <span className="label">{[fmtDate(storeDate(s, event), { weekday: 'short', day: 'numeric', month: 'short' }), [s.city, s.state].filter(Boolean).join(', ')].filter(Boolean).join(' · ')}</span>
-                  {s.exclusive && (
-                    <div className="store-tags">
-                      <Chip>ROG Exclusive</Chip>
-                    </div>
-                  )}
-                  <div className="store-people">
-                    {/* The store team's shared link comes first; a named admin is optional (someone covering several stores). */}
-                    <StoreTeamLink store={s} />
-                    <AdminSelect admins={admins} value={s.adminId && adminsById[s.adminId] ? s.adminId : ''} onChange={(v) => assignStore(s.id, v || null)} />
-                    <SteamAssign store={s} />
-                  </div>
-                  {s.updatedAt && <span className="label updated">Updated {ago(s.updatedAt, now)}</span>}
-                  <button className="link" onClick={() => setEditing(editing === s.id ? null : s.id)}>
-                    {!s.address || !s.mapsUrl ? 'Add address & Maps link' : 'Edit details'}
-                  </button>
-                </div>
-                <div className="store-status">
-                  <div>
-                    <span className="label">Recce</span>
-                    <div className="row tight">
-                      <Chip tone={a.verdict === 'ready' ? 'ok' : a.verdict === 'attention' ? 'warn' : 'muted'}>{verdictLabel(a.verdict, !!sub.acknowledged && !sub.edited)}</Chip>
-                      {sub.acknowledged && <Chip tone={sub.kind === 'reviewed' ? 'ok' : sub.edited ? 'warn' : undefined}>{submissionLabel(sub)}</Chip>}
-                    </div>
-                    <Progress value={a.progress} tone={a.verdict === 'ready' ? 'ok' : undefined} />
-                  </div>
-                  <div>
-                    <span className="label">Match day</span>
-                    <div className="store-day">
-                      {q ? (q.champion ? `Won by ${names[q.champion]}` : `${Object.keys(s.day.checkIn).length}/${s.day.players.length} here · ${q.live.length} live`) : s.day.players.length ? `${s.day.players.length} players · no bracket yet` : 'No players yet'}
-                    </div>
-                    {walkIns.total > 0 && (
-                      <a className="os-badge" href={`#/store/${s.id}/players`} title="Walk-ins registered at the desk — to add to Toornament">
-                        <Chip tone={walkIns.todo ? 'warn' : 'ok'}>{walkIns.todo ? `${walkIns.todo} on-spot to add` : `${walkIns.total} on-spot · all added`}</Chip>
-                      </a>
-                    )}
-                  </div>
-                </div>
-                <div className="store-actions">
-                  <a className="btn ghost" href={`#/store/${s.id}/recce`}>
-                    Recce
-                  </a>
-                  <a className="btn ghost" href={`#/store/${s.id}/report`}>
-                    Report
-                  </a>
-                  <a className="btn ghost" href={`#/store/${s.id}/players`}>
-                    Players & bracket
-                  </a>
-                  <a className="btn" href={`#/store/${s.id}/day`}>
-                    Match day
-                  </a>
-                </div>
-                <StageTrack stages={storeStages(s)} />
-                {editing === s.id && (
-                  <div className="store-edit">
-                    <StoreForm initial={detailsOf(s, event.date)} admins={admins} submitLabel="Save" onSave={(d) => save(s.id, d)} onCancel={() => setEditing(null)} />
-                  </div>
-                )}
-              </li>
-            );
-          })}
-          {!stores.length && !adding && (
+        {sections.map((g) => (
+          <div key={g.key} className="wk-group">
+            <h3 className="wk-head">
+              {g.title} <span className="label">{g.label}</span> <b>{g.rows.length}</b>
+            </h3>
+            <ol className="stores fd-stagger">{g.rows.map(storeRow)}</ol>
+          </div>
+        ))}
+        {doneRows.length > 0 && (
+          <details className="wk-group wk-done">
+            <summary>
+              Done / past <b>{doneRows.length}</b>
+            </summary>
+            <ol className="stores">{doneRows.map(storeRow)}</ol>
+          </details>
+        )}
+        {!stores.length && !adding && (
+          <ol className="stores">
             <li className="empty-li">
               <EmptyCard mark="stores" title="No stores yet." hint="Add the venues for this campaign one by one, or bring them all in from a sheet.">
                 <button className="btn accent" onClick={() => setAdding(true)}>
@@ -186,9 +224,11 @@ export function EventPage({ eventId }: { eventId: string }) {
                 </button>
               </EmptyCard>
             </li>
-          )}
-        </ol>
+          </ol>
+        )}
       </section>
+
+      {stores.length > 0 && <CampaignReports stores={stores} />}
 
       {stores.length > 0 && <PrintImport event={event} stores={stores} />}
 

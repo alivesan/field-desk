@@ -150,6 +150,8 @@ const PROTECTED: [string, (s: any) => unknown][] = [
   ['day.onSpot', (s) => s?.day?.onSpot ?? []], // on-the-spot registrations: players.onspot / onspot.mark
   ['day.winners', (s) => s?.day?.winners ?? null], // winner + runner-up details: winners.set
   ['submissions', (s) => s?.submissions ?? []],
+  ['finishedAt', (s) => s?.finishedAt ?? null], // event finished by hand: event.finish / event.reopen
+  ['finishedBy', (s) => s?.finishedBy ?? null],
 ];
 
 const envNum = (name: string) => {

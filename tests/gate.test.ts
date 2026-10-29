@@ -88,3 +88,20 @@ test('after HQ deletes the only reviewed revision the gate closes again', () => 
   const gone = applyCommand(s, { type: 'recce.delete', base: 1, submissionId: s.submissions![0].id }, ctx('c4', 'super'));
   assert.deepEqual(matchDayOpen(gone, event(), '2026-10-20'), { open: false, reason: 'not-submitted' });
 });
+
+test('recce.unreview re-locks the gate before the event date, unless another revision is still approved; the event date opens it anyway', () => {
+  const s = reviewed();
+  const id = s.submissions![0].id;
+  const undone = applyCommand(s, { type: 'recce.unreview', base: 1, submissionId: id }, ctx('c5', 'super'));
+  assert.deepEqual(matchDayOpen(undone, event(), '2026-10-20'), { open: false, reason: 'waiting-review' });
+  assert.deepEqual(matchDayOpen(undone, event(), '2026-10-24'), { open: true, reason: 'event-day' });
+  assert.equal(matchDayOpen(undone, event(), '2026-10-20', 'super').open, true, 'HQ is never gated');
+  // a second revision, the first still approved: undoing the second changes nothing
+  const two = applyCommand(s, { type: 'recce.submit', base: 1 }, ctx('c6'));
+  const both = applyCommand(two, { type: 'recce.review', base: 2, submissionId: two.submissions![1].id }, ctx('c7', 'super'));
+  const one = applyCommand(both, { type: 'recce.unreview', base: 2, submissionId: two.submissions![1].id }, ctx('c8', 'super'));
+  assert.deepEqual(matchDayOpen(one, event(), '2026-10-20'), { open: true, reason: 'reviewed' });
+  // …but taking back the only approved one closes it again
+  const none = applyCommand(one, { type: 'recce.unreview', base: 2, submissionId: id }, ctx('c9', 'super'));
+  assert.equal(matchDayOpen(none, event(), '2026-10-20').open, false);
+});

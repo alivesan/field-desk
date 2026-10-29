@@ -1,5 +1,5 @@
 /*
- * The status timeline each store row shows (Recce → Reviewed → Players → Bracket → Live → Winners)
+ * The status timeline each store row shows (Recce → Approved → Players → Bracket → Live → Winners → Finished)
  * and the date words the home screens use. Pure helpers in src/lib/stages.ts.
  */
 import { test } from 'node:test';
@@ -27,22 +27,22 @@ const states = (s: Store) => storeStages(s).map((x) => x.state).join(' ');
 
 test('a new store: Recce is next, everything else to do', () => {
   const st = storeStages(fresh());
-  assert.deepEqual(st.map((x) => x.label), ['Recce', 'Reviewed', 'Players', 'Bracket', 'Live', 'Winners']);
-  assert.equal(states(fresh()), 'current todo todo todo todo todo');
+  assert.deepEqual(st.map((x) => x.label), ['Recce', 'Approved', 'Players', 'Bracket', 'Live', 'Winners', 'Finished']);
+  assert.equal(states(fresh()), 'current todo todo todo todo todo todo');
 });
 
 test('submitted, reviewed, players, bracket: each step turns done in order', () => {
   let s = run(fresh(), { type: 'recce.submit', base: 0 }, 'admin');
-  assert.equal(states(s), 'done current todo todo todo todo');
+  assert.equal(states(s), 'done current todo todo todo todo todo');
   s = run(s, { type: 'recce.review', base: 1, submissionId: s.submissions![0].id });
-  assert.equal(states(s), 'done done current todo todo todo');
+  assert.equal(states(s), 'done done current todo todo todo todo');
   s = run(s, { type: 'bracket.load', base: 0, players });
-  assert.equal(states(s), 'done done done done current todo');
+  assert.equal(states(s), 'done done done done current todo todo');
 });
 
 test('players can come before the recce: the current step is the first one not done', () => {
   const s = run(fresh(), { type: 'bracket.load', base: 0, players });
-  assert.equal(states(s), 'current todo done done todo todo');
+  assert.equal(states(s), 'current todo done done todo todo todo');
 });
 
 test('live while a match is on a station; done once the final is played; winners after the details are saved', () => {
@@ -65,6 +65,27 @@ test('live while a match is on a station; done once the final is played; winners
   s = run(s, { type: 'winners.set', base: 0, winner: { realName: 'Bilal Khan', phone: '9820022222' }, runnerUp: { realName: 'Asha Rao', phone: '9820011111' } }, 'admin');
   assert.equal(storeStages(s).find((x) => x.key === 'winners')!.state, 'done');
   assert.equal(winnersMissing(s), false);
+  // the winner details complete the event: Finished turns done by itself
+  const fin = storeStages(s).find((x) => x.key === 'finished')!;
+  assert.equal(fin.state, 'done');
+  assert.match(fin.note ?? '', /winner details are saved/);
+});
+
+test('Finished: current after Winners, done by HQ’s mark (with who), and reopen takes it back; campaign progress ignores it', () => {
+  let s = run(fresh(), { type: 'recce.submit', base: 0 }, 'admin');
+  s = run(s, { type: 'recce.review', base: 1, submissionId: s.submissions![0].id });
+  assert.equal(storeStages(s).find((x) => x.key === 'reviewed')!.note, 'Recce approved ✓');
+  const before = campaignProgress([s]).overall;
+  s = run(s, { type: 'event.finish', base: 0 });
+  const fin = storeStages(s).find((x) => x.key === 'finished')!;
+  assert.equal(fin.state, 'done');
+  assert.equal(fin.note, 'Marked finished by HQ');
+  assert.equal(campaignProgress([s]).overall, before, 'Finished is not a progress step');
+  s = run(s, { type: 'event.reopen', base: 0 });
+  assert.equal(storeStages(s).find((x) => x.key === 'finished')!.state, 'todo');
+  // undoing the approval turns the Approved step back to a to-do
+  s = run(s, { type: 'recce.unreview', base: 1, submissionId: s.submissions![0].id });
+  assert.equal(storeStages(s).find((x) => x.key === 'reviewed')!.state, 'current');
 });
 
 test('campaign progress counts stores per step; unreviewed reports are the latest revision without a review', () => {

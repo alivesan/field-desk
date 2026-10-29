@@ -250,6 +250,8 @@ export interface Store {
   printDownloads?: Partial<Record<PrintKind, PrintDownload>>; // who on the store team saved each file (admin-writable)
   toornament?: ToornamentSource; // HQ-only
   steam?: SteamAssignment; // HQ-only: which Steam account this store was given, and for what
+  finishedAt?: string; // ISO — HQ marked the event finished (event.finish / event.reopen). A store whose final is played with winner details saved counts as finished without it (src/lib/done.ts)
+  finishedBy?: string; // who marked it
   steamLogin?: SteamLogin; // computed by the server for the store's own team / admin on every read — never stored, never written
 }
 
@@ -267,6 +269,7 @@ export interface TournamentEvent {
   printDesk?: PrintDesk; // HQ-only: the no-sign-in link for whoever downloads every store's print files
   printSpec?: Partial<Record<PrintKind, PrintSpec>>; // print instructions; missing kinds use PRINT_DEFAULTS
   toornamentAuto?: { from: string }; // 'HH:MM' India time: when the server starts checking Toornament for each store's bracket on its day (default 12:30)
+  closedAt?: string; // ISO — HQ closed the campaign by hand (HQ-only field); it is also complete once every store is finished (src/lib/done.ts)
 }
 
 /** The sheet link HQ imports this campaign's stores from — so next time it's one press on Refresh. */

@@ -16,6 +16,7 @@
 import type { Store } from './types.ts';
 import { tournamentCommand, TOURNAMENT_COMMANDS } from './tournament.ts';
 import { submissionCommand, SUBMISSION_COMMANDS } from './submission.ts';
+import { finishCommand, FINISH_COMMANDS } from './done.ts';
 
 export * from './command-types.ts';
 import { CommandError, type Command, type CommandContext, type CommandType, type Role } from './command-types.ts';
@@ -24,12 +25,14 @@ import { CommandError, type Command, type CommandContext, type CommandType, type
 export const COMMAND_ROLES: Record<CommandType, Role[]> = {
   ...TOURNAMENT_COMMANDS,
   ...SUBMISSION_COMMANDS,
+  ...FINISH_COMMANDS,
 } as Record<CommandType, Role[]>;
 
 export function applyCommand(store: Store, cmd: Command, ctx: CommandContext): Store {
   if (!COMMAND_ROLES[cmd.type]?.includes(ctx.actor.role)) throw new CommandError('forbidden', `${ctx.actor.role} can’t ${cmd.type}`);
   if (cmd.type in TOURNAMENT_COMMANDS) return tournamentCommand(store, cmd, ctx);
   if (cmd.type in SUBMISSION_COMMANDS) return submissionCommand(store, cmd, ctx);
+  if (cmd.type in FINISH_COMMANDS) return finishCommand(store, cmd, ctx);
   throw new CommandError('invalid', `Unknown command ${(cmd as { type: string }).type}`);
 }
 
@@ -100,8 +103,11 @@ export function validateCommand(input: unknown): Command {
       }
       break;
     case 'winners.clear':
+    case 'event.finish':
+    case 'event.reopen':
       break; // base only
     case 'recce.review':
+    case 'recce.unreview':
     case 'recce.delete':
       str('submissionId');
       break;

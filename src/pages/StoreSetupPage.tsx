@@ -3,6 +3,7 @@ import { discardWork, sendCommand, useApp, usePendingWork, useSync } from '../li
 import { applyCommand, dayVersion, type Command, type CommandContext } from '../lib/commands.ts';
 import { buildBracket, matchNo, roundCount, roundName } from '../lib/bracket.ts';
 import { cleanIgn, isPhone, MAX_IGN, normalizePhone, playerIdFor } from '../lib/phone.ts';
+import { storeFinished } from '../lib/done.ts';
 import { storeDate } from '../lib/recce.ts';
 import type { Match, MatchDay, OnSpotEntry, Player, Store, TournamentEvent } from '../lib/types.ts';
 import { cx, fmtDate } from '../lib/util.ts';
@@ -17,6 +18,7 @@ import { onSpotByPlayer, onSpotOf, prettyPhone } from '../lib/onspot.ts';
 import '../styles/day.css';
 import '../styles/setup.css';
 import '../styles/onspot.css';
+import '../styles/done.css';
 
 /*
  * HQ inside one store: 01 Players (import / add / remove — the list order is the seed order)
@@ -74,6 +76,7 @@ export function StoreSetupPage({ storeId }: { storeId: string }) {
       </nav>
 
       <Work store={store} />
+      <FinishPanel store={store} event={event} />
       {current === 'players' && <PlayersStep store={store} event={event} campaign={campaign} onNext={() => setStep('bracket')} />}
       {current === 'bracket' && <BracketStep store={store} event={event} onBack={() => setStep('players')} />}
     </Shell>
@@ -107,7 +110,7 @@ function useRun(store: Store, event: TournamentEvent) {
   return { run, notice };
 }
 
-const SETUP: Record<string, string> = { 'players.set': 'Players', 'players.seed': 'Seeding', 'bracket.build': 'Bracket', 'bracket.reset': 'Bracket reset', 'bracket.load': 'Players & bracket', 'onspot.mark': 'On-spot' };
+const SETUP: Record<string, string> = { 'event.finish': 'Finished', 'event.reopen': 'Reopen', 'players.set': 'Players', 'players.seed': 'Seeding', 'bracket.build': 'Bracket', 'bracket.reset': 'Bracket reset', 'bracket.load': 'Players & bracket', 'onspot.mark': 'On-spot' };
 
 /** This store's setup commands still on their way, or refused by the server. */
 function Work({ store }: { store: Store }) {
@@ -135,6 +138,47 @@ function Work({ store }: { store: Store }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+/* ---------- event finished ---------- */
+
+/** Whether this store's event is over: by itself (final played, winner details saved) or marked by HQ — with the buttons for it. */
+function FinishPanel({ store, event }: { store: Store; event: TournamentEvent }) {
+  const { run, notice } = useRun(store, event);
+  const fin = storeFinished(store, event);
+  const mark = async () => {
+    if (await askConfirm(`Mark ${store.name} as finished? It shows as Finished for HQ and the store’s team. Use it when the event is over but the winner details were never saved here; Reopen takes it back.`, { ok: 'Mark event finished' }))
+      run({ type: 'event.finish', base: dayVersion(store) }, 'Marked finished ✓');
+  };
+  const reopen = async () => {
+    if (await askConfirm(`Reopen ${store.name}? It stops showing as finished${fin.finished && store.finishedAt ? ' (unless its final is played and the winner details are saved)' : ''}.`, { ok: 'Reopen' }))
+      run({ type: 'event.reopen', base: dayVersion(store) }, 'Reopened');
+  };
+  return (
+    <section className={cx('finish-panel', fin.finished && 'done')} aria-label="Event finished">
+      {notice}
+      <h2>{fin.finished ? 'Event finished ✓' : 'Event not finished yet'}</h2>
+      <p>
+        {fin.how === 'auto'
+          ? `The final is played and the winner details are saved, so this store finished by itself${fin.at ? ` (${fmtDate(fin.at, { day: 'numeric', month: 'short' })})` : ''}.`
+          : fin.how === 'manual'
+            ? `Marked finished by ${fin.by || 'HQ'} on ${fmtDate(fin.at, { day: 'numeric', month: 'short' })}. The store’s team sees “Event finished — thank you!”.`
+            : 'It finishes by itself once the final is played and the winner details are saved. If the event ended some other way, mark it finished yourself.'}
+      </p>
+      <div className="finish">
+        {!fin.finished && (
+          <button className="btn accent" onClick={mark}>
+            Mark event finished
+          </button>
+        )}
+        {store.finishedAt && (
+          <button className="btn ghost" onClick={reopen}>
+            Reopen
+          </button>
+        )}
+      </div>
+    </section>
   );
 }
 

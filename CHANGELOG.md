@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.0-beta.4
+
+- **HQ home, campaigns first:** each campaign with its weekends and store chips at the top; Recce to do, This weekend and Recce reports below as shortcuts.
+- **Recce reports box** shows only this and next weekend's reports still to review; approved ones move to their campaign page (which now lists every report).
+- **Approve recce** (from the box or the report, with Undo): the store shows "Recce approved ✓" and its timeline ticks the step.
+- **Event finished:** a store is finished once its winners are in, or HQ presses Mark event finished (Reopen undoes it). The store team sees "Event finished — thank you!".
+- **Campaign complete** when every store is finished, or HQ closes it by hand.
+- Campaign page groups stores by This weekend, Next weekend, Later and Done.
+
 ## 1.0.0-beta.3
 
 - **Print files:** HQ pastes the weekly creatives sheet (a tab per date, a block of 5 Drive links per store) and presses Refresh; blocks are matched to the campaign's stores by name, city and date (fix any match by hand), then applied.

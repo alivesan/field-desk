@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { sendCommand, useApp, usePendingWork, usePhotoUrls, useSync } from '../lib/db.ts';
+import { discardWork, sendCommand, useApp, usePendingWork, usePhotoUrls, useSync } from '../lib/db.ts';
 import { storeCrumbs } from '../lib/admins.ts';
 import { submissionVersion } from '../lib/commands.ts';
 import { evidenceBanner, expectedPhotos, missingSummary, type EvidenceBanner, type ManifestResult } from '../lib/evidence.ts';
@@ -7,13 +7,14 @@ import { checkRenderedPhotos, loadEvidence, type LoadedEvidence } from '../lib/e
 import { buildReportFile } from '../lib/exportReport.ts';
 import { useRoute } from '../lib/router.ts';
 import { editedSince, isLegacy, revLabel, submissionIdFor, submissionsOf, submissionState, type AnySubmission } from '../lib/submission.ts';
-import { downloadBlob, fmtDateTime } from '../lib/util.ts';
+import { cx, downloadBlob, fmtDate, fmtDateTime } from '../lib/util.ts';
 import { askConfirm, NotFound, notify, Shell, toast } from '../components/ui.tsx';
 import { useHqCommand } from '../components/hqCommand.ts';
 import { Report } from '../components/Report.tsx';
 import { markReportSeen } from '../components/ReportsInbox.tsx';
 import '../styles/evidence.css';
 import '../styles/hq-delete.css';
+import '../styles/done.css';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const frame = () => new Promise((r) => requestAnimationFrame(() => r(null)));
@@ -129,17 +130,28 @@ export function ReportPage({ storeId }: { storeId: string }) {
       ? `Working draft — ${edited ? `edited since ${revLabel(latest)}, not submitted yet` : `same as ${revLabel(latest)}`}.`
       : 'Working draft — not submitted to HQ yet.';
 
-  const reviewWork = pending.find((w) => w.cmd?.type === 'recce.review' && 'submissionId' in w.cmd && w.cmd.submissionId === submission?.id);
-  const canReview = role === 'super' && submission && !isLegacy(submission) && !submission.reviewedAt;
-  const review = () => {
-    if (!submission) return;
+  // HQ approves a revision (recce.review) or takes the approval back (recce.unreview). Approving is what opens match day for the store team early.
+  const approveWork = pending.find((w) => (w.cmd?.type === 'recce.review' || w.cmd?.type === 'recce.unreview') && 'submissionId' in w.cmd && w.cmd.submissionId === submission?.id);
+  const approveFailed = approveWork && (approveWork.state === 'failed' || approveWork.state === 'conflict') ? approveWork : undefined;
+  const approving = !!approveWork && !approveFailed;
+  const approvable = role === 'super' && submission && !isLegacy(submission) && submission.id !== unsentId ? submission : undefined;
+  const approve = () => {
+    if (!approvable) return;
     try {
-      sendCommand(store.id, { type: 'recce.review', base: submissionVersion(store), submissionId: submission.id });
+      sendCommand(store.id, { type: 'recce.review', base: submissionVersion(store), submissionId: approvable.id });
     } catch (e) {
-      void notify(`Couldn’t mark it reviewed: ${(e as Error).message}`);
+      void notify(`Couldn’t approve it: ${(e as Error).message}`);
       return;
     }
-    toast(`${revLabel(submission)} marked reviewed`);
+    toast('Recce approved ✓');
+  };
+  const undoApproval = async () => {
+    if (!approvable) return;
+    const text = `Take back the approval of ${revLabel(approvable)} of ${store.name}? The recce goes back to “waiting for HQ”. Match day closes again for the store team unless another revision is approved or it is already the event date.`;
+    if (!(await askConfirm(text, { ok: 'Undo approval' }))) return;
+    const problem = send(store.id, () => ({ type: 'recce.unreview', base: submissionVersion(store), submissionId: approvable.id }));
+    if (problem) void notify(problem);
+    else toast('Approval undone');
   };
 
   // HQ's danger area: delete test data. Photos stay on the server (write-once) but nothing references them any more.
@@ -185,7 +197,7 @@ export function ReportPage({ storeId }: { storeId: string }) {
                 {[...subs].reverse().map((s) => (
                   <option key={s.id} value={s.id}>
                     {isLegacy(s) ? 'Submitted report' : `Rev ${s.rev}`} · {s.id === unsentId ? 'not sent yet' : fmtDateTime(s.submittedAt)}
-                    {s.reviewedAt ? ' · reviewed' : ''}
+                    {s.reviewedAt ? ' · approved' : ''}
                   </option>
                 ))}
                 <option value="draft">Working draft (live)</option>
@@ -194,14 +206,6 @@ export function ReportPage({ storeId }: { storeId: string }) {
           )}
         </div>
         <div className="row">
-          {canReview &&
-            (reviewWork ? (
-              <span className="label">{reviewWork.state === 'failed' || reviewWork.state === 'conflict' ? `Review not saved — ${reviewWork.error ?? 'try again'}` : 'Marking reviewed…'}</span>
-            ) : (
-              <button className="btn accent" onClick={review}>
-                Mark {revLabel(submission!)} reviewed
-              </button>
-            ))}
           <button className="btn" onClick={() => run('pdf')} disabled={!!busy}>
             {label('pdf', 'Save as PDF')}
           </button>
@@ -213,6 +217,42 @@ export function ReportPage({ storeId }: { storeId: string }) {
           </button>
         </div>
       </div>
+
+      {approvable && (
+        <section className={cx('approve no-print', approvable.reviewedAt && 'done')} aria-label="Recce approval">
+          {approvable.reviewedAt ? (
+            <>
+              <div className="approve-text">
+                <strong>Recce approved ✓</strong>
+                <span>
+                  {fmtDate(approvable.reviewedAt)} by {approvable.reviewedBy || 'HQ'} · {revLabel(approvable)}
+                </span>
+              </div>
+              <button className="btn ghost" onClick={undoApproval} disabled={approving}>
+                Undo approval
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="approve-text">
+                <strong>Happy with {revLabel(approvable)}?</strong>
+                <span>Approving it tells the store team their recce is accepted, and opens match day for them.</span>
+              </div>
+              <button className="btn accent big" onClick={approve} disabled={approving}>
+                Approve recce
+              </button>
+            </>
+          )}
+          {approveFailed && (
+            <p className="approve-problem">
+              Not saved — {approveFailed.error ?? 'try again'}.{' '}
+              <button className="link" onClick={() => discardWork(approveFailed.id)}>
+                Dismiss
+              </button>
+            </p>
+          )}
+        </section>
+      )}
 
       {held && (
         <div className="ev-prompt no-print" role="alert">

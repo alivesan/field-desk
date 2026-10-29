@@ -138,3 +138,47 @@ export function dayPlaces(stores: { date: string; city?: string }[]): DayPlaces[
   }
   return [...days.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
+
+/** "Sat 7 – Sun 8 Nov", or "Sat 31 Oct – Sun 1 Nov" when the weekend spans two months. */
+export function weekendShort(w: Weekend) {
+  const [, m1, d1] = w.sat.split('-').map(Number);
+  const [, m2, d2] = w.sun.split('-').map(Number);
+  return m1 === m2 ? `${DAY[6]} ${d1} – ${DAY[0]} ${d2} ${MONTH[m2 - 1]}` : weekendLabel(w);
+}
+
+export type StoreWhen = 'this' | 'next' | 'later' | 'past';
+
+/** Where one store's event day falls: this weekend (or the rest of this week), the weekend after, a later one, or already past. */
+export function storeWhen(date: string, today: string): StoreWhen {
+  const g = groupOfDate(date, today);
+  if (g !== 'upcoming') return g === 'this' ? 'this' : 'past';
+  return weekendOf(date).sat === nextWeekendOf(today).sat ? 'next' : 'later';
+}
+
+export interface StoreGroups<T> {
+  this: T[];
+  next: T[];
+  /** Weekends after next, nearest first. */
+  later: WeekendBucket<T>[];
+  /** Past dates, and anything `finished` says is over, in the order given. */
+  done: T[];
+}
+
+/**
+ * A campaign's stores (anything with an event day) by weekend — the same rules as HQ's home: this weekend, next weekend,
+ * later ones one by one, and done. Keeps the order given. A store `finished` says is over counts as done whatever its date.
+ */
+export function groupStoresByWeekend<T extends { date: string }>(items: T[], today: string, finished: (x: T) => boolean = () => false): StoreGroups<T> {
+  const out: StoreGroups<T> = { this: [], next: [], later: [], done: [] };
+  for (const x of items) {
+    const when = finished(x) ? 'past' : storeWhen(x.date, today);
+    if (when === 'later') {
+      const wk = weekendOf(x.date);
+      const last = out.later[out.later.length - 1];
+      if (last && last.weekend.sat === wk.sat) last.items.push(x);
+      else out.later.push({ weekend: wk, items: [x] });
+    } else out[when === 'past' ? 'done' : when].push(x);
+  }
+  out.later.sort((a, b) => a.weekend.sat.localeCompare(b.weekend.sat));
+  return out;
+}

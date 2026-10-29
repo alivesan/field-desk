@@ -81,6 +81,27 @@ test('recce.review marks only that revision; field admins cannot review', () => 
   assert.throws(() => submissionCommand(s, { type: 'recce.review', base: 2, submissionId: 'nope' }, hq('r3')), (e: unknown) => e instanceof CommandError && e.code === 'conflict');
 });
 
+test('recce.unreview takes one approval back: HQ only, idempotent, the revision itself stays', () => {
+  let s = applyCommand(store(), { type: 'recce.submit', base: 0 }, ctx('c1'));
+  s = applyCommand(s, { type: 'recce.submit', base: 1 }, ctx('c2'));
+  const [first, second] = s.submissions!.map((x) => x.id);
+  s = applyCommand(s, { type: 'recce.review', base: 2, submissionId: first }, hq('r1'));
+  s = applyCommand(s, { type: 'recce.review', base: 2, submissionId: second }, hq('r2'));
+  assert.throws(() => applyCommand(s, { type: 'recce.unreview', base: 2, submissionId: first }, ctx('u0')), (e: unknown) => e instanceof CommandError && e.code === 'forbidden');
+  const u = applyCommand(s, { type: 'recce.unreview', base: 2, submissionId: first }, hq('u1'));
+  assert.equal(u.submissions![0].reviewedAt, undefined);
+  assert.equal('reviewedBy' in u.submissions![0], false);
+  assert.equal(u.submissions![0].id, first);
+  assert.ok(u.submissions![1].reviewedAt, 'the other revision keeps its approval');
+  assert.ok(s.submissions![0].reviewedAt, 'the input store is not mutated');
+  // again: nothing to undo, the same store comes back; a revision that isn't there is a conflict
+  assert.equal(applyCommand(u, { type: 'recce.unreview', base: 2, submissionId: first }, hq('u2')), u);
+  assert.throws(() => applyCommand(s, { type: 'recce.unreview', base: 2, submissionId: 'nope' }, hq('u3')), (e: unknown) => e instanceof CommandError && e.code === 'conflict');
+  // approving it again afterwards stamps a fresh time
+  const again = applyCommand(u, { type: 'recce.review', base: 2, submissionId: first }, hq('r3', '2026-10-25T00:00:00.000Z'));
+  assert.equal(again.submissions![0].reviewedAt, '2026-10-25T00:00:00.000Z');
+});
+
 test('UI state: draft → waiting → submitted → edited (draft) → reviewed', () => {
   const s0 = store();
   assert.equal(submissionState(s0, []).kind, 'draft');
@@ -114,6 +135,9 @@ test('UI state: draft → waiting → submitted → edited (draft) → reviewed'
 
   const reviewed = applyCommand(s1, { type: 'recce.review', base: 1, submissionId: s1.submissions![0].id }, hq('r'));
   assert.equal(submissionState(reviewed, []).kind, 'reviewed');
+  assert.equal(submissionLabel(submissionState(reviewed, [])), 'Recce approved ✓');
+  const undone = applyCommand(reviewed, { type: 'recce.unreview', base: 1, submissionId: s1.submissions![0].id }, hq('u'));
+  assert.equal(submissionState(undone, []).kind, 'submitted');
 });
 
 test('legacy submitted store without revisions shows as one legacy submission', () => {

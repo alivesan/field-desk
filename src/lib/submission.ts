@@ -1,11 +1,11 @@
 /*
- * Recce submissions: the 'recce.submit' / 'recce.review' / 'recce.delete' / 'recce.reset' command
+ * Recce submissions: the 'recce.submit' / 'recce.review' / 'recce.unreview' / 'recce.delete' / 'recce.reset' command
  * handlers, and the pure helpers the UI uses to say where a recce stands.
  *
  *   Draft            no submission yet, or the working recce differs from the latest one
  *   Waiting to send  a recce.submit command is still in this device's outbox
  *   Submitted · rev N  the server has it (it's in server-derived state, nothing pending)
- *   Reviewed         HQ marked that revision reviewed
+ *   Reviewed         HQ approved that revision (the button says "Approve recce"; "Undo approval" is recce.unreview)
  *
  * A submission freezes a copy of the recce and the campaign requirements it was judged
  * against, so HQ can always reproduce exactly what it reviewed. The working recce stays
@@ -25,6 +25,7 @@ import { ensureRecce } from './recce.ts';
 export const SUBMISSION_COMMANDS: Record<string, Role[]> = {
   'recce.submit': ['super', 'admin'],
   'recce.review': ['super'],
+  'recce.unreview': ['super'],
   'recce.delete': ['super'],
   'recce.reset': ['super'],
 };
@@ -82,6 +83,17 @@ export function submissionCommand(store: Store, cmd: Command, ctx: CommandContex
       if (store.submissions![i].reviewedAt) return store; // already reviewed — keep the first review
       const next = structuredClone(store);
       next.submissions![i] = { ...next.submissions![i], reviewedAt: ctx.now, reviewedBy: ctx.actor.name || ctx.actor.principal };
+      return next;
+    }
+    case 'recce.unreview': {
+      // Undo an approval. Idempotent: a revision that isn't approved (any more) stays as it is. The match-day gate
+      // (gate.ts) closes again only if no other revision is approved and it isn't the event date yet.
+      const i = store.submissions?.findIndex((s) => s.id === cmd.submissionId) ?? -1;
+      if (i < 0) throw new CommandError('conflict', 'That submission isn’t on the server (yet)');
+      if (!store.submissions![i].reviewedAt) return store;
+      const next = structuredClone(store);
+      const { reviewedAt: _at, reviewedBy: _by, ...rest } = next.submissions![i];
+      next.submissions![i] = rest;
       return next;
     }
     case 'recce.delete': {
@@ -209,7 +221,7 @@ export function submissionLabel(st: SubmissionState): string {
     case 'failed':
       return 'Not sent';
     case 'reviewed':
-      return `Reviewed · ${revLabel(a!)}`;
+      return 'Recce approved ✓';
     case 'submitted':
       return isLegacy(a) ? 'Submitted' : `Submitted · ${revLabel(a!)}`;
     default:

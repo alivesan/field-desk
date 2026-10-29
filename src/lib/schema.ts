@@ -137,6 +137,7 @@ function validateEvent(c: C, e: Rec, ctx: ValidationContext) {
   c.num(e.gameReadyTarget, 'gameReadyTarget', 0, 1000, true);
   c.num(e.minDownMbps, 'minDownMbps', 0, 1e6);
   c.time(e.createdAt, 'createdAt');
+  c.optTime(e.closedAt, 'closedAt');
   if (e.storeSheet !== undefined && c.obj(e.storeSheet, 'storeSheet')) {
     c.str(e.storeSheet.url, 'storeSheet.url', 2000);
     c.time(e.storeSheet.fetchedAt, 'storeSheet.fetchedAt');
@@ -212,6 +213,8 @@ function validateStore(c: C, s: Rec, ctx: ValidationContext) {
     c.time(st.assignedAt, 'steam.assignedAt');
   }
   if (s.steamLogin !== undefined) c.bad('steamLogin', 'is worked out by the server for the store’s team — it can’t be saved');
+  c.optTime(s.finishedAt, 'finishedAt');
+  c.optStr(s.finishedBy, 'finishedBy', 200);
   c.optStr(s.mapsUrl, 'mapsUrl', 2000);
   c.optStr(s.venue, 'venue', 500);
   if (s.geo !== undefined) c.geoOrNull(s.geo, 'geo');
