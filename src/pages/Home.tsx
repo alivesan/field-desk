@@ -4,17 +4,18 @@ import { applyImport, planBackupImport, prepareBackup, readBackup, type Prepared
 import { planSummary, type ImportPlan, type ParsedBackup } from '../lib/backupPlan.ts';
 import { missingSummary } from '../lib/evidence.ts';
 import { parseGames } from '../lib/games.ts';
-import { submissionsOf } from '../lib/submission.ts';
 import { onSpotCounts } from '../lib/onspot.ts';
 import { storeDate } from '../lib/recce.ts';
-import { dayPlaces, groupByWeekend, groupOfDate, thisGroupLabel, weekendLabel, weekendOf } from '../lib/weekends.ts';
-import { campaignProgress, daysUntil, isLiveNow, nextEventDate, unreviewedReports, whenLabel, winnersMissing } from '../lib/stages.ts';
+import { homeBuckets, type CampaignRow, type HomeBuckets, type HomeStore, type RecceRow, type RecceState } from '../lib/home.ts';
+import { groupOfDate, shortDay } from '../lib/weekends.ts';
+import { isLiveNow, nextEventDate, storeStages, unreviewedReports, whenLabel, winnersMissing } from '../lib/stages.ts';
 import { seedDemo } from '../lib/demo.ts';
-import type { Store, TournamentEvent } from '../lib/types.ts';
+import type { Store } from '../lib/types.ts';
 import { go } from '../lib/router.ts';
 import { cx, downloadBlob, fmtDate, fmtDateTime, todayLocal } from '../lib/util.ts';
 import { askConfirm, Chip, Field, notify, PageHead, Shell, toast, useNow } from '../components/ui.tsx';
-import { CountUp, EmptyCard, MiniBar, Ring } from '../components/flair.tsx';
+import { CountUp, EmptyCard, Ring, StageTrack } from '../components/flair.tsx';
+import { useStoreName } from '../components/useStoreName.ts';
 import { PhoneAccess } from '../components/PhoneAccess.tsx';
 import { ReportsInbox } from '../components/ReportsInbox.tsx';
 import '../styles/evidence.css';
@@ -27,15 +28,7 @@ export function Home() {
   const list = Object.values(events);
   const now = useNow(60000);
   const today = todayLocal(new Date(now));
-  const cards: Card[] = list.map((ev) => {
-    const ss = Object.values(stores).filter((s) => s.eventId === ev.id);
-    return { ev, ss, dates: ss.length ? ss.map((s) => storeDate(s, ev)) : [ev.date] };
-  });
-  const groups = groupByWeekend(cards, today);
-  const upcomingCount = groups.upcoming.reduce((n, w) => n + w.items.length, 0);
-  const thisDates = groups.this.flatMap((c) => c.dates).filter((d) => groupOfDate(d, today) === 'this'); // a campaign's later days aren't this weekend's
-  const thisLabel = thisGroupLabel(thisDates);
-  const thisRange = thisLabel === 'This weekend' ? weekendLabel(weekendOf(today)) : '';
+  const home = homeBuckets({ events, stores }, today);
 
   const create = () => {
     if (!form?.name.trim()) return;
@@ -51,6 +44,13 @@ export function Home() {
       <PageHead kicker="Tournament operations" title="Every venue, ready on the day." deck="Store recce with timestamped, geotagged proof — then attendance, the bracket, and who plays next on tournament day." />
 
       <TodayStrip />
+
+      {list.length > 0 && (
+        <>
+          <RecceTodo todo={home.recceTodo} />
+          <ThisWeekend week={home.thisWeekend} next={home.nextWeekendLabel} />
+        </>
+      )}
 
       <PhoneAccess />
       <ReportsInbox />
@@ -82,21 +82,7 @@ export function Home() {
         )}
 
         {list.length ? (
-          <>
-            <Group title={thisLabel} range={thisRange} cards={groups.this} empty={groups.upcoming.length ? `Nothing this weekend — next up is ${weekendLabel(groups.upcoming[0].weekend)}.` : 'Nothing this weekend.'} tone="now" now={now} />
-            {groups.upcoming.length > 0 && (
-              <div className="ev-group">
-                <header className="ev-group-head">
-                  <h3>Upcoming</h3>
-                  <span className="label">{upcomingCount} campaign{upcomingCount === 1 ? '' : 's'}</span>
-                </header>
-                {groups.upcoming.map((w) => (
-                  <Group key={w.weekend.sat} title={weekendLabel(w.weekend)} cards={w.items} sub now={now} />
-                ))}
-              </div>
-            )}
-            <Group title="Past" cards={groups.past} tone="past" now={now} />
-          </>
+          <Campaigns campaigns={home.campaigns} />
         ) : (
           !form && (
             <EmptyCard mark="campaign" title="No campaigns yet." hint="A campaign is a set of stores playing on one date. Create the first one, or load a demo to look around.">
@@ -122,86 +108,196 @@ export function Home() {
   );
 }
 
-interface Card {
-  ev: TournamentEvent;
-  ss: Store[];
-  /** Every date the campaign plays on (its stores' days; the campaign's own date while it has no stores). */
-  dates: string[];
+/** A store's short name (the shared prefix dropped), as a row title. */
+function StoreTitle({ store }: { store: Store }) {
+  const { short } = useStoreName(store);
+  return <h3 className="hs-name">{short}</h3>;
 }
 
-/** One block of the campaign list: This weekend, one upcoming weekend, or Past. */
-function Group({ title, range, cards, empty, tone, sub, now }: { title: string; range?: string; cards: Card[]; empty?: string; tone?: 'now' | 'past'; sub?: boolean; now: number }) {
-  if (!cards.length && !empty) return null;
+/** The admin's name, or the store team when only its link exists. */
+const peopleOf = (s: Store) => s.admin || (s.access ? 'Store team' : 'No admin yet');
+
+type OpenState = Exclude<RecceState, 'reviewed'>;
+const RECCE_CHIP: Record<OpenState, { tone: 'muted' | 'warn' | 'accent'; text: string }> = {
+  'not-started': { tone: 'muted', text: 'Not started' },
+  'in-progress': { tone: 'warn', text: 'In progress' },
+  sent: { tone: 'accent', text: 'Sent — review it' },
+};
+
+/** The stores whose recce HQ is waiting on: next weekend's (else the nearest one coming), and this weekend's that are still open. */
+function RecceTodo({ todo }: { todo: HomeBuckets['recceTodo'] }) {
+  const open = todo.groups.reduce((n, g) => n + g.rows.length, 0);
+  const plural = todo.total === 1 ? '' : 's';
   return (
-    <section className={cx('ev-group', tone, sub && 'sub')}>
-      <header className="ev-group-head">
-        {sub ? <h4>{title}</h4> : <h3>{title}</h3>}
-        {range && <span className="label">{range}</span>}
-        {!sub && cards.length > 0 && !range && <span className="label">{cards.length} campaign{cards.length === 1 ? '' : 's'}</span>}
+    <section className="hs hs-recce" aria-label="Recce to do">
+      <header className="hs-head">
+        <h2>Recce to do</h2>
+        {todo.label && <span className="label">{todo.isNext ? 'Next weekend' : 'Nearest weekend'} · {todo.label}</span>}
       </header>
-      {cards.length ? (
-        <ol className={cx('ev-cards fd-stagger', tone === 'past' && 'compact')}>
-          {cards.map((c, i) => (
-            <CampaignCard key={c.ev.id} card={c} i={i} now={now} past={tone === 'past'} />
-          ))}
-        </ol>
+      {open === 0 ? (
+        <p className="ev-none">{todo.total ? `All ${todo.total} recce${plural} for ${todo.label} ${todo.total === 1 ? 'is' : 'are'} reviewed.` : 'No recces waiting — no store has a coming weekend yet.'}</p>
       ) : (
-        <p className="ev-none">{empty}</p>
+        <div className="hs-groups">
+          {todo.groups
+            .filter((g) => g.rows.length)
+            .map((g) => (
+              <div key={g.state} className={cx('hs-group', g.state)}>
+                <h4>
+                  {RECCE_CHIP[g.state].text} <b>{g.rows.length}</b>
+                </h4>
+                <ol className="hs-rows">
+                  {g.rows.map((r) => (
+                    <RecceItem key={r.store.id} row={r} />
+                  ))}
+                </ol>
+              </div>
+            ))}
+        </div>
+      )}
+      {todo.reviewed > 0 && (
+        <p className="hs-done">
+          <Chip tone="ok">{todo.reviewed} reviewed</Chip>
+          <span>
+            of {todo.total} store{plural} for {todo.label}
+          </span>
+        </p>
       )}
     </section>
   );
 }
 
-function CampaignCard({ card: { ev, ss, dates }, i, now, past }: { card: Card; i: number; now: number; past: boolean }) {
-  const today = todayLocal(new Date(now));
-  const sent = ss.filter((s) => submissionsOf(s).length > 0).length;
-  const walkIns = onSpotCounts(ss).todo;
-  const p = campaignProgress(ss);
-  const next = nextEventDate(dates, today);
-  const days = dayPlaces(ss.map((s) => ({ date: storeDate(s, ev), city: s.city })));
-  const day = next?.date ?? ev.date;
+function RecceItem({ row }: { row: RecceRow }) {
+  const { store, event, date } = row;
+  const chip = RECCE_CHIP[row.state];
   return (
-    <li style={{ ['--i' as string]: i }}>
-      <a href={`#/event/${ev.id}`}>
-        <span className="ev-day">
-          <b>{fmtDate(day, { day: '2-digit' })}</b>
-          <span>{fmtDate(day, { month: 'short' })}</span>
+    <li className={cx('hs-row', row.urgent && 'urgent')}>
+      <div className="hs-main">
+        <StoreTitle store={store} />
+        <span className="hs-meta">
+          <b>{shortDay(date)}</b>
+          {store.city && <span>{store.city}</span>}
+          <span>{peopleOf(store)}</span>
+          <span className="hs-camp">{event.name}</span>
         </span>
-        <span className="ev-main">
-          <span className="ev-name">{ev.name}</span>
-          <span className="row">
-            {next && !next.past && <Chip tone={next.days <= 1 ? 'accent' : undefined}>{whenLabel(next.days)}</Chip>}
-            {past && next && <Chip tone="muted">{whenLabel(daysUntil(next.date, today))}</Chip>}
-            <span className="ev-meta">
-              {ss.length} store{ss.length === 1 ? '' : 's'} · {sent} recce report{sent === 1 ? '' : 's'} in
-              {walkIns > 0 && <span className="ev-onspot"> · {walkIns} on-spot to add to Toornament</span>}
-            </span>
-          </span>
-          {days.length > 0 && (
-            <span className="ev-days">
-              {days.map((d) => (
-                <span key={d.date} className={cx(d.date === day && !past && 'next')}>
-                  <b>{d.label}</b> {d.cities.length ? d.cities.join(', ') : `${d.stores} store${d.stores === 1 ? '' : 's'}`}
-                </span>
+      </div>
+      <div className="hs-side">
+        {row.urgent && <Chip tone="accent">This weekend!</Chip>}
+        <Chip tone={chip.tone}>{chip.text}</Chip>
+        {row.state === 'sent' ? (
+          <a className="btn" href={`#/store/${store.id}/report`}>
+            Review report
+          </a>
+        ) : (
+          <a className="btn ghost" href={`#/event/${event.id}`}>
+            Campaign
+          </a>
+        )}
+      </div>
+    </li>
+  );
+}
+
+/** Only this weekend's events (a weekday event of the week joins them), by day, each store one row with its timeline. */
+function ThisWeekend({ week, next }: { week: HomeBuckets['thisWeekend']; next: string }) {
+  return (
+    <section className="hs hs-now" aria-label={week.title}>
+      <header className="hs-head">
+        <h2>{week.title}</h2>
+        <span className="label">{week.range}</span>
+      </header>
+      {week.days.length === 0 ? (
+        <p className="ev-none">{next ? `Nothing this weekend — next: ${next}.` : 'Nothing this weekend.'}</p>
+      ) : (
+        week.days.map((d) => (
+          <div key={d.date} className="hs-day">
+            <h4>
+              {d.label}{' '}
+              <b>
+                {d.stores.length} store{d.stores.length === 1 ? '' : 's'}
+              </b>
+            </h4>
+            <ol className="hs-rows fd-stagger">
+              {d.stores.map((x, i) => (
+                <WeekendItem key={x.store.id} x={x} i={i} />
               ))}
+            </ol>
+          </div>
+        ))
+      )}
+    </section>
+  );
+}
+
+function WeekendItem({ x: { store, event }, i }: { x: HomeStore; i: number }) {
+  const live = isLiveNow(store);
+  return (
+    <li className={cx('hs-row', 'wk', live && 'on')} style={{ ['--i' as string]: i }}>
+      <div className="hs-main">
+        <StoreTitle store={store} />
+        <span className="hs-meta">
+          {store.city && <span>{store.city}</span>}
+          <span className="hs-camp">{event.name}</span>
+          {live && (
+            <span className="hs-live">
+              <span className="today-dot fd-pulse" aria-hidden /> Live now
             </span>
           )}
         </span>
-        {p.stores > 0 && (
-          <span className="ev-ring">
-            <Ring value={p.overall} label={`${Math.round(p.overall * 100)} percent of the steps done across ${p.stores} stores`} />
-          </span>
-        )}
-        {p.stores > 0 && (
-          <span className="ev-bars">
-            <MiniBar label="Recce" n={p.recce} of={p.stores} />
-            <MiniBar label="Players" n={p.players} of={p.stores} />
-            <MiniBar label="Brackets" n={p.brackets} of={p.stores} />
-            <MiniBar label="Winners" n={p.winners} of={p.stores} />
-          </span>
-        )}
-      </a>
+      </div>
+      <StageTrack stages={storeStages(store)} className="hs-track" />
+      <div className="hs-side">
+        <a className="btn ghost" href={`#/store/${store.id}/players`}>
+          Players & bracket
+        </a>
+        <a className="btn" href={`#/store/${store.id}/day`}>
+          Match day
+        </a>
+      </div>
     </li>
+  );
+}
+
+/** Every campaign in one line; its stores, weekends and steps are on the campaign's own page. */
+function Campaigns({ campaigns }: { campaigns: HomeBuckets['campaigns'] }) {
+  return (
+    <>
+      {campaigns.current.length > 0 ? <CampaignList title="Current & upcoming" rows={campaigns.current} /> : <p className="ev-none">No current or upcoming campaigns.</p>}
+      {campaigns.past.length > 0 && (
+        <details className="hc-past">
+          <summary>
+            Past <b>{campaigns.past.length}</b>
+          </summary>
+          <CampaignList rows={campaigns.past} />
+        </details>
+      )}
+    </>
+  );
+}
+
+function CampaignList({ title, rows }: { title?: string; rows: CampaignRow[] }) {
+  return (
+    <div className="hc">
+      {title && (
+        <h4 className="hc-title">
+          {title} <b>{rows.length}</b>
+        </h4>
+      )}
+      <ol className="hc-list">
+        {rows.map((c) => (
+          <li key={c.event.id}>
+            <a href={`#/event/${c.event.id}`}>
+              <span className="hc-main">
+                <span className="ev-name">{c.event.name}</span>
+                <span className="ev-meta">
+                  {c.range} · {c.stores.length} store{c.stores.length === 1 ? '' : 's'}
+                </span>
+              </span>
+              {c.stores.length > 0 && <Ring value={c.progress} size={44} label={`${Math.round(c.progress * 100)} percent of the steps done across ${c.stores.length} stores`} />}
+            </a>
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
 
@@ -215,8 +311,11 @@ function TodayStrip() {
   const today = todayLocal(new Date(now));
   const dates = [...stores.map((s) => storeDate(s, events[s.eventId])), ...Object.values(events).filter((e) => !stores.some((s) => s.eventId === e.id)).map((e) => e.date)];
   const next = nextEventDate(dates, today);
-  const onThatDay = next ? stores.filter((s) => storeDate(s, events[s.eventId]) === next.date) : [];
-  const campaigns = [...new Set(onThatDay.length ? onThatDay.map((s) => events[s.eventId].name) : Object.values(events).filter((e) => e.date === next?.date).map((e) => e.name))];
+  // The next event day is part of this weekend (or this week): count the whole weekend's stores, not just that day's.
+  const week = homeBuckets({ events, stores: all }, today).thisWeekend;
+  const inWeek = !!next && !next.past && groupOfDate(next.date, today) === 'this';
+  const counted = inWeek ? week.days.flatMap((d) => d.stores.map((x) => x.store)) : next ? stores.filter((s) => storeDate(s, events[s.eventId]) === next.date) : [];
+  const campaigns = [...new Set(counted.length ? counted.map((s) => events[s.eventId].name) : Object.values(events).filter((e) => e.date === next?.date).map((e) => e.name))];
   const live = stores.filter(isLiveNow).length;
   const reports = unreviewedReports(stores);
   const walkIns = onSpotCounts(stores).todo;
@@ -232,7 +331,7 @@ function TodayStrip() {
             <span className="today-date">{fmtDate(next.date, { weekday: 'short', day: 'numeric', month: 'short' })}</span>
             <span className={cx('today-when', soon && 'near', next.past && 'past')}>{whenLabel(next.days)}</span>
             <span className="today-sub">
-              {onThatDay.length ? `${onThatDay.length} store${onThatDay.length === 1 ? '' : 's'} · ` : ''}
+              {counted.length ? `${counted.length} store${counted.length === 1 ? '' : 's'}${inWeek ? ` ${week.title.toLowerCase()}` : ''} · ` : ''}
               {campaigns.join(', ')}
             </span>
           </>
