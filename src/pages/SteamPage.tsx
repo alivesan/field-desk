@@ -4,10 +4,10 @@ import type { SteamAccount } from '../lib/types.ts';
 import { MAX_STEAM_TEXT, purposeLabel, sortedAccounts, steamAccountName, steamUses, weekFilterKey, weekendKeyLabel, type SteamUse, type WeekFilter } from '../lib/steam.ts';
 import { campaignStoreNames, storeShortName } from '../lib/names.ts';
 import { cx, fmtDate, todayLocal, uid } from '../lib/util.ts';
-import { askConfirm, Chip, Field, notify, PageHead, Shell, toast } from '../components/ui.tsx';
+import { askConfirm, Chip, Field, notify, PageHead, Shell, toast, useNow } from '../components/ui.tsx';
 import { EmptyCard } from '../components/flair.tsx';
 import { Sheet } from '../components/Sheet.tsx';
-import { CopyValue, DOWNLOAD_TIP, PLAY_TIP, SecretValue } from '../components/SteamCard.tsx';
+import { CopyValue, DOWNLOAD_TIP, OtpCode, PLAY_TIP, SecretValue } from '../components/SteamCard.tsx';
 import '../styles/steam.css';
 
 const FILTERS: { id: WeekFilter; label: string }[] = [
@@ -106,6 +106,7 @@ export function SteamPage() {
               <th>Steam ID</th>
               <th>Password</th>
               <th>Email</th>
+              <th>Steam Guard</th>
               <th>{week ? 'This weekend' : 'Given to'}</th>
               <th />
             </tr>
@@ -123,6 +124,9 @@ export function SteamPage() {
                 </td>
                 <td data-label="Email" className={cx('sa-email', !a.email?.trim() && 'blank')}>
                   {a.email?.trim() || <span className="sa-none">—</span>}
+                </td>
+                <td data-label="Steam Guard" className="sa-otp">
+                  <OtpCell otp={a.otp} />
                 </td>
                 <td data-label={week ? 'This weekend' : 'Given to'}>
                   <div className="sa-status">
@@ -176,6 +180,13 @@ export function SteamPage() {
   );
 }
 
+/** The account's current Steam Guard code with a countdown (the e-mail automation delivers it); a dash once it has expired. */
+function OtpCell({ otp }: { otp?: SteamAccount['otp'] }) {
+  const now = useNow(1000);
+  if (!otp || Date.parse(otp.expiresAt) <= now) return <span className="sa-none">—</span>;
+  return <OtpCode code={otp.code} expiresAt={otp.expiresAt} now={now} />;
+}
+
 function AccountForm({ draft, accounts, onClose }: { draft: Draft; accounts: Record<string, SteamAccount>; onClose: () => void }) {
   const [d, setD] = useState(draft);
   const set = (patch: Partial<Draft>) => setD((x) => ({ ...x, ...patch }));
@@ -194,6 +205,7 @@ function AccountForm({ draft, accounts, onClose }: { draft: Draft; accounts: Rec
       if (d.label.trim()) next.label = d.label.trim();
       if (d.email.trim()) next.email = d.email.trim();
       if (d.notes.trim()) next.notes = d.notes.trim();
+      if (old?.otp) next.otp = old.otp; // the server's own field: an edit leaves it as it is
       s.accounts[id] = next;
     });
     toast(d.id ? 'Steam account saved' : 'Steam account added');

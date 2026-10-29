@@ -5,10 +5,10 @@ import fs from 'node:fs';
 import { applyOps, diffDocs, DOC_KINDS, safeParse, validateOps, type Docs, type DocKind, type Op } from '../src/lib/ops.ts';
 import { ADMIN_CODE, normalizeStore, PRINT_TOKEN, validateDocument } from '../src/lib/schema.ts';
 import { applyCommand, COMMAND_ROLES, CommandError, validateCommand, type Command, type CommandContext } from '../src/lib/commands.ts';
-import type { PrintKind, Store, ToornamentSource, TournamentEvent } from '../src/lib/types.ts';
-import { AUTO_ACTOR } from '../src/lib/toornament-auto.ts';
+import type { PrintKind, SteamAccount, SteamOtp, Store, ToornamentSource, TournamentEvent } from '../src/lib/types.ts';
+import { AUTO_ACTOR, EVENT_TZ, inZone } from '../src/lib/toornament-auto.ts';
 import { cleanPersonName, shortStoreName, teamActorName } from '../src/lib/teams.ts';
-import { steamLoginFor } from '../src/lib/steam.ts';
+import { currentSteamStore, liveOtp, OTP_TTL_MS, steamHolders, steamLoginFor } from '../src/lib/steam.ts';
 import { isPrintKind, PRINT_KINDS, printSpecOf, thisWeekKits } from '../src/lib/print.ts';
 import { campaignStoreNames, storeShortName } from '../src/lib/names.ts';
 import { storeDate } from '../src/lib/recce.ts';
@@ -24,6 +24,7 @@ import { createPrinter } from './print.ts';
 import { fetchToornament } from './toornament-fetch.ts';
 import { createToornamentAuto, type ToornamentAutoOptions } from './toornament-auto.ts';
 import { lanOrigins, listensOnAll } from './lan.ts';
+import { bearerMatches, createKeyStore, createOtpRequests, otpFingerprint, steamOtpConfig, type SteamOtpOptions } from './steam-otp.ts';
 
 export { ADMIN_CODE };
 
@@ -55,6 +56,8 @@ export { ADMIN_CODE };
  *                             it, worked out per request, never stored)
  *   POST /api/batch           { id, ops } -> { seq }    field edits; idempotent per (id, payload)
  *   POST /api/command         { id, storeId, cmd } -> { seq }   tournament / submission commands
+ *   POST /api/steam/otp-request  { storeId } -> { ok, requestedAt, duplicate }   the store's team / admin (or HQ) asks the
+ *                             e-mail automation to look for the Steam Guard code (signed webhook; once a minute per store)
  *   GET  /api/stream          server-sent events: every commit, filtered per caller
  *   PUT  /api/photos/:id?store=<storeId>   jpeg body (write-once, owned by that store)
  *   GET  /api/photos/:id
@@ -72,6 +75,11 @@ export { ADMIN_CODE };
  * No request for these: from 12:30 on a store's day the server checks its Toornament stage every 5
  * minutes and loads the bracket once the players are placed (server/toornament-auto.ts; off in
  * tests unless asked for). It commits as the system actor 'system:toornament', like any command.
+ *
+ * The Steam OTP automation (server/steam-otp.ts, docs/steam-otp-api.md) has its own bearer key and its own error shape
+ * { error, message }; sessions are not accepted there and its key is accepted nowhere else:
+ *   GET  /api/v1/steam/accounts   scope steam-accounts:read   the accounts and who holds each now (never a code)
+ *   POST /api/v1/steam/otp        scope steam-otp:write       { accountUsername?, accountEmail?, code, receivedAt }
  *
  * Public — no session, for players at the venue (server/public.ts has the limits):
  *   GET  /api/public/checkin/:token   { store, campaign, date, open } — nothing about players
@@ -114,6 +122,8 @@ export interface ApiOptions {
   rosterFetch?: RosterFetchOptions;
   /** The Toornament auto-check (server/toornament-auto.ts). Off unless `enabled` — server/index.ts turns it on. */
   toornamentAuto?: ToornamentAutoOptions;
+  /** The Steam OTP automation (FD_STEAM_API_KEY, FD_STEAM_WEBHOOK_URL, FD_STEAM_WEBHOOK_SECRET); the environment fills what is left out. */
+  steam?: SteamOtpOptions;
   /** How often open event streams are pinged and their sessions re-checked. Default 20 s. */
   streamCheckMs?: number;
   /** Clock, for tests. */
@@ -139,6 +149,11 @@ const BATCH_ID = /^[\w-]{6,60}$/;
 const COMMAND_ID = /^[\w-]{6,48}$/;
 const PHOTO_ID = /^[a-z0-9]{6,40}$/;
 const MAX_JSON = 4 * 1024 * 1024;
+const STEAM_BODY_MAX = 16 * 1024;
+const IDEMPOTENCY_KEY = /^[\x21-\x7e]{1,128}$/;
+const OTP_CODE = /^[A-Z0-9]{5}$/;
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
+const OTP_FUTURE_SKEW_MS = 30 * 1000;
 /** Store fields a field admin may change. Everything else (name, assignment, the team code `access`…) is HQ's. */
 const ADMIN_WRITABLE = new Set(['recce', 'day', 'pin', 'printDownloads', 'updatedAt']);
 /** Store state that changes only through commands — never through generic batches, from anyone. */
@@ -237,6 +252,23 @@ export function createApi(opts: ApiOptions) {
   const printLimiter = createPublicLimiter({ perIp: 120, perIpWindowMs: 10 * 60000, perStore: Infinity, perStoreWindowMs: 10 * 60000, failCost: 10, ...opts.printLimits }, now);
   const printer = createPrinter({ now, fetch: opts.rosterFetch, log, ...opts.print });
 
+  // Steam Guard codes: the automation's key, its idempotency keys (a server-only table) and the request webhook.
+  const steamCfg = steamOtpConfig(opts.steam ?? {}, log);
+  const otpKeys = createKeyStore(db, now);
+  otpKeys.prune();
+  const otpRequests = createOtpRequests(steamCfg.webhook, opts.steam ?? {}, now, log);
+  const eventTz = (() => {
+    const tz = opts.toornamentAuto?.tz ?? (process.env.EVENT_TZ?.trim() || EVENT_TZ);
+    try {
+      new Intl.DateTimeFormat('en-GB', { timeZone: tz });
+      return tz;
+    } catch {
+      return EVENT_TZ;
+    }
+  })();
+  /** Today's date where the events are (yyyy-mm-dd). */
+  const eventToday = () => inZone(new Date(now()), eventTz).date;
+
   /* ---------- sessions ---------- */
 
   // Fingerprint of the code a session was made with: rotating a code ends its sessions.
@@ -310,9 +342,23 @@ export function createApi(opts: ApiOptions) {
     return { ...day, players, ...(onSpot ? { onSpot } : {}) };
   }
 
+  /**
+   * What else a store's team learns about its Steam login right now: the Steam Guard code while it is unexpired,
+   * and whether (and since when) it can ask for one. Only a store that still holds the account — its event day
+   * not past — gets any of it.
+   */
+  function otpFor(s: Store, today: string) {
+    const account = s.steam && docs.accounts[s.steam.accountId];
+    const event = docs.events[s.eventId];
+    const date = event ? storeDate(s, event) : s.date;
+    if (!account || !date || date < today) return {};
+    return { otp: liveOtp(account, now()), otpRequest: otpRequests.enabled, otpRequestedAt: otpRequests.enabled ? otpRequests.requestedAt(s.id, now()) : undefined };
+  }
+
   function visibleDocs(who: Who): Docs {
     if (who.role === 'super') return docs;
     const stores = storesOf(who);
+    const today = eventToday();
     const eventIds = new Set(stores.map((s) => s.eventId));
     // HQ's source links (the campaign's store sheet, a store's player-list link) are capabilities —
     // anyone holding a published-sheet link can read the whole sheet — so they never reach admins.
@@ -330,7 +376,7 @@ export function createApi(opts: ApiOptions) {
         stores.map((s) => {
           // The team code signs people in: HQ's only. So is which account HQ picked (`steam`); the store gets its login instead.
           const { roster: _hq, access: _code, steam: _pick, ...rest } = s;
-          const steamLogin = steamLoginFor(s, docs.accounts);
+          const steamLogin = steamLoginFor(s, docs.accounts, otpFor(s, today));
           return [s.id, { ...rest, ...(steamLogin ? { steamLogin } : {}), day: phonesForAdmins(rest.day) } as typeof s];
         }),
       ),
@@ -372,7 +418,10 @@ export function createApi(opts: ApiOptions) {
     }
   }, opts.streamCheckMs ?? 20000);
   ticker.unref();
-  const pruner = setInterval(() => sessions.prune(), 3600000);
+  const pruner = setInterval(() => {
+    sessions.prune();
+    otpKeys.prune();
+  }, 3600000);
   pruner.unref();
 
   /** A retry of something already committed returns its seq; reusing an id for a different payload is refused. */
@@ -477,6 +526,13 @@ export function createApi(opts: ApiOptions) {
     authorize(who, ops);
     const { work, touched } = workCopy(ops.map((o) => [o.k, o.id]));
     applyOps(work, ops);
+    // A Steam Guard code is written by the server (POST /api/v1/steam/otp) and by nobody else — HQ's batches included.
+    for (const [k, docId] of touched.values()) {
+      // (Deleting the whole account is HQ's call; it takes its code with it.)
+      if (k === 'accounts' && work.accounts[docId] && canonical(work.accounts[docId]?.otp ?? null) !== canonical(docs.accounts[docId]?.otp ?? null)) {
+        throw new HttpError(403, 'protected', 'A Steam Guard code is set by the server only.', { paths: [`accounts/${docId}.otp`] });
+      }
+    }
     // normalizeStore seeds day.checkInSource when stores load; seed it on write too (and tell every
     // client), so memory matches what a restart loads and edits stay per-player paths.
     const seeded: Op[] = [];
@@ -527,6 +583,18 @@ export function createApi(opts: ApiOptions) {
     if (!ops.length) return;
     check(work, touched, true);
     const id = `auto-${randomBytes(9).toString('base64url')}`;
+    commit(id, sha256(canonical({ ops })), work, touched, id, ops);
+  }
+
+  /** The server's own write of a Steam account's current code: validated and committed like a batch, so HQ and the right stores hear of it live. */
+  function recordOtp(accountId: string, otp: SteamOtp) {
+    const account = docs.accounts[accountId];
+    if (!account) return;
+    const { work, touched } = workCopy([['accounts', accountId]]);
+    work.accounts[accountId].otp = otp;
+    const ops = diffDocs({ events: {}, stores: {}, admins: {}, accounts: { [accountId]: account } }, { events: {}, stores: {}, admins: {}, accounts: { [accountId]: work.accounts[accountId] } });
+    check(work, touched, true);
+    const id = `steam-otp-${randomBytes(9).toString('base64url')}`;
     commit(id, sha256(canonical({ ops })), work, touched, id, ops);
   }
 
@@ -607,6 +675,9 @@ export function createApi(opts: ApiOptions) {
       const own = req.headers.host ?? req.headers[':authority'];
       if (host === null || host !== own) return send(res, 403, { code: 'forbidden', error: 'Cross-origin request refused' });
     }
+
+    // The Steam OTP automation: its own key and error shape; a session cookie means nothing here.
+    if (url.pathname.startsWith('/api/v1/')) return steamApi(req, res, url);
 
     // Players at the venue: no session, whoever's cookie this browser happens to carry.
     const checkin = url.pathname.match(/^\/api\/public\/checkin\/([^/]+)$/);
@@ -726,6 +797,22 @@ export function createApi(opts: ApiOptions) {
         throw e;
       }
       return send(res, 200, { seq: runCommand(who, body.id, body.storeId, cmd) });
+    }
+
+    if (route === 'POST /api/steam/otp-request') {
+      const body = await readJson(req, 2000);
+      const storeId = typeof body?.storeId === 'string' ? body.storeId : '';
+      if (!/^[\w-]{1,64}$/.test(storeId)) throw new HttpError(400, 'bad-request', 'bad store id');
+      const store = docs.stores[storeId];
+      // Same ownership as any store write: a store that isn't yours looks like one that doesn't exist.
+      if (!store || !owns(who, store)) throw new HttpError(404, 'not-found', 'No such store.');
+      if (!otpRequests.enabled) throw new HttpError(404, 'not-configured', 'Asking for the code isn’t set up on this server — call HQ.');
+      const account = store.steam && docs.accounts[store.steam.accountId];
+      const event = docs.events[store.eventId];
+      if (!account || !event || storeDate(store, event) < eventToday()) throw new HttpError(409, 'conflict', 'This store has no Steam account to ask a code for.');
+      const r = otpRequests.request({ storeId, storeName: store.name, accountUsername: account.username, accountEmail: account.email?.trim() || undefined });
+      log('info', 'steam-otp-requested', { principal: who.principal, store: storeId, duplicate: r.duplicate });
+      return send(res, 200, { ok: true, requestedAt: r.at, duplicate: r.duplicate });
     }
 
     if (route === 'GET /api/stream') {
@@ -860,6 +947,142 @@ export function createApi(opts: ApiOptions) {
     }
 
     return send(res, 404, { code: 'not-found', error: 'not found' });
+  }
+
+  /* ---------- the Steam OTP automation (docs/steam-otp-api.md) ---------- */
+
+  /** Its own error shape: { error: "<snake_case_code>", message }. Never the code, the key or the Authorization header. */
+  const steamFail = (res: ServerResponse, status: number, error: string, message: string) => send(res, status, { error, message });
+
+  /** The one account the body names — username and/or email, trimmed and case-insensitive; both given must agree. */
+  function identifyAccount(username: string | undefined, email: string | undefined): SteamAccount | null {
+    const norm = (v: string) => v.trim().toLowerCase();
+    let found = Object.values(docs.accounts);
+    if (username !== undefined) found = found.filter((a) => typeof a.username === 'string' && norm(a.username) === norm(username));
+    if (email !== undefined) found = found.filter((a) => typeof a.email === 'string' && !!a.email.trim() && norm(a.email) === norm(email));
+    return found.length === 1 ? found[0] : null;
+  }
+
+  async function steamApi(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
+    try {
+      const accounts = url.pathname === '/api/v1/steam/accounts';
+      const otp = url.pathname === '/api/v1/steam/otp';
+      if (!accounts && !otp) return steamFail(res, 404, 'not_found', 'No such route.');
+      if (!steamCfg.apiKey) return steamFail(res, 503, 'not_configured', 'The Steam OTP API isn’t set up on this server.');
+      // The automation's key is the only thing accepted here: not a cookie, not an HQ, admin or store session.
+      if (!bearerMatches(req.headers.authorization, steamCfg.apiKey)) return steamFail(res, 401, 'unauthorized', 'A valid API key is needed.');
+      if (accounts && req.method === 'GET') return steamAccounts(res); // scope steam-accounts:read
+      if (otp && req.method === 'POST') return await steamOtp(req, res); // scope steam-otp:write
+      res.setHeader('Allow', accounts ? 'GET' : 'POST');
+      return steamFail(res, 405, 'method_not_allowed', 'That method isn’t allowed on this route.');
+    } catch (e) {
+      if (e instanceof HttpError && e.status === 413) {
+        res.setHeader('Connection', 'close');
+        return steamFail(res, 413, 'body_too_large', 'The body is over 16 KB.');
+      }
+      // Only the kind of failure: an error's own message can quote the request (a JSON parse error does).
+      log('error', 'steam-otp-failed', { errorName: e instanceof Error ? e.name : 'unknown' });
+      if (res.headersSent) {
+        res.destroy();
+        return true;
+      }
+      return steamFail(res, 500, 'internal_error', 'Something went wrong on the server.');
+    }
+  }
+
+  /** GET /api/v1/steam/accounts — a bare array; never a code. */
+  function steamAccounts(res: ServerResponse) {
+    const world = { events: docs.events, stores: docs.stores };
+    const today = eventToday();
+    const list = Object.values(docs.accounts)
+      .filter((a) => typeof a.username === 'string' && a.username.trim())
+      .sort((a, b) => a.username.localeCompare(b.username) || a.id.localeCompare(b.id))
+      .map((a) => {
+        const store = currentSteamStore(world, a.id, today);
+        const live = liveOtp(a, now());
+        const email = a.email?.trim() || null;
+        return {
+          accountUsername: a.username,
+          accountEmail: email,
+          // The worker reads these two names (as the mock offers them).
+          username: a.username,
+          email,
+          assignedStoreId: store?.id ?? null,
+          assignedStoreName: store?.name ?? null,
+          active: !!live,
+          receivedAt: live?.receivedAt ?? null,
+          expiresAt: live?.expiresAt ?? null,
+        };
+      });
+    return send(res, 200, list);
+  }
+
+  /** POST /api/v1/steam/otp */
+  async function steamOtp(req: IncomingMessage, res: ServerResponse) {
+    const key = req.headers['idempotency-key'];
+    if (key !== undefined && (typeof key !== 'string' || !IDEMPOTENCY_KEY.test(key))) return steamFail(res, 400, 'invalid_idempotency_key', 'Idempotency-Key must be 1–128 visible ASCII characters.');
+    const raw = await readRaw(req, STEAM_BODY_MAX);
+    let body: Record<string, unknown> | null = null;
+    try {
+      const parsed = safeParse(raw.toString('utf8'));
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) body = parsed;
+    } catch {
+      /* not JSON */
+    }
+    const { accountUsername, accountEmail, code, receivedAt } = body ?? {};
+    const named = (v: unknown) => v === undefined || typeof v === 'string';
+    if (!body || !named(accountUsername) || !named(accountEmail) || (accountUsername === undefined && accountEmail === undefined) || typeof receivedAt !== 'string') {
+      return steamFail(res, 400, 'invalid_body', 'Send { accountUsername and/or accountEmail, code, receivedAt } as JSON.');
+    }
+    const account = identifyAccount(accountUsername as string | undefined, accountEmail as string | undefined);
+    if (!account) return steamFail(res, 400, 'unknown_account', 'No single Steam account matches that username / email.');
+    if (typeof code !== 'string' || !OTP_CODE.test(code)) return steamFail(res, 400, 'invalid_code', 'code must be 5 capital letters or digits.');
+    const receivedMs = ISO_TIME.test(receivedAt) ? Date.parse(receivedAt) : NaN;
+    if (!Number.isFinite(receivedMs)) return steamFail(res, 400, 'stale_or_future', 'receivedAt must be an ISO time within the last 10 minutes.');
+
+    const result = (a: SteamAccount, storeId: string, o: SteamOtp) => ({
+      ok: true,
+      accountUsername: a.username,
+      accountEmail: a.email?.trim() || null,
+      assignedStoreId: storeId,
+      receivedAt: o.receivedAt,
+      expiresAt: o.expiresAt,
+    });
+
+    // A retry of something already stored is answered from the stored result — before the time window, because a
+    // retry after a lost answer may arrive when the code's own time has run out.
+    const fingerprint = otpFingerprint(account.username, code, receivedMs);
+    const seenKey = typeof key === 'string' ? otpKeys.get(key) : undefined;
+    if (seenKey) {
+      if (seenKey.fingerprint !== fingerprint) return steamFail(res, 409, 'idempotency_key_reused', 'That Idempotency-Key was used for a different request.');
+      return send(res, 200, { ...seenKey.result, duplicate: true });
+    }
+
+    const t = now();
+    if (receivedMs <= t - OTP_TTL_MS || receivedMs > t + OTP_FUTURE_SKEW_MS) return steamFail(res, 400, 'stale_or_future', 'receivedAt must be an ISO time within the last 10 minutes.');
+
+    const world = { events: docs.events, stores: docs.stores };
+    const today = eventToday();
+    const store = currentSteamStore(world, account.id, today);
+    if (!store || !steamHolders(world, account.id, today).length) return steamFail(res, 409, 'not_assigned', 'No store holds that account right now.');
+
+    const keep = (r: Record<string, unknown>) => {
+      if (typeof key === 'string') otpKeys.put(key, fingerprint, r);
+      return r;
+    };
+    const current = account.otp;
+    if (current) {
+      const currentMs = Date.parse(current.receivedAt);
+      if (receivedMs < currentMs) return steamFail(res, 409, 'older_than_current', 'A newer code is already stored for that account.');
+      if (receivedMs === currentMs) {
+        if (current.code !== code) return steamFail(res, 409, 'conflicting_code', 'A different code is already stored with that receivedAt.');
+        return send(res, 200, { ...keep(result(account, store.id, current)), duplicate: true }); // expiry stays where it was
+      }
+    }
+    const next: SteamOtp = { code, receivedAt: new Date(receivedMs).toISOString(), expiresAt: new Date(receivedMs + OTP_TTL_MS).toISOString() };
+    recordOtp(account.id, next);
+    log('info', 'steam-otp-stored', { account: account.id, store: store.id });
+    return send(res, 200, keep(result(account, store.id, next)));
   }
 
   /* ---------- print files ---------- */
@@ -1008,6 +1231,7 @@ export function createApi(opts: ApiOptions) {
     /** Stops timers, ends event streams, closes the database and releases the data-dir lock. */
     close() {
       toornamentAuto.stop();
+      otpRequests.close();
       clearInterval(ticker);
       clearInterval(pruner);
       for (const res of streams.keys()) res.end();

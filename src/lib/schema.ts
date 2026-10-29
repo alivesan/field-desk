@@ -185,6 +185,11 @@ function validateAccount(c: C, a: Rec, ctx: ValidationContext) {
   c.optStr(a.email, 'email', 200);
   c.optStr(a.notes, 'notes', 2000);
   c.time(a.createdAt, 'createdAt');
+  if (a.otp !== undefined && c.obj(a.otp, 'otp')) {
+    if (typeof a.otp.code !== 'string' || !/^[A-Z0-9]{5}$/.test(a.otp.code)) c.bad('otp.code', 'must be 5 capital letters or digits');
+    c.time(a.otp.receivedAt, 'otp.receivedAt');
+    c.time(a.otp.expiresAt, 'otp.expiresAt');
+  }
   const name = typeof a.username === 'string' ? a.username.trim().toLowerCase() : '';
   if (name && ctx.accounts && Object.values(ctx.accounts).some((o) => o && o.id !== a.id && typeof o.username === 'string' && o.username.trim().toLowerCase() === name)) c.bad('username', 'is already in the Steam accounts list');
 }

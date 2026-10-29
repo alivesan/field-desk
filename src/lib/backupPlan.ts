@@ -195,8 +195,12 @@ export function planImport(b: ParsedBackup, current: AppState, opts: ImportOptio
   // Steam accounts are HQ's own list and come in with the file; stores assigned one need it to exist.
   const accountsAfter: Record<string, SteamAccount> = { ...current.accounts };
   for (const a of Object.values(b.state.accounts)) {
-    accountsAfter[a.id] = a;
-    consider('accounts', structuredClone(a), current.accounts?.[a.id]);
+    // The Steam Guard code is the server's alone: a file can't bring one in, and the current one stays.
+    const { otp: _stale, ...rest } = a;
+    const keep = current.accounts?.[a.id]?.otp;
+    const account: SteamAccount = keep ? { ...rest, otp: keep } : rest;
+    accountsAfter[a.id] = account;
+    consider('accounts', structuredClone(account), current.accounts?.[a.id]);
   }
 
   const eventsAfter: Record<string, TournamentEvent> = { ...current.events };

@@ -10,6 +10,10 @@ services:
     environment:
       SUPER_ADMIN_CODE: ${SUPER_ADMIN_CODE:?run deploy/setup.sh first — it creates deploy/.env}
       TRUST_PROXY: '1' # Caddy is the one proxy in front: rate limits see the real client address
+      # Steam Guard (OTP) automation, from deploy/.env — empty = off. See docs/steam-otp-api.md and deploy/.env.example.
+      FD_STEAM_API_KEY: ${FD_STEAM_API_KEY:-}
+      FD_STEAM_WEBHOOK_URL: ${FD_STEAM_WEBHOOK_URL:-}
+      FD_STEAM_WEBHOOK_SECRET: ${FD_STEAM_WEBHOOK_SECRET:-}
     volumes:
       - field-desk-data:/data # the database and every proof photo — back this up
 

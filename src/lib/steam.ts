@@ -9,7 +9,7 @@
  * A "weekend" is the Saturday of the Monday–Sunday week the store's date falls in (weekends.ts) — an
  * event on a weekday is bucketed with the rest of its own week.
  */
-import type { AppState, SteamAccount, SteamLogin, SteamPurpose, Store } from './types.ts';
+import type { AppState, SteamAccount, SteamLogin, SteamOtp, SteamPurpose, Store } from './types.ts';
 import { storeDate } from './recce.ts';
 import { weekendOf, weekendLabel } from './weekends.ts';
 import { addDaysLocal } from './util.ts';
@@ -114,15 +114,59 @@ export function inUse(world: World, accountId: string, week: string | null): boo
   return steamUses(world, accountId).some((u) => u.purpose === 'play' && (week === null || u.week === week));
 }
 
+/** How long a Steam Guard code lives, counted from when Steam sent the e-mail. */
+export const OTP_TTL_MS = 10 * 60 * 1000;
+
+/** Stores holding the account, for any purpose, whose event day hasn't passed (`today` is yyyy-mm-dd). */
+export function steamHolders(world: World, accountId: string, today: string): Store[] {
+  return steamUses(world, accountId)
+    .filter((u) => u.date && u.date >= today)
+    .map((u) => u.store);
+}
+
+/**
+ * The store the account is working for right now, or null when that can't be said:
+ *  - the one store playing with it this weekend; else
+ *  - the only store holding it at all (any purpose) whose event day hasn't passed; else null (nobody, or more than one).
+ */
+export function currentSteamStore(world: World, accountId: string, today: string): Store | null {
+  const week = weekKeyOf(today);
+  const playing = steamUses(world, accountId).filter((u) => u.purpose === 'play' && u.week === week);
+  if (playing.length) return playing.length === 1 ? playing[0].store : null;
+  const holders = steamHolders(world, accountId, today);
+  return holders.length === 1 ? holders[0] : null;
+}
+
+/** The account's Steam Guard code if it hasn't expired at `nowMs`. */
+export function liveOtp(account: Pick<SteamAccount, 'otp'> | undefined, nowMs: number): SteamOtp | undefined {
+  const o = account?.otp;
+  return o && Date.parse(o.expiresAt) > nowMs ? { code: o.code, receivedAt: o.receivedAt, expiresAt: o.expiresAt } : undefined;
+}
+
+/** Whatever else the server knows about a store's login at read time (see steamLoginFor). */
+export interface SteamLoginExtras {
+  otp?: SteamOtp;
+  otpRequest?: boolean;
+  otpRequestedAt?: string;
+}
+
 /**
  * What a store's team may see of its Steam account: the login, never the account's id or notes.
- * Computed by the server on every read (visibleDocs) — never stored.
+ * Computed by the server on every read (visibleDocs) — never stored. `extras` is what the server worked out
+ * for this moment: the unexpired Steam Guard code, whether the Request code button works, and the last request.
  */
-export function steamLoginFor(store: Pick<Store, 'steam'>, accounts: Record<string, SteamAccount> | undefined): SteamLogin | undefined {
+export function steamLoginFor(store: Pick<Store, 'steam'>, accounts: Record<string, SteamAccount> | undefined, extras: SteamLoginExtras = {}): SteamLogin | undefined {
   const a = store.steam && accounts?.[store.steam.accountId];
   if (!store.steam || !a) return undefined;
-  // The account's email stays with HQ: the store team calls HQ for the Steam Guard code.
-  return { username: a.username, password: a.password, purpose: store.steam.purpose };
+  // The account's email stays with HQ: the store team gets the Steam Guard code from the OTP automation, or by calling HQ.
+  return {
+    username: a.username,
+    password: a.password,
+    purpose: store.steam.purpose,
+    ...(extras.otp ? { otp: extras.otp } : {}),
+    ...(extras.otpRequest ? { otpRequest: true } : {}),
+    ...(extras.otpRequestedAt ? { otpRequestedAt: extras.otpRequestedAt } : {}),
+  };
 }
 
 /** "this weekend" when the weekend is the current one, else "the weekend of Sat 31 Oct – Sun 1 Nov". */

@@ -222,6 +222,8 @@ docker run -p 8080:8080 -e SUPER_ADMIN_CODE=<long secret> -v field-desk-data:/da
 | `COOKIE_NAME` | `fd_session` | |
 | `TOORNAMENT_AUTO` / `EVENT_TZ` | on / `Asia/Kolkata` | The Toornament auto-check (above): `0` switches it off; the zone the store's day and the 12:30 start are read in. |
 
+The Steam Guard (OTP) e-mail automation's API and its three `FD_STEAM_*` settings are in [docs/steam-otp-api.md](docs/steam-otp-api.md).
+
 Sign-in rate limits: 10 wrong codes per address per 15 min (separately for admin / store team codes and HQ), plus a global ceiling of 300 wrong admin or store codes per hour that never blocks HQ. 429 responses carry `Retry-After`.
 
 ### Free server: Oracle Cloud Always Free (or any Ubuntu VPS)
