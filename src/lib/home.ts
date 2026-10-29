@@ -73,8 +73,8 @@ export interface WeekendDay {
 
 /** One weekend of a campaign, with the stores playing in it. */
 export interface CampaignWeekend {
-  when: 'this' | 'next' | 'later';
-  /** "This weekend" (or "This week"), "Next weekend", or "Later". */
+  when: 'this' | 'next';
+  /** "This weekend" (or "This week"), or "Next weekend". */
   title: string;
   /** "Sat 7 – Sun 8 Nov" */
   label: string;
@@ -88,10 +88,12 @@ export interface CampaignRow {
   range: string;
   /** Steps done across the campaign's stores, 0..1. */
   progress: number;
-  /** The weekends still to play, this one first; finished and past stores are left out (see `done`). */
+  /** This weekend and next, at a glance; finished and past stores are left out (see `done`), later weekends only counted (`later`). */
   weekends: CampaignWeekend[];
   /** Stores already played or finished. */
   done: number;
+  /** Stores on the weekends after next. */
+  later: number;
 }
 
 /** A recce report waiting for HQ: the store's latest revision, not reviewed yet. */
@@ -184,7 +186,7 @@ export function homeBuckets(state: { events: Record<string, TournamentEvent>; st
 
 /**
  * Campaigns by where their next store date falls: this weekend and later (nearest first), then past — complete or all dates over
- * (latest first). A current campaign lists its weekends still to play, with the stores in each.
+ * (latest first). A current campaign lists this weekend's and next weekend's stores; later ones are only counted.
  */
 function campaignRows(state: { events: Record<string, TournamentEvent>; stores: Record<string, Store> }, today: string) {
   const items = Object.values(state.events).sort((a, b) => a.name.localeCompare(b.name)).map((event) => { // by name, so campaigns with the same date keep a steady order
@@ -195,15 +197,14 @@ function campaignRows(state: { events: Record<string, TournamentEvent>; stores: 
     const weekends: CampaignWeekend[] = [
       ...(g.this.length ? [{ when: 'this' as const, title: thisGroupLabel(g.this.map((x) => x.date)), label: weekendShort(weekendOf(g.this[0].date)), stores: g.this.map((x) => x.store) }] : []),
       ...(g.next.length ? [{ when: 'next' as const, title: 'Next weekend', label: weekendShort(weekendOf(g.next[0].date)), stores: g.next.map((x) => x.store) }] : []),
-      ...g.later.map((w) => ({ when: 'later' as const, title: 'Later', label: weekendShort(w.weekend), stores: w.items.map((x) => x.store) })),
     ];
     const row: CampaignRow & { dates: string[]; complete: boolean } = {
-      event, stores, dates, range: dateRange(dates), progress: campaignProgress(stores).overall, weekends, done: g.done.length,
+      event, stores, dates, range: dateRange(dates), progress: campaignProgress(stores).overall, weekends, done: g.done.length, later: g.later.reduce((n, w) => n + w.items.length, 0),
       complete: campaignComplete(event, stores).complete || dates.every((d) => groupOfDate(d, today) === 'past'), // finished or closed by hand, or every date is over
     };
     return row;
   });
-  const strip = ({ event, stores, range, progress, weekends, done }: CampaignRow): CampaignRow => ({ event, stores, range, progress, weekends, done });
+  const strip = ({ event, stores, range, progress, weekends, done, later }: CampaignRow): CampaignRow => ({ event, stores, range, progress, weekends, done, later });
   const g = groupByWeekend(items.filter((c) => !c.complete), today);
   const past = items.filter((c) => c.complete).sort((a, b) => b.dates.slice().sort().at(-1)!.localeCompare(a.dates.slice().sort().at(-1)!));
   return { current: [...g.this, ...g.upcoming.flatMap((w) => w.items)].map(strip), past: past.map(strip) };

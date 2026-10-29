@@ -62,8 +62,9 @@ export function EventPage({ eventId }: { eventId: string }) {
   const sections: { key: string; title: string; label?: string; rows: Store[] }[] = [
     ...(groups.this.length ? [{ key: 'this', title: thisGroupLabel(groups.this.map((x) => x.date)), label: weekendShort(weekendOf(groups.this[0].date)), rows: groups.this.map((x) => x.s) }] : []),
     ...(groups.next.length ? [{ key: 'next', title: 'Next weekend', label: weekendShort(weekendOf(groups.next[0].date)), rows: groups.next.map((x) => x.s) }] : []),
-    ...groups.later.map((w) => ({ key: w.weekend.sat, title: 'Later', label: weekendShort(w.weekend), rows: w.items.map((x) => x.s) })),
   ];
+  // Only this weekend and next are open; later weekends and done stores fold away below.
+  const laterCount = groups.later.reduce((n, w) => n + w.items.length, 0);
   const doneRows = groups.done.map((x) => x.s);
 
   const save = (storeId: string | null, d: StoreDetails) => {
@@ -204,6 +205,21 @@ export function EventPage({ eventId }: { eventId: string }) {
             <ol className="stores fd-stagger">{g.rows.map(storeRow)}</ol>
           </div>
         ))}
+        {laterCount > 0 && (
+          <details className="wk-group wk-done">
+            <summary>
+              Later weekends <b>{laterCount}</b>
+            </summary>
+            {groups.later.map((w) => (
+              <div key={w.weekend.sat} className="wk-group">
+                <h3 className="wk-head">
+                  {weekendShort(w.weekend)} <b>{w.items.length}</b>
+                </h3>
+                <ol className="stores">{w.items.map((x) => x.s).map(storeRow)}</ol>
+              </div>
+            ))}
+          </details>
+        )}
         {doneRows.length > 0 && (
           <details className="wk-group wk-done">
             <summary>

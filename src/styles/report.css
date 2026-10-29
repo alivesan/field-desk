@@ -35,6 +35,47 @@
   font-size: 13px;
   color: var(--ink-2);
 }
+/* Where it is: the address under the name, the venue pin at the other end of the same row. */
+.rp-where {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 4px 24px;
+  margin: 0 0 6px;
+}
+.rp-addr {
+  margin: 0;
+  flex: 1;
+  font-size: 14px;
+  line-height: 1.35;
+  color: var(--ink);
+}
+.rp-pin {
+  flex: none;
+  max-width: 46%;
+  text-align: right;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.rp-pin-k {
+  display: block;
+  font: 500 10px/1.3 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.rp-pin a {
+  color: var(--ink);
+}
+@media screen and (max-width: 560px) {
+  .rp-where {
+    flex-direction: column;
+  }
+  .rp-pin {
+    max-width: none;
+    text-align: left;
+  }
+}
 .report dd {
   margin: 4px 0 0;
   font-size: 14px;
@@ -89,7 +130,7 @@
   text-transform: uppercase;
   color: var(--muted);
 }
-@media (max-width: 560px) {
+@media screen and (max-width: 560px) {
   .rp-stats {
     grid-template-columns: 1fr 1fr;
   }
@@ -169,12 +210,12 @@
   font-size: inherit;
   white-space: pre-line;
 }
-@media (max-width: 640px) {
+@media screen and (max-width: 640px) {
   .rp-sec dl {
     grid-template-columns: 1fr;
   }
 }
-@media (max-width: 460px) {
+@media screen and (max-width: 460px) {
   .rp-sec dl > div {
     grid-template-columns: 1fr;
     gap: 2px;
@@ -203,6 +244,33 @@
   padding: 5px 12px 5px 0;
   border-bottom: 1px solid var(--rule);
   vertical-align: top;
+}
+
+/* Venue and Setup side by side — one photo and a few facts each; stacked on a narrow screen (never in print). */
+.rp-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 28px;
+  align-items: start;
+}
+.rp-pair .rp-sec dl {
+  grid-template-columns: 1fr;
+}
+.rp-photos.solo {
+  grid-template-columns: 1fr;
+}
+.rp-photos.solo.multi {
+  grid-template-columns: 1fr 1fr;
+}
+.rp-photos.solo img {
+  max-height: 420px;
+  object-fit: contain;
+  object-position: left top;
+}
+@media screen and (max-width: 720px) {
+  .rp-pair {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Photos are shown whole (the stamp burned into the bottom is the proof); print crops nothing either. */
@@ -279,20 +347,21 @@
 }
 
 /*
- * Print / Save as PDF — and the exported file when it is printed. A4, tight, 4 photos to a row:
- * a typical recce (5 sections, ~20 photos, a handful of laptops) lands on 2–3 pages.
+ * Print / Save as PDF — and the exported file when it is printed. The same look as the screen, scaled to A4: a typical recce
+ * (5 laptops, ~8 photos) lands on 2 pages. Every size here is in pt / mm and every column count is fixed, and the screen-only
+ * breakpoints above are `@media screen`, so a phone printing with a narrow viewport still gets this desktop-style layout.
  */
 @media print {
   @page {
     size: A4;
-    margin: 10mm 11mm;
+    margin: 12mm;
   }
   html,
   body {
     background: #fff;
   }
   body {
-    font-size: 9pt;
+    font-size: 9.5pt;
     line-height: 1.4;
     letter-spacing: 0;
   }
@@ -310,151 +379,212 @@
   }
   .report {
     max-width: none;
+    width: 100%;
   }
 
   .rp-mast {
-    border-top-width: 2px;
-    padding-top: 5px;
+    border-top-width: 2.5px;
+    padding-top: 6px;
   }
   .rp-kicker {
-    font-size: 6.5pt;
+    font-size: 7pt;
   }
   .rp-mast h1 {
-    font-size: 20pt;
-    margin: 3px 0 2px;
+    font-size: 24pt;
+    margin: 4px 0 4px;
+  }
+  .rp-where {
+    flex-direction: row;
+    gap: 2px 18px;
+    margin-bottom: 3px;
+  }
+  .rp-addr {
+    font-size: 9.5pt;
+  }
+  .rp-pin {
+    max-width: 48%;
+    text-align: right;
+    font-size: 9pt;
+  }
+  .rp-pin-k {
+    font-size: 6.5pt;
   }
   .rp-meta {
-    font-size: 8pt;
+    font-size: 8.5pt;
   }
   .rp-verdict {
-    margin-top: 6px;
-    padding: 5px 0;
-    gap: 4px 14px;
+    margin-top: 8px;
+    padding: 6px 0;
+    gap: 4px 16px;
     flex-wrap: nowrap;
   }
   .rp-verdict-word {
-    font-size: 13pt;
+    font-size: 16pt;
     white-space: nowrap;
   }
   .rp-stats {
     min-width: 0;
-    gap: 8px;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
   }
   .rp-stats > div {
-    gap: 1px;
-    padding-left: 6px;
+    gap: 2px;
+    padding-left: 7px;
   }
   .rp-stats strong {
-    font-size: 12pt;
+    font-size: 14pt;
   }
   .rp-stats span {
-    font-size: 5.8pt;
+    font-size: 6.5pt;
   }
   .rp-issues {
-    margin-top: 5px;
-    padding: 4px 8px;
-    font-size: 8pt;
+    margin-top: 6px;
+    padding: 4px 9px;
+    font-size: 8.5pt;
     line-height: 1.35;
   }
   .rp-issues li {
     padding: 0 0 0 13px;
   }
 
-  /* A section may run onto the next page (its photos flow in whole figures); its heading and facts stay together. */
+  /* Sections stay whole (heading, facts and photos together) so no heading is left at a page bottom; the long Laptops section may split between its table and its photo rows. */
   .rp-sec {
-    padding: 11px 0 0;
-    break-inside: auto;
-  }
-  .rp-sec dl,
-  .rp-table tr {
+    padding: 12px 0 0;
     break-inside: avoid;
+  }
+  .rp-sec.rp-laptops {
+    break-inside: auto;
   }
   .rp-sec header {
     padding-top: 4px;
-    margin-bottom: 4px;
-    gap: 7px;
+    margin-bottom: 5px;
+    gap: 8px;
+    break-after: avoid;
+  }
+  .rp-sec dl,
+  .rp-table,
+  .rp-table tr,
+  .rp-photos {
+    break-inside: avoid;
   }
   .rp-n {
-    font-size: 7pt;
+    font-size: 7.5pt;
   }
   .rp-sec h2 {
-    font-size: 12.5pt;
+    font-size: 14pt;
+    break-after: avoid;
   }
   .rp-state {
-    font-size: 6pt;
+    font-size: 6.5pt;
   }
   .rp-sec dl {
-    column-gap: 18px;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 20px;
   }
   .rp-sec dl > div {
-    grid-template-columns: 27mm 1fr;
-    gap: 6px;
-    padding: 2px 0;
-    font-size: 8.5pt;
+    grid-template-columns: 37mm 1fr;
+    gap: 8px;
+    padding: 2.5px 0;
+    font-size: 9pt;
     line-height: 1.3;
   }
+  .rp-sec dl > div.wide {
+    grid-column: 1 / -1;
+  }
+  .rp-sec dt {
+    font-size: 8pt;
+  }
   .ev-sub {
-    font-size: 6.5pt;
+    font-size: 7pt;
     line-height: 1.3;
+  }
+
+  /* Venue | Setup: always two columns on paper. */
+  .rp-pair {
+    grid-template-columns: 1fr 1fr;
+    column-gap: 9mm;
+    break-inside: avoid;
+  }
+  .rp-pair .rp-sec dl {
+    grid-template-columns: 1fr;
+  }
+  .rp-pair .rp-sec dl > div {
+    grid-template-columns: 22mm 1fr;
   }
 
   .rp-table {
     display: table;
-    margin-top: 5px;
-    font-size: 8pt;
+    margin-top: 6px;
+    font-size: 9pt;
   }
   .rp-table th {
-    font-size: 6pt;
-    padding: 2px 8px 2px 0;
+    font-size: 6.5pt;
+    padding: 3px 9px 3px 0;
   }
   .rp-table td {
-    padding: 2px 8px 2px 0;
+    padding: 2.5px 9px 2.5px 0;
   }
 
   .rp-photos {
     grid-template-columns: repeat(4, 1fr);
-    gap: 3mm 3.5mm;
-    margin-top: 5px;
+    gap: 3mm 4mm;
+    margin-top: 6px;
   }
   .rp-photos figure {
     display: flex;
     flex-direction: column;
   }
-  /* A fixed frame so rows line up; contain keeps the whole picture and its stamp, whatever the phone's orientation. */
+  /* Up to 4 across; the whole picture and its stamp is kept (contain), whatever the phone's orientation, and the label sits right under it. */
   .rp-photos img {
-    height: 41mm;
+    height: auto;
+    max-height: 48mm;
     object-fit: contain;
-    object-position: center top;
-    background: #f0ede6;
+    object-position: left top;
+    background: transparent;
   }
   .rp-photos .ph {
-    height: 41mm;
+    height: 38mm;
     aspect-ratio: auto;
   }
+  .rp-photos.solo {
+    grid-template-columns: 1fr;
+  }
+  .rp-photos.solo.multi {
+    grid-template-columns: 1fr 1fr;
+  }
+  .rp-photos.solo img {
+    width: auto;
+    max-width: 100%;
+    height: auto;
+    max-height: 62mm;
+  }
+  .rp-photos.solo .ph {
+    height: 64mm;
+  }
   .rp-photos figcaption {
-    padding-top: 1.5px;
-    font-size: 7pt;
+    padding-top: 2px;
+    font-size: 8pt;
     line-height: 1.25;
   }
   .rp-none {
-    font-size: 8pt;
+    font-size: 8.5pt;
     margin-top: 4px;
   }
 
   .rp-notes p {
-    font-size: 10pt;
+    font-size: 11pt;
   }
   .rp-notes cite {
-    font-size: 6pt;
+    font-size: 7pt;
   }
   .rp-pnotes ul {
-    font-size: 8pt;
+    font-size: 8.5pt;
   }
 
   .rp-foot {
-    margin-top: 12px;
-    padding-top: 4px;
-    font-size: 6pt;
+    margin-top: 14px;
+    padding-top: 5px;
+    font-size: 6.5pt;
     border-top-width: 2px;
   }
 }

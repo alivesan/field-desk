@@ -481,3 +481,12 @@ test('walk-ins whose player left the list earlier come back from their registrat
   assert.deepEqual(notYet.onSpotMissing.map((m) => [m.entry.name, m.player, m.kept]), [['Ravi Kumar', undefined, false]]);
   assert.equal(notYet.players.length, 2);
 });
+
+test('the bracket link goes to the stages, whatever page of the tournament the sheet gave', async () => {
+  const { toornamentBracketPage } = await import('../src/lib/toornament.ts');
+  const t = 'https://play.toornament.com/en_US/tournaments/2596019755383668735/';
+  assert.equal(toornamentBracketPage(t), 'https://play.toornament.com/en_US/tournaments/2596019755383668735/stages/');
+  assert.equal(toornamentBracketPage('https://play.toornament.com/tournaments/2596019755383668735/registration/'), 'https://play.toornament.com/en_US/tournaments/2596019755383668735/stages/');
+  assert.equal(toornamentBracketPage(t, '2596019755383668999'), 'https://play.toornament.com/en_US/tournaments/2596019755383668735/stages/2596019755383668999/');
+  assert.equal(toornamentBracketPage(`${t}stages/2596019755383668111/`, '2596019755383668999'), 'https://play.toornament.com/en_US/tournaments/2596019755383668735/stages/2596019755383668111/');
+});

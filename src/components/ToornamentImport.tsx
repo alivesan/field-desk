@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { sendCommand, updateStore, usePendingWork, useSync } from '../lib/db.ts';
 import { applyCommand, dayVersion, type Command, type CommandContext } from '../lib/commands.ts';
 import { maskPhone } from '../lib/phone.ts';
-import { applyToornamentLink, toornamentLinkProblem, underWay, type ToornamentFetch } from '../lib/toornament.ts';
+import { applyToornamentLink, toornamentBracketPage, toornamentLinkProblem, underWay, type ToornamentFetch } from '../lib/toornament.ts';
 import { AUTO_EVERY_MIN, autoFinished, autoLine, planFor } from '../lib/toornament-auto.ts';
 import type { Store, TournamentEvent } from '../lib/types.ts';
 import { ago, cx } from '../lib/util.ts';
@@ -179,8 +179,9 @@ export function ToornamentImport({ store, event }: { store: Store; event: Tourna
           <div className="label">From Toornament</div>
           {link && !editing ? (
             <p className="tn-link">
-              <a href={link} target="_blank" rel="noreferrer noopener">
-                {link.replace(/^https?:\/\//, '')}
+              {/* Open the bracket (…/stages/), not the registration page the sheet usually gives. */}
+              <a href={toornamentBracketPage(link, store.toornament?.stageId)} target="_blank" rel="noreferrer noopener" title={link}>
+                Open the bracket on Toornament ↗
               </a>{' '}
               <button className="link" onClick={() => setEditing(true)}>
                 Change

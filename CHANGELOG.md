@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.0-beta.5
+
+- **Campaigns at a glance:** HQ home shows each campaign's stores for this weekend and next only (later ones are counted); the campaign page folds later weekends away like Done.
+- **Toornament:** the bracket link now opens the tournament's stages page (where the bracket is), not the registration page the sheet gives.
+- **Recce PDF:** address and venue pin once under the store name; Venue and Setup side by side; prints like the on-screen report, on desktop and phone, in 2 A4 pages.
+
 ## 1.0.0-beta.4
 
 - **HQ home, campaigns first:** each campaign with its weekends and store chips at the top; Recce to do, This weekend and Recce reports below as shortcuts.
