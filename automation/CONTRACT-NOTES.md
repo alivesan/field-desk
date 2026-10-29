@@ -2,7 +2,7 @@
 
 Only automation/ is changed. No application changes are made by this branch.
 
-As of 29 October 2026, the Oracle n8n/worker/mock stack is running and one synthetic `C-demo-mock` n8n CLI execution returned `SUCCESS` with `status: delivered`. The published n8n webhook returned 202 for a valid signed body, 200 for its duplicate, and 401 for a modified body. The live Field Desk endpoint has not been used. Owner profile, central Gmail OAuth, exact forwarding addresses and real Steam samples are pending; Caddy/HTTPS is not started.
+As of 29 October 2026, the Oracle n8n/worker/mock stack is running and one synthetic `C-demo-mock` n8n CLI execution returned `SUCCESS` with `status: delivered`. The published n8n webhook returned 202 for a valid signed body, 200 for its duplicate, and 401 for a modified body. Owner setup is complete, and https://n8n.129-225-72-140.sslip.io/healthz returns 200 with verified TLS. The live Field Desk endpoint has not been used. Central Gmail OAuth, exact forwarding addresses and real Steam samples remain pending; Gmail polling is disabled.
 
 ## Required before live delivery
 
@@ -15,6 +15,8 @@ As of 29 October 2026, the Oracle n8n/worker/mock stack is running and one synth
 7. **Privacy:** API/reverse proxy/application logging must redact OTP bodies and Authorization. Response must not echo the code. The automation disables execution payload retention; it cannot control Field Desk's logs.
 
 ## Request webhook
+
+The intended private destination is `http://10.0.0.230:5678/webhook/steam-request`. The VM listener and host firewall are prepared, but a dedicated Oracle ingress rule for private TCP 5678 is still pending the integration stage. Add it only to the automation VM's own network security group; do not change the shared subnet security list or the Field Desk VM.
 
 Expected payload: `{id,type:"steam.otp.requested",at,storeId,storeName,accountUsername?,accountEmail?}`. At least one account identifier is required. UTF-8 JSON is signed byte-for-byte with `X-FieldDesk-Signature: sha256=<hex HMAC-SHA256>`.
 
