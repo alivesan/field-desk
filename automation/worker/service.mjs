@@ -2,7 +2,7 @@ import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { TTL, digest, normalize, parseEmail, matchAccount, verifySignature } from './core.mjs';
 
-const safeReasons = new Set(['invalid_message','invalid_provider','expired_or_invalid_time','sender_rejected','sender_auth_unverified','not_guard_email','ambiguous_or_missing_code','ambiguous_account_name','invalid_accounts_response','unmatched_or_ambiguous_account','fielddesk_unavailable']);
+const safeReasons = new Set(['invalid_message','invalid_provider','expired_or_invalid_time','sender_rejected','sender_auth_unverified','forward_origin_unverified','original_date_unverified','account_name_missing','not_guard_email','ambiguous_or_missing_code','ambiguous_account_name','invalid_accounts_response','unmatched_or_ambiguous_account','fielddesk_unavailable']);
 export async function createService({ statePath, mailboxes, baseUrl, apiKey, webhookSecret, fetchImpl = fetch, now = Date.now }) {
   let state = { delivered: {}, events: {}, boosts: {}, polls: {}, issues: [] };
   try { state = JSON.parse(await readFile(statePath, 'utf8')); } catch (e) { if (e.code !== 'ENOENT') throw new Error('state_unreadable'); }
@@ -15,7 +15,7 @@ export async function createService({ statePath, mailboxes, baseUrl, apiKey, web
   };
   const prune = () => {
     for (const key of ['delivered','events']) for (const [id, time] of Object.entries(state[key])) if (now() - time > 86400_000) delete state[key][id];
-    for (const [id, time] of Object.entries(state.boosts)) if (time <= now()) delete state.boosts[id];
+    for (const [id, boost] of Object.entries(state.boosts)) if (typeof boost !== 'object' || boost.until <= now()) delete state.boosts[id];
     state.issues = state.issues.filter(i => now() - i.at < 86400_000).slice(-100);
   };
   let queue = Promise.resolve();
@@ -32,12 +32,20 @@ export async function createService({ statePath, mailboxes, baseUrl, apiKey, web
     due: id => serial(async () => {
       const box = mailbox(id); if (!box) return { status: 400, body: { error: 'unknown_mailbox' } };
       prune();
-      // Multiple accounts may share a mailbox. Boost all mailbox scans while any request is active.
-      const boosted = Object.values(state.boosts).some(until => until > now());
-      const interval = boosted ? 15_000 : 60_000;
-      const due = !state.polls[id] || now() - state.polls[id] >= interval;
-      if (due) { state.polls[id] = now(); await save(); }
-      return { status: 200, body: { due, boosted } };
+      const active = Object.values(state.boosts).filter(boost => boost.until > now());
+      const normalDue = !state.polls[id] || now() - state.polls[id] >= 60_000;
+      const fastDue = active.filter(boost => !boost.lastPoll || now() - boost.lastPoll >= 15_000);
+      const due = normalDue || fastDue.length > 0;
+      const mode = normalDue ? 'normal' : fastDue.length ? 'boosted' : 'idle';
+      const sources = ['noreply@steampowered.com', ...(box.trustedForwarders || [])];
+      let query = `after:${Math.floor((now() - TTL) / 1000)} {${sources.map(source => `from:${source}`).join(' ')}}`;
+      if (mode === 'boosted') query += ` {${fastDue.map(boost => `"${boost.username}"`).join(' ')}}`;
+      if (due) {
+        if (normalDue) state.polls[id] = now();
+        for (const boost of normalDue ? active : fastDue) boost.lastPoll = now();
+        await save();
+      }
+      return { status: 200, body: { due, boosted: active.length > 0, query: due ? query : '', mode } };
     }),
     process: input => serial(async () => {
       prune();
@@ -47,13 +55,13 @@ export async function createService({ statePath, mailboxes, baseUrl, apiKey, web
       try {
         const email = normalize(input.provider, input.message); id = digest(`${box.id}\0${email.id}`);
         if (state.delivered[id]) return { status: 200, body: { status: 'already_delivered', markProcessed: true, messageId: email.id } };
-        const parsed = parseEmail(email, now());
+        const parsed = parseEmail(email, now(), { trustedForwarders: box.trustedForwarders || [] });
         const accounts = await (await fd('/steam/accounts')).json();
         const account = matchAccount(parsed, accounts);
         // Recheck age after network delay. Never persist the code or the provider payload.
         if (now() - Date.parse(parsed.receivedAt) >= TTL) throw new Error('expired_or_invalid_time');
         await fd('/steam/otp', { method: 'POST', headers: { 'Idempotency-Key': `steam-email-${id}` }, body: JSON.stringify({ accountUsername: account.username, code: parsed.code, receivedAt: parsed.receivedAt }) });
-        state.delivered[id] = now(); await save();
+        state.delivered[id] = now(); delete state.boosts[digest(String(account.username).toLowerCase())]; await save();
         return { status: 200, body: { status: 'delivered', markProcessed: true, messageId: email.id } };
       } catch (error) {
         const reason = safeReasons.has(error.message) ? error.message : 'processing_failed';
@@ -71,9 +79,17 @@ export async function createService({ statePath, mailboxes, baseUrl, apiKey, web
       if (![event.accountUsername,event.accountEmail].some(x => typeof x === 'string' && x.length && x.length < 255)) return { status: 400, body: { error: 'missing_account' } };
       prune(); const eventId = digest(event.id);
       if (state.events[eventId]) return { status: 200, body: { accepted: true, duplicate: true } };
+      let accounts;
+      try { accounts = await (await fd('/steam/accounts')).json(); }
+      catch { return { status: 503, body: { error: 'fielddesk_unavailable' } }; }
+      if (!Array.isArray(accounts)) return { status: 503, body: { error: 'invalid_accounts_response' } };
+      const lower = value => String(value || '').trim().toLowerCase();
+      const matches = accounts.filter(account => (!event.accountUsername || lower(account.username) === lower(event.accountUsername)) && (!event.accountEmail || lower(account.email) === lower(event.accountEmail)));
+      if (matches.length !== 1 || !matches[0].assignedStoreId || !/^[a-zA-Z0-9_]{1,64}$/.test(matches[0].username)) return { status: 400, body: { error: 'unmatched_or_ambiguous_account' } };
+      const username = lower(matches[0].username); const boostId = digest(username);
       state.events[eventId] = now();
-      state.boosts[digest(event.accountUsername || event.accountEmail)] = at + TTL;
-      state.polls = {}; await save();
+      state.boosts[boostId] = { username, until: Math.max(state.boosts[boostId]?.until || 0, at + TTL), lastPoll: 0 };
+      await save();
       return { status: 202, body: { accepted: true } };
     }),
     issues: () => serial(async () => { prune(); return { status: 200, body: { issues: state.issues } }; }),

@@ -1,120 +1,54 @@
-# Field Desk automation — Steam OTP first
+# Field Desk automation — Steam OTP
 
-This branch implements the local foundation and Workflow C for multiple Gmail and Hotmail/Outlook mailboxes. All changes live under automation/. It does not edit Field Desk, deploy to either server, send alerts to people, or access Toornament.
+The approved design reads **one central Gmail inbox**. Four original mailboxes (Gmail or Outlook) will forward their Steam messages into it after the owner confirms the exact forwarding addresses and enables forwarding. The worker reads only the central inbox; it does not need OAuth access to the four source accounts. The first deployment is configured to use the synthetic Field Desk mock.
 
-## Status and limits
+## Current status, 29 October 2026
 
-- Tested with synthetic email: parsing plain text/HTML, username-first matching, ambiguous-account rejection, ten-minute expiry, raw-body HMAC, durable message deduplication, retry after failure, polling windows, and delivery to a local mock store card.
-- n8n exports have structural/generation checks. **Import and actual execution in n8n are not yet verified:** Docker is unavailable on the build PC.
-- Gmail/Hotmail accounts are not connected. Current Steam login/new-device email formats and provider authentication headers still require owner-assisted real logins. Synthetic fixtures are not evidence of the current real format.
-- Real Field Desk endpoint/card integration remains blocked on Claude's API and the contract notes below. The mock implements the proposed idempotency and expiry behavior; it does not prove the real API does.
-- HQ alerts are stored as sanitized local issues only; no email or Telegram is sent. Choose and authorize a notification destination separately.
+- Synthetic parser, deduplication, polling and mock delivery tests have run. The current real Steam message layouts and Gmail authentication headers still need owner-assisted samples before live delivery can be enabled.
+- An Oracle Always Free VM named `field-desk-automation` exists at public IPv4 `129.225.72.140`, private IPv4 `10.0.0.230`. Docker 29.9.2, Compose 5.6.1 and an active 2 GB swap file are installed. No automation containers had started at this checkpoint.
+- Initial n8n setup will use `compose.yaml`, `compose.mock.yaml` and `compose.bootstrap.yaml` through an SSH tunnel to `localhost:5678`. This keeps the Field Desk target on the mock and avoids a public n8n editor during owner setup. Gmail OAuth and forwarding remain pending.
+- The production Field Desk endpoint requires owner authorization and contract verification. No live result is claimed. HQ issue alerts are sanitized local records only; no message is sent to a person.
 
-## Design
+## Message and account rules
 
-Each mailbox gets one copy of its provider workflow and its own OAuth credential. Built-in n8n Schedule, HTTP Request, IF and Split Out nodes handle provider access, pagination and marking read. Gmail uses its API; Hotmail uses Microsoft Graph with delegated OAuth supporting personal Microsoft accounts. No IMAP password is required by these templates.
+`MAILBOXES` contains one entry, for example `central-gmail`, with `provider: "gmail"`. Its optional `trustedForwarders` list must contain the **four exact source addresses** supplied by the owner before forwarded mail is accepted. The example environment leaves this list empty. Do not enable source-account forwarding until the owner confirms the addresses and the central inbox is ready.
 
-A small dependency-free Node worker performs parsing, signature checking and serial delivery with a persistent ledger. This avoids storing codes in workflow state and coordinates duplicate deliveries across overlapping runs. Only hashed email/event identifiers, polling times and sanitized issue reasons reach its state file. Provider tokens stay in n8n credentials; the Field Desk API key stays in the worker environment.
+Every accepted message must identify exactly one Steam **username** in the email content and match exactly one currently assigned account returned by Field Desk. Recipient address is never a fallback for a forwarded message or for an unknown central recipient. A missing or ambiguous username is an exception; the worker must never guess a store.
 
-Flow: provider list of recent Steam emails → full email → worker validation → GET /steam/accounts → POST /steam/otp → mark email read. List queries include already-read messages so delivery and mark-read failures can retry. The ledger prevents normal duplicate POSTs, including across restarts. A lost HTTP response/crash requires server-side idempotency for exactly-once effects; see CONTRACT-NOTES.md.
+The worker accepts two forwarding formats only after real samples confirm their layout:
 
-The parser requires sender `noreply@steampowered.com`, a provider Authentication-Results DMARC pass for steampowered.com, a supported Guard/new-device context, one five-character uppercase alphanumeric code, and a timestamp under ten minutes old. No account-name match falls back to email only when the name is absent, and then only for one assigned account. Unsupported or ambiguous emails fail closed and remain unread by this automation. Actual provider header layouts must be verified before enabling delivery.
+- **Automatic forward preserving Steam From:** Gmail's provider authentication information must support the original Steam sender. The original message `Date` provider header is required to measure age; central Gmail arrival time cannot extend an OTP's ten-minute life.
+- **Forward wrapped by a source mailbox:** the outer sender must be an exact member of `trustedForwarders` and authenticated by Gmail. The body must carry an unambiguous original Steam `From` marker and original `Date` timestamp. Missing, conflicting or stale origin data fails closed.
 
-## Quick synthetic demo without Docker
+Both formats still require a supported Steam Guard/new-device context, one unambiguous five-character uppercase alphanumeric code, and a timestamp less than ten minutes old. Real samples should be reviewed locally with the owner and redacted into fixtures; do not paste codes or full messages into chat.
 
-Requires Node 24. From the repository root:
+## Polling and delivery
 
-```powershell
-node automation/scripts/demo-local.mjs
-```
+The central Gmail workflow ticks every 15 seconds and asks the worker whether a scan is due. A **broad scan** runs at most every 60 seconds. A signed `steam.otp.requested` event opens a separate, ten-minute **account-name scan** for the named account every 15 seconds. The broad and account windows keep separate clocks so one cannot suppress the other. Provider queries include already-read messages for safe retries. Mark-read happens only after confirmed or previously recorded delivery.
 
-Open http://127.0.0.1:8790/mock/store. A synthetic email has been processed through the worker and its code appears on a synthetic store card for ten minutes. This is not the live Field Desk UI or an n8n execution. Ctrl+C stops it. No real secrets, mailbox access, or outbound calls are used.
+Flow: central Gmail list → full message → worker sender/forwarding/age/username validation → GET `/steam/accounts` → POST `/steam/otp` with an idempotency key → mark read. A small dependency-free Node worker keeps hashes, polling times and sanitized issue reasons in a persistent ledger. It does not save OTPs or full email payloads. A lost HTTP response still needs server-side idempotency for exactly-once effects; see [CONTRACT-NOTES.md](CONTRACT-NOTES.md).
 
-Run tests:
+## Synthetic local use
 
-```powershell
-node --test automation/tests/*.test.mjs
-```
+With Node 24, run `node automation/scripts/demo-local.mjs` from the repository root and open `http://127.0.0.1:8790/mock/store`. This uses synthetic data only and does not exercise n8n. Run `node --test automation/tests/*.test.mjs` for worker tests.
 
-Tests make loopback HTTP calls. Restricted execution environments may need local-network permission. Test/demo ledger files are under ignored automation/test-output/ and contain no codes.
+With Docker Desktop, generate a local ignored `.env` using `node automation/scripts/init-local.mjs`, then from `automation/deploy` run `docker compose --env-file .env -f compose.local.yaml up -d`. Set up the n8n owner login at `http://localhost:5678`. Import `C-demo-mock.json`, create an **OTP Worker** Header Auth credential with header `Authorization` and value `Bearer <WORKER_TOKEN>`, and bind it to worker HTTP nodes. Run only the synthetic demo. The mock card is at `http://localhost:8790/mock/store`. Stop with `docker compose --env-file .env -f compose.local.yaml down`; do not add `-v` unless intentionally deleting credentials and ledger state.
 
-## Windows PC with Docker Desktop
+## Central Gmail setup
 
-1. Install/start Docker Desktop using Linux containers. Stop the standalone demo first if it occupies port 8790.
-2. Generate an ignored local environment file without printing secrets:
+1. Confirm the central Gmail account and obtain the four exact source forwarding addresses from the owner. Keep `trustedForwarders` empty until those addresses are confirmed. Set a stable central mailbox ID; it is part of the delivery deduplication namespace.
+2. Import the central Gmail workflow and set its `MAILBOX ID` to the configured ID. Create **one** Google OAuth credential for the central inbox and bind it to its Gmail nodes. Gmail API modify scope is needed to read messages and mark them read. For a Google app in testing, add the central account as a test user and resolve consent/token expiry before unattended polling.
+3. Bind the **OTP Worker** credential to worker HTTP nodes. Keep the workflow inactive while the owner supplies real automatic-forward and wrapped-forward samples and their Gmail authentication headers. Verify original timestamps, sender proof, username extraction and duplicate behavior against those samples.
+4. Only after owner confirmation, configure forwarding on the four source accounts and allowlist their exact addresses. No direct source-account OAuth credential is used by this design. Activate delivery only after the mock workflow and Field Desk contract checks pass.
 
-```powershell
-node automation/scripts/init-local.mjs
-cd automation/deploy
-docker compose --env-file .env -f compose.local.yaml up -d
-```
+The signed request webhook is `/webhook/steam-request` after the workflow is active. It forwards the raw request body to the worker, which checks `X-FieldDesk-Signature: sha256=<HMAC-SHA256>` and stores a ten-minute account-name polling window. Invalid signatures do not change polling. The webhook is a search hint; the automation never signs in to Steam.
 
-3. Open http://localhost:5678 and complete n8n owner-account setup immediately. Use its built-in user login. No obsolete basic-auth environment switch is used.
-4. Import `workflows/C-demo-mock.json` first. Create an n8n Header Auth credential named **OTP Worker**: header name `Authorization`, value `Bearer ` followed by the generated WORKER_TOKEN from your local .env. Bind it to the worker HTTP node. Run only this synthetic demo and open http://localhost:8790/mock/store.
-5. Leave real mailbox templates inactive until OAuth authorization, live-format validation and the account directory are ready. The local stack defaults to the mock URL. Do not change to the live API without the owner's permission.
+## Secrets, deployment and troubleshooting
 
-Stopping: `docker compose --env-file .env -f compose.local.yaml down`. Do not add `-v`; that removes credentials and ledger volumes. The PC must remain awake and Docker running for continuous polling.
+`deploy/.env`, OAuth credentials and runtime state must not be committed. `N8N_ENCRYPTION_KEY` must remain stable and be backed up with n8n and worker volumes. `WORKER_TOKEN` authenticates n8n to the internal worker; `FD_API_KEY` is for Field Desk account read and OTP write; `FD_WEBHOOK_SECRET` verifies signed requests. `FIELD_DESK_BASE_URL` points to the mock until live use is approved. `MAILBOXES` holds the one central Gmail ID and exact forwarder allowlist, not passwords or OAuth tokens.
 
-## Mailbox setup — repeat for all 5–6 accounts
+See [deploy/README.md](deploy/README.md) for the VM setup and bootstrap sequence. The worker has no published host port. Both instance and workflow settings avoid saving execution payloads, but manual editor runs may display transient email content. Do not pin real data or enable payload logging. Review sanitized issues with authenticated GET `http://otp-worker:8787/issues` from n8n; entries contain mailbox IDs, hashed message IDs, time and reason, not codes.
 
-1. Assign stable nonsecret IDs such as gmail-1, gmail-2, outlook-1. Set worker `MAILBOXES` JSON to objects containing `id` and `provider` (`gmail` or `outlook`). Keep IDs stable across restarts/imports because they form the dedupe namespace.
-2. Import `gmail-mailbox.json` or `outlook-mailbox.json`, rename it to identify that mailbox, and set its **MAILBOX ID** node to the configured ID.
-3. Create and select the corresponding OAuth credential on **List recent messages**, **Get full message**, and **Mark message read**. Bind **OTP Worker** to **Ask worker if due** and **Process in worker**.
-4. Gmail: create a Google OAuth application, enable Gmail API, use the redirect URI displayed by n8n, and authorize the mailbox. Reading and removing UNREAD require Gmail modify access. For an external app in testing, add each mailbox as a test user and resolve token-expiration/consent status before unattended operation.
-5. Hotmail: create a Microsoft application allowing personal Microsoft accounts (or both personal and organizational if needed), use the n8n redirect URI and delegated Mail.ReadWrite + offline_access permissions. Bind the n8n Microsoft Outlook OAuth2 credential. A client secret goes into that credential only.
-6. Each workflow ticks every 15 seconds, but the worker permits provider scanning once per 60 seconds normally, or every 15 seconds during a signed request window. HTTP nodes paginate. Mark-read is only reached after confirmed or previously recorded delivery.
-7. Complete a throwaway login in the owner's presence and validate both real login/new-device emails. Keep execution saving disabled; do not pin real email data or paste emails/codes into chat. Manual runs can display transient data in the editor, so use synthetic data for editor debugging.
+If nothing runs, check workflow activation, central mailbox ID, Google OAuth, token and worker reachability. `sender_auth_unverified`, missing original dates or untrusted forwarders require real-header review with the owner; do not weaken validation to pass an unknown format. `unmatched_or_ambiguous_account` requires a verified username and assignment. `fielddesk_unavailable` requires contract and connectivity checks; expired codes are not retried indefinitely.
 
-An email address shared by multiple Steam accounts is safe only if the email identifies the account. Forwarding is not configured; the initial implementation connects the original mailboxes directly.
-
-## Signed request webhook
-
-Import `steam-request-webhook.json`, bind **OTP Worker**, and publish/activate it after local testing. Production path is `/webhook/steam-request` (not the editor's `/webhook-test/` path). It forwards the binary raw body without reserializing JSON. The worker validates the signature, deduplicates the event ID, and persists a ten-minute accelerated polling window. Invalid signatures cannot trigger polling.
-
-On Windows, the private Oracle network cannot reach the PC without a separately approved connection. Use synthetic local requests; do not expose n8n publicly as a workaround.
-
-## Credentials and environment names
-
-Never commit values. `deploy/.env` and runtime files are ignored. Values belong in n8n credentials or local environment configuration.
-
-| Name | Purpose |
-|---|---|
-| Gmail OAuth2 credential per mailbox | Google client ID/secret and authorized account tokens |
-| Microsoft Outlook OAuth2 credential per mailbox | Microsoft application credentials and authorized account tokens |
-| OTP Worker / httpHeaderAuth | Internal worker bearer credential |
-| WORKER_TOKEN | Must match OTP Worker credential |
-| FD_API_KEY | Dedicated Field Desk account-read + steam-otp-write key; local generated value is mock-only |
-| FD_WEBHOOK_SECRET | Shared signing secret agreed with Claude |
-| FIELD_DESK_BASE_URL | Local mock by default; approved live value is https://fieldesk.runs-at.dev/api/v1 |
-| N8N_ENCRYPTION_KEY | Stable n8n credential encryption key; back up securely |
-| MAILBOXES | JSON array of stable mailbox IDs and provider types; no password or token |
-| STATE_PATH | Worker ledger file location in persistent volume |
-| HOST / PORT | Worker/mock bind configuration |
-| PRIVATE_IP / N8N_DOMAIN | Oracle private interface and HTTPS hostname |
-
-The worker is not exposed on the host. Both workflow and instance settings disable saved successful, failed and manual execution payloads, progress snapshots and diagnostics. Do not enable HTTP payload debugging or reverse proxy request-body logging.
-
-## Oracle preparation and updates
-
-See deploy/README.md. Prepared files include separate n8n + worker + Caddy services, persistent volumes, Asia/Kolkata timezone, a 2 GB swap setup and private-port firewall rules. The owner/Claude provisions the VM and Oracle network rules. setup.sh and deployment have not been run on a server. Request permission before running them. Use only the second VM.
-
-On first deployment complete n8n account setup before wider access. Never copy the demo workflow or mock to production as a substitute for the real API. Back up n8n volume, worker ledger and encryption key together. Test pinned image updates locally before changing production; do not blindly downgrade a migrated n8n database.
-
-## Troubleshooting and acceptance
-
-- No runs: check workflow is published/active, MAILBOX ID matches MAILBOXES, OAuth credential is on all provider nodes, PC is awake, and worker token matches. Credential/provider failures appear as failed runs with payload retention disabled.
-- `sender_auth_unverified`: inspect provider authentication metadata locally with the owner. Do not disable sender validation to make a sample pass. Adjust parser against verified real samples with redacted fixtures.
-- `unmatched_or_ambiguous_account`: fix account directory/assignment or account-name extraction. Never select a store by guesswork.
-- `fielddesk_unavailable`: check URL, token scopes and endpoint readiness; codes retry on subsequent scans only while fresh. The worker intentionally does not include API error bodies in issues.
-- `ambiguous_or_missing_code`: email template is unsupported or ambiguous; validate a real sample locally. Do not broaden to an arbitrary five-character substring.
-- Polling remains normal: check webhook production URL, signature raw bytes, event timestamp and worker secret. Burst windows expire ten minutes after event.at.
-- Sanitized exceptions: authenticated GET `http://otp-worker:8787/issues` using an n8n HTTP Request node with **OTP Worker** credential. It returns mailbox IDs, hashed message IDs, time and reason only. Review this until HQ alerts are authorized. Issues are bounded to 100 entries/24 hours.
-
-Acceptance order: automated tests → Docker startup/import → synthetic n8n demo → Gmail authorization/test → Hotmail authorization/test → both real Steam email formats → duplicate/expiry/failure checks → Claude's API contract checks → owner-approved real Field Desk store-card test. The last steps are intentionally not claimed complete.
-
-## Sources
-
-- n8n node definitions: https://github.com/n8n-io/n8n/tree/master/packages/nodes-base/nodes/HttpRequest and https://github.com/n8n-io/n8n/tree/master/packages/nodes-base/nodes/Webhook
-- Gmail API messages: https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages
-- Microsoft Graph messages (including personal-account delegated permissions): https://learn.microsoft.com/en-us/graph/api/user-list-messages
-- n8n execution-data configuration: https://github.com/n8n-io/n8n-docs/blob/main/docs/deploy/host-n8n/configure-n8n/basic-configuration/use-environment-variables/executions.md
+Acceptance order: worker tests → mock container startup → n8n owner setup through SSH tunnel → synthetic n8n run → central Gmail OAuth → owner-confirmed forwarding and real samples → duplicate/expiry/failure checks → Field Desk API contract checks → owner-approved live store-card test. Later steps remain pending until actually verified.

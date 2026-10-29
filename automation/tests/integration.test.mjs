@@ -18,7 +18,7 @@ test('synthetic Gmail message reaches the mock store, deduplicates, then expires
     const origin = `http://127.0.0.1:${server.address().port}`;
     const service = await createService({
       statePath: join(temp, 'state.json'),
-      mailboxes: [{ id: 'synthetic-gmail', provider: 'gmail' }],
+      mailboxes: [{ id: 'central-gmail', provider: 'gmail', trustedForwarders: [] }],
       baseUrl: `${origin}/api/v1`,
       apiKey: 'integration-secret',
       webhookSecret: 'integration-webhook-secret',
@@ -32,13 +32,14 @@ test('synthetic Gmail message reaches the mock store, deduplicates, then expires
         headers: [
           { name: 'From', value: 'Steam <noreply@steampowered.com>' },
           { name: 'To', value: 'login-alpha@example.invalid' },
+          { name: 'Date', value: new Date(start).toUTCString() },
           { name: 'Subject', value: 'Steam Guard login code' },
-          { name: 'Authentication-Results', value: 'mx.example.invalid; dmarc=pass header.from=steampowered.com' },
+          { name: 'Authentication-Results', value: 'mx.google.com; dmarc=pass header.from=steampowered.com' },
         ],
         body: { data: Buffer.from('Dear store_alpha,\nSteam Guard code is: A1B2C\n').toString('base64url') },
       },
     };
-    const input = { mailbox: 'synthetic-gmail', provider: 'gmail', message };
+    const input = { mailbox: 'central-gmail', provider: 'gmail', message };
     const first = await service.process(input);
     assert.equal(first.status, 200);
     assert.equal(first.body.status, 'delivered');

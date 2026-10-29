@@ -1,5 +1,5 @@
 {
-  "name": "Steam OTP - Gmail mailbox template",
+  "name": "Steam OTP - central Gmail mailbox",
   "active": false,
   "nodes": [
     {
@@ -37,7 +37,7 @@
             {
               "id": "mailbox-id",
               "name": "mailbox",
-              "value": "gmail-1",
+              "value": "central-gmail",
               "type": "string"
             }
           ]
@@ -68,7 +68,9 @@
             }
           ]
         },
-        "options": {}
+        "options": {
+          "timeout": 10000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -96,7 +98,7 @@
           "conditions": [
             {
               "id": "boolean-check",
-              "leftValue": "={{ $json.due === true }}",
+              "leftValue": "={{ $json.due === true && typeof $json.query === \"string\" && $json.query.length > 0 }}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -129,7 +131,7 @@
           "parameters": [
             {
               "name": "q",
-              "value": "={{ \"from:noreply@steampowered.com after:\" + Math.floor((Date.now() - 600000) / 1000) }}"
+              "value": "={{ $('Ask worker if due').first().json.query }}"
             },
             {
               "name": "maxResults",
@@ -154,12 +156,13 @@
               "completeExpression": "={{ !$response.body.nextPageToken }}",
               "requestInterval": 100
             }
-          }
+          },
+          "timeout": 10000
         }
       },
       "credentials": {
         "gmailOAuth2": {
-          "name": "Gmail mailbox"
+          "name": "Central Gmail mailbox"
         }
       }
     },
@@ -235,11 +238,13 @@
             }
           ]
         },
-        "options": {}
+        "options": {
+          "timeout": 10000
+        }
       },
       "credentials": {
         "gmailOAuth2": {
-          "name": "Gmail mailbox"
+          "name": "Central Gmail mailbox"
         }
       }
     },
@@ -261,7 +266,9 @@
         "contentType": "json",
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ mailbox: $('MAILBOX ID').first().json.mailbox, provider: 'gmail', message: $json }) }}",
-        "options": {}
+        "options": {
+          "timeout": 10000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -321,11 +328,13 @@
         "contentType": "json",
         "specifyBody": "json",
         "jsonBody": "{\"removeLabelIds\":[\"UNREAD\"]}",
-        "options": {}
+        "options": {
+          "timeout": 10000
+        }
       },
       "credentials": {
         "gmailOAuth2": {
-          "name": "Gmail mailbox"
+          "name": "Central Gmail mailbox"
         }
       }
     }

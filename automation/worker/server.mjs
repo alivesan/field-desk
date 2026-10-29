@@ -9,7 +9,7 @@ const target = new URL(baseUrl);
 if (target.protocol !== 'https:' && !(target.protocol === 'http:' && ['mock','127.0.0.1','localhost'].includes(target.hostname))) throw new Error('HTTPS required for non-local Field Desk');
 let mailboxes;
 try { mailboxes = JSON.parse(process.env.MAILBOXES || '[]'); } catch { throw new Error('Invalid MAILBOXES JSON'); }
-if (!Array.isArray(mailboxes) || new Set(mailboxes.map(m => m.id)).size !== mailboxes.length || mailboxes.some(m => !/^[a-zA-Z0-9_-]{1,64}$/.test(m.id) || !['gmail','outlook'].includes(m.provider))) throw new Error('Invalid MAILBOXES entries');
+if (!Array.isArray(mailboxes) || mailboxes.length !== 1 || mailboxes[0].provider !== 'gmail' || !/^[a-zA-Z0-9_-]{1,64}$/.test(mailboxes[0].id) || (mailboxes[0].trustedForwarders !== undefined && (!Array.isArray(mailboxes[0].trustedForwarders) || mailboxes[0].trustedForwarders.length > 4 || mailboxes[0].trustedForwarders.some(address => typeof address !== 'string' || !/^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(address))))) throw new Error('Configure exactly one central Gmail in MAILBOXES with up to four exact trustedForwarders addresses');
 const service = await createService({ statePath: process.env.STATE_PATH || './data/state.json', mailboxes, baseUrl, apiKey: process.env.FD_API_KEY, webhookSecret: process.env.FD_WEBHOOK_SECRET });
 const authorized = req => {
   const actual = Buffer.from(req.headers.authorization || '');

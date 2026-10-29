@@ -32,8 +32,10 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ mailbox: 'gmail-1', provider: 'gmail', message: { id: 'mock-demo-' + Date.now(), internalDate: String(Date.now()), payload: {\"mimeType\":\"text/plain\",\"headers\":[{\"name\":\"From\",\"value\":\"Steam <noreply@steampowered.com>\"},{\"name\":\"To\",\"value\":\"login-alpha@example.invalid\"},{\"name\":\"Subject\",\"value\":\"Your Steam Guard code\"},{\"name\":\"Authentication-Results\",\"value\":\"mx.example.invalid; dmarc=pass header.from=steampowered.com\"}],\"body\":{\"data\":\"RGVhciBzdG9yZV9hbHBoYSwKU3RlYW0gR3VhcmQgY29kZSBpczogQTFCMkMK\"}} } }) }}",
-        "options": {}
+        "jsonBody": "={{ JSON.stringify({ mailbox: 'central-gmail', provider: 'gmail', message: { id: 'mock-demo-' + Date.now(), internalDate: String(Date.now()), payload: { ...{\"mimeType\":\"text/plain\",\"headers\":[{\"name\":\"From\",\"value\":\"Steam <noreply@steampowered.com>\"},{\"name\":\"To\",\"value\":\"login-alpha@example.invalid\"},{\"name\":\"Subject\",\"value\":\"Your Steam Guard code\"},{\"name\":\"Authentication-Results\",\"value\":\"mx.google.com; dmarc=pass header.from=steampowered.com\"}],\"body\":{\"data\":\"RGVhciBzdG9yZV9hbHBoYSwKU3RlYW0gR3VhcmQgY29kZSBpczogQTFCMkMK\"}}, headers: [...[{\"name\":\"From\",\"value\":\"Steam <noreply@steampowered.com>\"},{\"name\":\"To\",\"value\":\"login-alpha@example.invalid\"},{\"name\":\"Subject\",\"value\":\"Your Steam Guard code\"},{\"name\":\"Authentication-Results\",\"value\":\"mx.google.com; dmarc=pass header.from=steampowered.com\"}], { name: 'Date', value: new Date().toUTCString() }] } } }) }}",
+        "options": {
+          "timeout": 10000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {

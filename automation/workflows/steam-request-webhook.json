@@ -53,7 +53,8 @@
               "fullResponse": true,
               "neverError": true
             }
-          }
+          },
+          "timeout": 10000
         }
       },
       "credentials": {
