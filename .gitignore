@@ -13,3 +13,5 @@ data
 
 # outside audit runs (logs, test copies) — never committed or shipped
 .audit
+
+.claude/worktrees/
