@@ -342,6 +342,15 @@ export interface SteamAccount {
   email?: string; // the account's e-mail, for HQ's reference
   notes?: string;
   createdAt: string; // ISO
+  /** The newest Steam Guard code the e-mail automation delivered (POST /api/v1/steam/otp). Written by the server only; no client write can set it. */
+  otp?: SteamOtp;
+}
+
+/** A Steam Guard code and its life: expiresAt = receivedAt (when Steam sent the e-mail) + 10 minutes. */
+export interface SteamOtp {
+  code: string;
+  receivedAt: string; // ISO
+  expiresAt: string; // ISO
 }
 
 export type SteamPurpose = 'play' | 'download';
@@ -362,6 +371,12 @@ export interface SteamLogin {
   password: string;
   purpose: SteamPurpose;
   email?: string;
+  /** The current Steam Guard code, only while it hasn't expired (the server checks on every read). */
+  otp?: SteamOtp;
+  /** The server can ask the automation to look for the code (FD_STEAM_WEBHOOK_URL is set) — shows the Request code button. */
+  otpRequest?: boolean;
+  /** When this store's last request was made, while it may still be answered (10 minutes). */
+  otpRequestedAt?: string;
 }
 
 export interface Admin {
