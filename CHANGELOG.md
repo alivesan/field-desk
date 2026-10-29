@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.0-beta.6
+
+- **Steam Guard codes, automated:** the e-mail automation posts each Steam Guard code to Field Desk (`POST /api/v1/steam/otp`, its own private key); the store team holding that account sees it on its Steam card in big type with a countdown (10 minutes from the e-mail) and a Copy button, and HQ sees it on the Steam page.
+- **Request code** on the store's Steam card tells the automation to look for the e-mail now (signed webhook, once a minute per store). "Call HQ for the code" stays as the fallback.
+- Off until the keys are set on the server; details in `docs/steam-otp-api.md`.
+
 ## 1.0.0-beta.5
 
 - **Campaigns at a glance:** HQ home shows each campaign's stores for this weekend and next only (later ones are counted); the campaign page folds later weekends away like Done.
