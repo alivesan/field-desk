@@ -133,7 +133,7 @@ export function Report({
             store.city,
             store.admin && `Admin ${store.admin}`,
             submission ? (isLegacy(submission) ? `Submitted ${fmtDateTime(submission.submittedAt)}` : `${revLabel(submission).replace(/^rev/, 'Rev')} · submitted ${fmtDateTime(submission.submittedAt)}${submission.byName ? ` by ${submission.byName}` : ''}`) : 'Working draft',
-            submission && !isLegacy(submission) && (submission.reviewedAt ? `Reviewed ${fmtDate(submission.reviewedAt)}${submission.reviewedBy ? ` by ${submission.reviewedBy}` : ''}` : 'Not reviewed yet'),
+            submission && !isLegacy(submission) && (submission.reviewedAt ? `Recce approved ✓ ${fmtDate(submission.reviewedAt)}${submission.reviewedBy ? ` by ${submission.reviewedBy}` : ''}` : 'Not approved yet'),
           ]
             .filter(Boolean)
             .join(' · ')}

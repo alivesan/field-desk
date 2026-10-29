@@ -1,0 +1,88 @@
+/* Approve recce (report page), Finished / Close campaign controls and the finished notes. */
+
+.approve {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 24px;
+  flex-wrap: wrap;
+  margin: 0 0 28px;
+  padding: 18px 20px;
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+}
+.approve.done {
+  border-color: transparent;
+  background: var(--ok-soft);
+}
+.approve-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 260px;
+}
+.approve-text strong {
+  font: 400 26px/1.1 var(--serif);
+}
+.approve.done .approve-text strong {
+  color: var(--ok);
+}
+.approve-text span {
+  color: var(--ink-2);
+  font-size: 14px;
+}
+.btn.big {
+  min-height: 52px;
+  padding: 0 28px;
+  font-size: 16px;
+}
+.approve-problem {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--accent);
+  font-size: 14px;
+}
+
+/* Finished / complete: a compact line with its buttons (StoreFinish, CampaignClose, the store's HQ page). */
+.finish {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.finish-note {
+  color: var(--muted);
+  font-size: 13px;
+}
+.finish-panel {
+  margin: 20px 0;
+  padding: 16px 18px;
+  border: 1px solid var(--rule);
+}
+.finish-panel.done {
+  border-color: transparent;
+  background: var(--ok-soft);
+}
+.finish-panel h2 {
+  font: 400 22px/1.15 var(--serif);
+  margin: 0 0 4px;
+}
+.finish-panel.done h2 {
+  color: var(--ok);
+}
+.finish-panel p {
+  margin: 0 0 12px;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+.finish-panel .finish {
+  margin-top: 4px;
+}
+.finished-note {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  background: var(--ok-soft);
+  color: var(--ok);
+  font-size: 14px;
+}

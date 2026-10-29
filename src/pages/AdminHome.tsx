@@ -4,6 +4,7 @@ import { PrintEntry } from '../components/PrintEntry.tsx';
 import { logout, useApp, usePendingWork, useSync } from '../lib/db.ts';
 import { assess } from '../lib/assess.ts';
 import { computeQueue } from '../lib/bracket.ts';
+import { storeFinished } from '../lib/done.ts';
 import { matchDayOpen } from '../lib/gate.ts';
 import { storeDate } from '../lib/recce.ts';
 import { isLegacy, revLabel, submissionState } from '../lib/submission.ts';
@@ -14,6 +15,7 @@ import { EmptyCard } from '../components/flair.tsx';
 import { daysUntil, greeting, whenLabel } from '../lib/stages.ts';
 import { winnersState } from '../lib/winnerInput.ts';
 import { useStoreName } from '../components/useStoreName.ts';
+import '../styles/done.css';
 
 /** Whether this device last left a store's submitted recce open. A convenience only — storage may be blocked. */
 const reccePref = (storeId: string) => {
@@ -84,7 +86,7 @@ function StoreTasks({ store, event, now, index }: { store: Store; event: Tournam
   const [recceShown, setRecceShown] = useState(() => reccePref(store.id));
   const folds = sent && open;
   const recceOpen = !folds || recceShown;
-  const sentLine = sent ? `${isLegacy(st.acknowledged) ? 'Submitted' : `Submitted ${revLabel(st.acknowledged!)}`}${st.kind === 'reviewed' ? ' · Reviewed by HQ ✓' : ' · HQ hasn’t opened it yet'}` : '';
+  const sentLine = sent ? `${isLegacy(st.acknowledged) ? 'Submitted' : `Submitted ${revLabel(st.acknowledged!)}`}${st.kind === 'reviewed' ? ' · Recce approved by HQ ✓' : ' · HQ hasn’t opened it yet'}` : '';
   const day = store.day;
   const q = day.matches.length ? computeQueue(day) : null;
   const names = Object.fromEntries(day.players.map((p) => [p.id, p.name]));
@@ -96,12 +98,13 @@ function StoreTasks({ store, event, now, index }: { store: Store; event: Tournam
   const collect = ws.kind === 'collect' || (ws.kind === 'saved' && ws.missing) || (ws.kind === 'stale' && !!q?.champion);
   const selfIn = Object.keys(day.checkIn).filter((pid) => day.checkInSource?.[pid] === 'self').length;
 
+  const finished = storeFinished(store, event).finished;
   const date = storeDate(store, event);
   const days = daysUntil(date, todayLocal(new Date(now)));
   const when = whenLabel(days);
 
   const recceNote = sent
-    ? `${st.kind === 'reviewed' ? 'Reviewed by HQ' : 'Sent to HQ'}${isLegacy(st.acknowledged) ? '' : ` · ${revLabel(st.acknowledged!)}`}`
+    ? `${st.kind === 'reviewed' ? 'Approved by HQ ✓' : 'Sent to HQ'}${isLegacy(st.acknowledged) ? '' : ` · ${revLabel(st.acknowledged!)}`}`
     : st.kind === 'waiting'
       ? 'Sending — goes when there’s signal'
       : st.kind === 'failed'
@@ -131,7 +134,7 @@ function StoreTasks({ store, event, now, index }: { store: Store; event: Tournam
             ? { label: 'Submit the recce update', href: `${base}/recce` }
             : !open
               ? { label: 'View the recce', href: `${base}/recce` } // closed: never point at match day
-              : !q?.champion && (days <= 0 || day.players.length)
+              : !finished && !q?.champion && (days <= 0 || day.players.length)
                 ? { label: 'Open match day', href: `${base}/day` }
                 : { label: 'View the report', href: `${base}/report` };
 
@@ -146,7 +149,7 @@ function StoreTasks({ store, event, now, index }: { store: Store; event: Tournam
   );
 
   return (
-    <article className={cx('task-card', sent && 'sent')} style={{ ['--i' as string]: index }}>
+    <article className={cx('task-card', sent && 'sent', finished && 'finished')} style={{ ['--i' as string]: index }}>
       <header>
         <div className="countdown">
           <span className={cx('count-pill', days >= 0 && days <= 1 && 'near', days < 0 && 'past')}>{when}</span>
@@ -159,6 +162,11 @@ function StoreTasks({ store, event, now, index }: { store: Store; event: Tournam
         <div className="task-where">{[store.city, store.address].filter(Boolean).join(' — ')}</div>
         <SteamCard store={store} />
         <PrintEntry store={store} />
+        {finished && (
+          <p className="finished-note" role="status">
+            Event finished — thank you!
+          </p>
+        )}
         <ol className="journey" aria-label="Your two steps">
           <li className={cx('jstep', sent ? 'done' : 'current')}>
             <span className={cx('jmark', sent && 'fd-pop')}>{sent ? <Tick /> : '01'}</span>
@@ -220,7 +228,7 @@ function StoreTasks({ store, event, now, index }: { store: Store; event: Tournam
               )}
               {step(
                 sent,
-                st.kind === 'reviewed' ? 'Reviewed by HQ' : 'Submit to HQ',
+                st.kind === 'reviewed' ? 'Recce approved by HQ ✓' : 'Submit to HQ',
                 st.kind === 'waiting'
                   ? 'Waiting to send — goes to HQ when there’s signal'
                   : st.kind === 'failed'

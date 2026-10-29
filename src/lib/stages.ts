@@ -5,9 +5,10 @@
  */
 import type { Store } from './types.ts';
 import { latestSubmission, submissionsOf } from './submission.ts';
+import { storeFinished } from './done.ts';
 import { finalResult, winnersState } from './winnerInput.ts';
 
-export type StageKey = 'recce' | 'reviewed' | 'players' | 'bracket' | 'live' | 'winners';
+export type StageKey = 'recce' | 'reviewed' | 'players' | 'bracket' | 'live' | 'winners' | 'finished';
 export type StageState = 'done' | 'current' | 'todo';
 
 export interface Stage {
@@ -16,21 +17,26 @@ export interface Stage {
   state: StageState;
   /** The current step is a tournament that is under way right now. */
   live?: true;
+  /** What the dot means in words (a tooltip): how the step was done. */
+  note?: string;
 }
 
-export const STAGE_LABEL: Record<StageKey, string> = { recce: 'Recce', reviewed: 'Reviewed', players: 'Players', bracket: 'Bracket', live: 'Live', winners: 'Winners' };
-const ORDER: StageKey[] = ['recce', 'reviewed', 'players', 'bracket', 'live', 'winners'];
+export const STAGE_LABEL: Record<StageKey, string> = { recce: 'Recce', reviewed: 'Approved', players: 'Players', bracket: 'Bracket', live: 'Live', winners: 'Winners', finished: 'Finished' };
+const ORDER: StageKey[] = ['recce', 'reviewed', 'players', 'bracket', 'live', 'winners', 'finished'];
+/** The steps that make a campaign's progress: every one but the last, which only says the event is over. */
+const PROGRESS: StageKey[] = ORDER.slice(0, -1);
 
 /** Some real (non-bye) match has been called or played. */
 const underway = (s: Store) => s.day.matches.some((m) => !m.bye && m.status !== 'pending');
 /** A match is on a station right now. */
 export const isLiveNow = (s: Store) => s.day.matches.some((m) => !m.bye && m.status === 'live');
 
-/** The six steps of a store, each done / current (the first one not done, plus Live while a tournament is under way) / todo. */
+/** The seven steps of a store, each done / current (the first one not done, plus Live while a tournament is under way) / todo. */
 export function storeStages(store: Store): Stage[] {
   const day = store.day;
   const subs = submissionsOf(store);
   const ws = winnersState(day);
+  const fin = storeFinished(store);
   const done: Record<StageKey, boolean> = {
     recce: subs.length > 0,
     reviewed: subs.some((x) => !!x.reviewedAt),
@@ -38,12 +44,15 @@ export function storeStages(store: Store): Stage[] {
     bracket: day.matches.length > 0,
     live: !!finalResult(day.matches),
     winners: ws.kind === 'saved' && !ws.missing,
+    finished: fin.finished,
   };
   const current = ORDER.find((k) => !done[k]);
   const going = !done.live && underway(store); // a tournament under way is "live" even if an earlier step (the recce) was never ticked
   return ORDER.map((key) => {
     const stage: Stage = { key, label: STAGE_LABEL[key], state: done[key] ? 'done' : key === current || (key === 'live' && going) ? 'current' : 'todo' };
     if (key === 'live' && going) stage.live = true;
+    if (key === 'reviewed' && done.reviewed) stage.note = 'Recce approved ✓';
+    if (key === 'finished' && fin.finished) stage.note = fin.how === 'manual' ? `Marked finished by ${fin.by || 'HQ'}` : 'Finished — the final is played and the winner details are saved';
     return stage;
   });
 }
@@ -60,20 +69,20 @@ export interface CampaignProgress {
   players: number; // stores with a player list
   brackets: number; // stores with a bracket
   winners: number; // stores with both winners' details saved
-  /** Steps done across the whole campaign, 0..1 (six steps per store). */
+  /** Steps done across the whole campaign, 0..1 (six steps per store; Finished is not counted). */
   overall: number;
 }
 
 export function campaignProgress(stores: Store[]): CampaignProgress {
   const count = (key: StageKey) => stores.filter((s) => storeStages(s).find((x) => x.key === key)!.state === 'done').length;
-  const steps = stores.reduce((n, s) => n + storeStages(s).filter((x) => x.state === 'done').length, 0);
+  const steps = stores.reduce((n, s) => n + storeStages(s).filter((x) => x.state === 'done' && PROGRESS.includes(x.key)).length, 0);
   return {
     stores: stores.length,
     recce: count('recce'),
     players: count('players'),
     brackets: count('bracket'),
     winners: count('winners'),
-    overall: stores.length ? steps / (stores.length * ORDER.length) : 0,
+    overall: stores.length ? steps / (stores.length * PROGRESS.length) : 0,
   };
 }
 

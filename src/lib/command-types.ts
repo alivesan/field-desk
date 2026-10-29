@@ -37,8 +37,12 @@ export type Command =
   // submissions (src/lib/submission.ts)
   | { type: 'recce.submit'; base: number }
   | { type: 'recce.review'; base: number; submissionId: string }
+  | { type: 'recce.unreview'; base: number; submissionId: string } // HQ: take the approval of one revision back
   | { type: 'recce.delete'; base: number; submissionId: string } // HQ: drop one submitted revision; the working recce stays
-  | { type: 'recce.reset'; base: number }; // HQ: drop every revision and blank the working recce (base = revisions HQ saw)
+  | { type: 'recce.reset'; base: number } // HQ: drop every revision and blank the working recce (base = revisions HQ saw)
+  // the event is over (src/lib/done.ts): HQ marks a store finished by hand, or takes the mark back; `base` is informational
+  | { type: 'event.finish'; base: number }
+  | { type: 'event.reopen'; base: number };
 
 export type CommandType = Command['type'];
 

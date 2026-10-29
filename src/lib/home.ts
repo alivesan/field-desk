@@ -1,14 +1,16 @@
 /*
- * What HQ's home page shows, store by store: the recces still to review (next weekend's stores, plus any
- * of this weekend's that are still open), this weekend's events by day, and the campaign list. Weeks run
+ * What HQ's home page shows, store by store: the campaigns with their weekends, the recces still to review
+ * (next weekend's stores, plus any of this weekend's that are still open), this weekend's events by day and
+ * the recce reports worth a look now. Weeks run
  * Monday to Sunday and a weekday event belongs to its week's weekend (weekends.ts). Dates are local
  * yyyy-mm-dd strings and `today` is passed in, so nothing here reads a clock. Pure and Node-loadable.
  */
 import type { Store, TournamentEvent } from './types.ts';
-import { blankRecce, latestSubmission, sameJson } from './submission.ts';
+import { blankRecce, latestSubmission, sameJson, type AnySubmission } from './submission.ts';
 import { readRecce, storeDate } from './recce.ts';
 import { campaignProgress } from './stages.ts';
-import { dateRange, groupByWeekend, groupOfDate, nextWeekendOf, shortDay, weekendLabel, weekendOf, type Weekend } from './weekends.ts';
+import { campaignComplete, storeFinished } from './done.ts';
+import { dateRange, groupByWeekend, groupOfDate, groupStoresByWeekend, nextWeekendOf, shortDay, storeWhen, thisGroupLabel, weekendLabel, weekendOf, weekendShort, type Weekend } from './weekends.ts';
 
 /** Where a store's recce stands for HQ: nothing done, started, sent and waiting for review, or reviewed. */
 export type RecceState = 'not-started' | 'in-progress' | 'sent' | 'reviewed';
@@ -69,6 +71,16 @@ export interface WeekendDay {
   stores: HomeStore[];
 }
 
+/** One weekend of a campaign, with the stores playing in it. */
+export interface CampaignWeekend {
+  when: 'this' | 'next' | 'later';
+  /** "This weekend" (or "This week"), "Next weekend", or "Later". */
+  title: string;
+  /** "Sat 7 – Sun 8 Nov" */
+  label: string;
+  stores: Store[];
+}
+
 export interface CampaignRow {
   event: TournamentEvent;
   stores: Store[];
@@ -76,6 +88,15 @@ export interface CampaignRow {
   range: string;
   /** Steps done across the campaign's stores, 0..1. */
   progress: number;
+  /** The weekends still to play, this one first; finished and past stores are left out (see `done`). */
+  weekends: CampaignWeekend[];
+  /** Stores already played or finished. */
+  done: number;
+}
+
+/** A recce report waiting for HQ: the store's latest revision, not reviewed yet. */
+export interface ReportRow extends HomeStore {
+  sub: AnySubmission;
 }
 
 export interface HomeBuckets {
@@ -92,6 +113,24 @@ export interface HomeBuckets {
   /** The nearest weekend after this one that has a store ("Sat 7 Nov – Sun 8 Nov"), or '' when none. */
   nextWeekendLabel: string;
   campaigns: { current: CampaignRow[]; past: CampaignRow[] };
+}
+
+/**
+ * The recce reports HQ's home shows: a store's latest revision, not reviewed, for a store whose event day is this weekend
+ * (or what is left of this week) or next weekend — newest first. Reviewing one removes it; a weekend that is over drops off
+ * on the Monday. Everything else is on the campaign page and the store's report page.
+ */
+export function homeReports(state: { events: Record<string, TournamentEvent>; stores: Record<string, Store> }, today: string): ReportRow[] {
+  const rows: ReportRow[] = [];
+  for (const store of Object.values(state.stores)) {
+    const event = state.events[store.eventId];
+    const sub = event && latestSubmission(store);
+    if (!event || !sub || sub.reviewedAt) continue;
+    const date = storeDate(store, event);
+    if (!date || !['this', 'next'].includes(storeWhen(date, today))) continue;
+    rows.push({ store, event, date, sub });
+  }
+  return rows.sort((a, b) => b.sub.submittedAt.localeCompare(a.sub.submittedAt) || a.store.name.localeCompare(b.store.name));
 }
 
 const byDateName = (a: HomeStore, b: HomeStore) => a.date.localeCompare(b.date) || a.store.name.localeCompare(b.store.name);
@@ -143,15 +182,29 @@ export function homeBuckets(state: { events: Record<string, TournamentEvent>; st
   };
 }
 
-/** Campaigns by where their next store date falls: this weekend and later (nearest first), then past (latest first). */
+/**
+ * Campaigns by where their next store date falls: this weekend and later (nearest first), then past — complete or all dates over
+ * (latest first). A current campaign lists its weekends still to play, with the stores in each.
+ */
 function campaignRows(state: { events: Record<string, TournamentEvent>; stores: Record<string, Store> }, today: string) {
   const items = Object.values(state.events).sort((a, b) => a.name.localeCompare(b.name)).map((event) => { // by name, so campaigns with the same date keep a steady order
     const stores = Object.values(state.stores).filter((s) => s.eventId === event.id);
-    const dates = stores.length ? stores.map((s) => storeDate(s, event)) : [event.date];
-    const row: CampaignRow & { dates: string[] } = { event, stores, dates, range: dateRange(dates), progress: campaignProgress(stores).overall };
+    const dated = stores.map((store) => ({ store, date: storeDate(store, event) })).sort((a, b) => a.date.localeCompare(b.date) || a.store.name.localeCompare(b.store.name));
+    const dates = dated.length ? dated.map((x) => x.date) : [event.date];
+    const g = groupStoresByWeekend(dated, today, (x) => storeFinished(x.store, event).finished);
+    const weekends: CampaignWeekend[] = [
+      ...(g.this.length ? [{ when: 'this' as const, title: thisGroupLabel(g.this.map((x) => x.date)), label: weekendShort(weekendOf(g.this[0].date)), stores: g.this.map((x) => x.store) }] : []),
+      ...(g.next.length ? [{ when: 'next' as const, title: 'Next weekend', label: weekendShort(weekendOf(g.next[0].date)), stores: g.next.map((x) => x.store) }] : []),
+      ...g.later.map((w) => ({ when: 'later' as const, title: 'Later', label: weekendShort(w.weekend), stores: w.items.map((x) => x.store) })),
+    ];
+    const row: CampaignRow & { dates: string[]; complete: boolean } = {
+      event, stores, dates, range: dateRange(dates), progress: campaignProgress(stores).overall, weekends, done: g.done.length,
+      complete: campaignComplete(event, stores).complete || dates.every((d) => groupOfDate(d, today) === 'past'), // finished or closed by hand, or every date is over
+    };
     return row;
   });
-  const g = groupByWeekend(items, today);
-  const strip = ({ event, stores, range, progress }: CampaignRow): CampaignRow => ({ event, stores, range, progress });
-  return { current: [...g.this, ...g.upcoming.flatMap((w) => w.items)].map(strip), past: g.past.map(strip) };
+  const strip = ({ event, stores, range, progress, weekends, done }: CampaignRow): CampaignRow => ({ event, stores, range, progress, weekends, done });
+  const g = groupByWeekend(items.filter((c) => !c.complete), today);
+  const past = items.filter((c) => c.complete).sort((a, b) => b.dates.slice().sort().at(-1)!.localeCompare(a.dates.slice().sort().at(-1)!));
+  return { current: [...g.this, ...g.upcoming.flatMap((w) => w.items)].map(strip), past: past.map(strip) };
 }

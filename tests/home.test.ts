@@ -6,8 +6,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { applyCommand, type CommandContext } from '../src/lib/commands.ts';
-import { homeBuckets, recceState } from '../src/lib/home.ts';
-import { dateRange, nextWeekendOf } from '../src/lib/weekends.ts';
+import { homeBuckets, homeReports, recceState } from '../src/lib/home.ts';
+import { dateRange, groupStoresByWeekend, nextWeekendOf, storeWhen, weekendShort } from '../src/lib/weekends.ts';
 import type { Store, TournamentEvent } from '../src/lib/types.ts';
 import { fixtureEvent, fixtureStore } from './helpers/server.ts';
 
@@ -208,4 +208,130 @@ test('weekend helpers: the weekend after, and a span of dates', () => {
   assert.equal(dateRange(['2026-11-01', '2026-10-31', '2026-10-31']), 'Sat 31 Oct – Sun 1 Nov');
   assert.equal(dateRange(['2026-10-31']), 'Sat 31 Oct');
   assert.equal(dateRange([]), '');
+});
+
+/* ---------- the reports box, campaigns with their weekends, and the campaign page's grouping ---------- */
+
+/** A report sent at a given moment (the commands stamp their own time, so the stored one is overwritten). */
+const sentAt = (s: Store, e: TournamentEvent, at: string): Store => {
+  const x = sent(s, e);
+  return { ...x, submissions: x.submissions!.map((sub) => ({ ...sub, submittedAt: at })) };
+};
+
+test('reports box: unreviewed reports of this weekend and next, newest first; reviewed, later and past ones stay out', () => {
+  const e = ev('e1', '2026-10-31');
+  const stores = [
+    sentAt(mk('old', 'e1', { date: '2026-10-31' }), e, '2026-10-26T08:00:00.000Z'),
+    sentAt(mk('new', 'e1', { date: '2026-11-07' }), e, '2026-10-28T08:00:00.000Z'),
+    sentAt(mk('sun', 'e1', { date: '2026-11-01' }), e, '2026-10-27T08:00:00.000Z'),
+    reviewed(mk('done', 'e1', { date: '2026-10-31' }), e), // reviewed: it is on the campaign page
+    sentAt(mk('later', 'e1', { date: '2026-11-14' }), e, '2026-10-28T09:00:00.000Z'), // two weekends away
+    sentAt(mk('past', 'e1', { date: '2026-10-24' }), e, '2026-10-20T08:00:00.000Z'), // last weekend, never reviewed
+    mk('none', 'e1', { date: '2026-10-31' }), // no report yet
+  ];
+  assert.deepEqual(ids(homeReports(state([e], stores), TODAY)), ['new', 'sun', 'old']);
+});
+
+test('reports box: a weekday event of this or next week counts; reviewing a report takes it out', () => {
+  const e = ev('e1', '2026-10-30');
+  const wed = sentAt(mk('wed', 'e1', { date: '2026-11-04' }), e, '2026-10-28T08:00:00.000Z');
+  const fri = sentAt(mk('fri', 'e1', { date: '2026-10-30' }), e, '2026-10-27T08:00:00.000Z');
+  const mon = sentAt(mk('mon', 'e1', { date: '2026-10-26' }), e, '2026-10-26T08:00:00.000Z'); // Monday already happened
+  assert.deepEqual(ids(homeReports(state([e], [wed, fri, mon]), TODAY)), ['wed', 'fri']);
+  const done = run(fri, e, { type: 'recce.review', base: 1, submissionId: fri.submissions![0].id });
+  assert.deepEqual(ids(homeReports(state([e], [wed, done, mon]), TODAY)), ['wed']);
+});
+
+test('reports box: a re-submission after a review is back in the box', () => {
+  const e = ev('e1', '2026-11-07');
+  const r1 = reviewed(mk('s', 'e1', { date: '2026-11-07' }), e);
+  assert.equal(homeReports(state([e], [r1]), TODAY).length, 0);
+  const r2 = run(r1, e, { type: 'recce.submit', base: 1 }, 'admin');
+  assert.deepEqual(ids(homeReports(state([e], [r2]), TODAY)), ['s']);
+});
+
+test('reports box: Sunday still shows the weekend; the Monday after, its unreviewed reports are gone and next weekend’s remain', () => {
+  const e = ev('e1', '2026-10-31');
+  const stores = [
+    sentAt(mk('sat', 'e1', { date: '2026-10-31' }), e, '2026-10-27T08:00:00.000Z'),
+    sentAt(mk('n', 'e1', { date: '2026-11-07' }), e, '2026-10-28T08:00:00.000Z'),
+    sentAt(mk('nn', 'e1', { date: '2026-11-14' }), e, '2026-10-28T08:00:00.000Z'),
+  ];
+  assert.deepEqual(ids(homeReports(state([e], stores), '2026-11-01')).sort(), ['n', 'sat']);
+  assert.deepEqual(ids(homeReports(state([e], stores), '2026-11-02')).sort(), ['n', 'nn']); // Mon 2 Nov: Sat 7 is this weekend, Sat 14 next
+});
+
+test('reports box: stores of a missing campaign are tolerated', () => {
+  assert.deepEqual(homeReports(state([], [mk('x', 'gone')]), TODAY), []);
+});
+
+test('a campaign lists the weekends it still plays, with the stores in each; played stores are counted, not listed', () => {
+  const e = ev('e1', '2026-10-31', 'Clash');
+  const stores = [
+    mk('past', 'e1', { date: '2026-10-24' }),
+    mk('sat', 'e1', { date: '2026-10-31', name: 'B Store' }),
+    mk('sun', 'e1', { date: '2026-11-01', name: 'A Store' }),
+    mk('next', 'e1', { date: '2026-11-07' }),
+    mk('wed', 'e1', { date: '2026-11-11' }), // a weekday belongs to its week's weekend, Sat 14
+    mk('far', 'e1', { date: '2026-11-21' }),
+  ];
+  const [c] = homeBuckets(state([e], stores), TODAY).campaigns.current;
+  assert.deepEqual(c.weekends.map((w) => [w.when, w.title, w.label, w.stores.map((s) => s.id)]), [
+    ['this', 'This weekend', 'Sat 31 Oct – Sun 1 Nov', ['sat', 'sun']],
+    ['next', 'Next weekend', 'Sat 7 – Sun 8 Nov', ['next']],
+    ['later', 'Later', 'Sat 14 – Sun 15 Nov', ['wed']],
+    ['later', 'Later', 'Sat 21 – Sun 22 Nov', ['far']],
+  ]);
+  assert.equal(c.done, 1);
+});
+
+test('a campaign whose stores are all finished is past, even with dates ahead; one with a store left stays current', () => {
+  const e = ev('e1', '2026-11-07', 'Done');
+  const e2 = ev('e2', '2026-11-07', 'Open');
+  const closed = { ...ev('e3', '2026-11-14', 'Closed'), closedAt: '2026-10-28T10:00:00.000Z' };
+  const fin = (s: Store): Store => ({ ...s, finishedAt: '2026-10-28T10:00:00.000Z' });
+  const stores = [fin(mk('a', 'e1', { date: '2026-11-07' })), fin(mk('b', 'e2', { date: '2026-11-07' })), mk('c', 'e2', { date: '2026-11-07' }), mk('d', 'e3', { date: '2026-11-14' })];
+  const { campaigns: c } = homeBuckets(state([e, e2, closed], stores), TODAY);
+  assert.deepEqual(c.current.map((x) => x.event.id), ['e2']);
+  assert.deepEqual(c.past.map((x) => x.event.id).sort(), ['e1', 'e3']);
+  assert.deepEqual(c.current[0].weekends[0].stores.map((s) => s.id), ['c']); // the finished store is out of the list …
+  assert.equal(c.current[0].done, 1); // … and counted
+});
+
+test('store grouping for the campaign page: this weekend, next weekend, later by weekend, done', () => {
+  const at = (date: string) => ({ date, id: date });
+  const items = [at('2026-10-24'), at('2026-10-30'), at('2026-10-31'), at('2026-11-01'), at('2026-11-06'), at('2026-11-08'), at('2026-11-13'), at('2026-11-14'), at('2026-11-28')];
+  const g = groupStoresByWeekend(items, TODAY);
+  assert.deepEqual(g.done.map((x) => x.id), ['2026-10-24']);
+  assert.deepEqual(g.this.map((x) => x.id), ['2026-10-30', '2026-10-31', '2026-11-01']); // Fri, Sat, Sun
+  assert.deepEqual(g.next.map((x) => x.id), ['2026-11-06', '2026-11-08']);
+  assert.deepEqual(g.later.map((w) => [weekendShort(w.weekend), w.items.map((x) => x.id)]), [['Sat 14 – Sun 15 Nov', ['2026-11-13', '2026-11-14']], ['Sat 28 – Sun 29 Nov', ['2026-11-28']]]);
+});
+
+test('store grouping: a finished store is done whatever its date; weekend labels across a month end', () => {
+  const items = [{ date: '2026-10-31', id: 'fin' }, { date: '2026-10-31', id: 'open' }];
+  const g = groupStoresByWeekend(items, TODAY, (x) => x.id === 'fin');
+  assert.deepEqual([g.this.map((x) => x.id), g.done.map((x) => x.id)], [['open'], ['fin']]);
+  assert.equal(weekendShort({ sat: '2026-10-31', sun: '2026-11-01' }), 'Sat 31 Oct – Sun 1 Nov');
+  assert.equal(weekendShort({ sat: '2026-11-07', sun: '2026-11-08' }), 'Sat 7 – Sun 8 Nov');
+});
+
+test('Mon 2 Nov 2026: Home and the campaign page agree — last weekend is done, Sat 7 is this weekend, Sat 14 is next', () => {
+  const MON = '2026-11-02';
+  const e = ev('e1', '2026-10-31', 'Clash');
+  const stores = [mk('last', 'e1', { date: '2026-10-31' }), mk('sat7', 'e1', { date: '2026-11-07' }), mk('sun8', 'e1', { date: '2026-11-08' }), mk('sat14', 'e1', { date: '2026-11-14' }), mk('sat21', 'e1', { date: '2026-11-21' })];
+  const dated = stores.map((s) => ({ s, date: s.date! }));
+  const page = groupStoresByWeekend(dated, MON);
+  const home = homeBuckets(state([e], stores), MON);
+  assert.deepEqual(page.done.map((x) => x.s.id), ['last']);
+  assert.deepEqual(page.this.map((x) => x.s.id), ['sat7', 'sun8']);
+  assert.deepEqual(page.next.map((x) => x.s.id), ['sat14']);
+  assert.deepEqual(page.later.map((w) => w.items.map((x) => x.s.id)), [['sat21']]);
+  // Home's This weekend strip and the campaign row list the same stores, and the Recce to do weekend is the one after
+  assert.deepEqual(home.thisWeekend.days.flatMap((d) => ids(d.stores)), ['sat7', 'sun8']);
+  assert.deepEqual(home.campaigns.current[0].weekends.map((w) => [w.when, w.stores.map((s) => s.id)]), [['this', ['sat7', 'sun8']], ['next', ['sat14']], ['later', ['sat21']]]);
+  assert.equal(home.campaigns.current[0].done, 1);
+  assert.equal(home.recceTodo.label, 'Sat 14 Nov – Sun 15 Nov');
+  assert.equal(storeWhen('2026-10-31', MON), 'past');
+  assert.equal(storeWhen('2026-11-07', '2026-11-01'), 'next'); // the day before, Sunday: still next
 });

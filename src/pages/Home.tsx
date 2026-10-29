@@ -6,15 +6,16 @@ import { missingSummary } from '../lib/evidence.ts';
 import { parseGames } from '../lib/games.ts';
 import { onSpotCounts } from '../lib/onspot.ts';
 import { storeDate } from '../lib/recce.ts';
-import { homeBuckets, type CampaignRow, type HomeBuckets, type HomeStore, type RecceRow, type RecceState } from '../lib/home.ts';
+import { homeBuckets, homeReports, type CampaignRow, type HomeBuckets, type HomeStore, type RecceRow, type RecceState } from '../lib/home.ts';
 import { groupOfDate, shortDay } from '../lib/weekends.ts';
-import { isLiveNow, nextEventDate, storeStages, unreviewedReports, whenLabel, winnersMissing } from '../lib/stages.ts';
+import { isLiveNow, nextEventDate, storeStages, whenLabel, winnersMissing } from '../lib/stages.ts';
 import { seedDemo } from '../lib/demo.ts';
 import type { Store } from '../lib/types.ts';
 import { go } from '../lib/router.ts';
 import { cx, downloadBlob, fmtDate, fmtDateTime, todayLocal } from '../lib/util.ts';
 import { askConfirm, Chip, Field, notify, PageHead, Shell, toast, useNow } from '../components/ui.tsx';
 import { CountUp, EmptyCard, Ring, StageTrack } from '../components/flair.tsx';
+import { storeShortName } from '../lib/names.ts';
 import { useStoreName } from '../components/useStoreName.ts';
 import { PhoneAccess } from '../components/PhoneAccess.tsx';
 import { ReportsInbox } from '../components/ReportsInbox.tsx';
@@ -45,17 +46,7 @@ export function Home() {
 
       <TodayStrip />
 
-      {list.length > 0 && (
-        <>
-          <RecceTodo todo={home.recceTodo} />
-          <ThisWeekend week={home.thisWeekend} next={home.nextWeekendLabel} />
-        </>
-      )}
-
-      <PhoneAccess />
-      <ReportsInbox />
-
-      <section className="index">
+      <section className="index hc-section">
         <div className="index-head">
           <h2>Campaigns</h2>
           <button className="btn" onClick={() => setForm({ name: '', date: todayLocal(), games: '' })}>
@@ -102,6 +93,16 @@ export function Home() {
           )
         )}
       </section>
+
+      {list.length > 0 && (
+        <>
+          <RecceTodo todo={home.recceTodo} />
+          <ThisWeekend week={home.thisWeekend} next={home.nextWeekendLabel} />
+          <ReportsInbox />
+        </>
+      )}
+
+      <PhoneAccess />
 
       <DataTools showDemo={list.length > 0} />
     </Shell>
@@ -257,31 +258,73 @@ function WeekendItem({ x: { store, event }, i }: { x: HomeStore; i: number }) {
   );
 }
 
-/** Every campaign in one line; its stores, weekends and steps are on the campaign's own page. */
+/** Current & upcoming campaigns first, each with the weekends it still plays and the stores in them; Past is folded away. */
 function Campaigns({ campaigns }: { campaigns: HomeBuckets['campaigns'] }) {
   return (
     <>
-      {campaigns.current.length > 0 ? <CampaignList title="Current & upcoming" rows={campaigns.current} /> : <p className="ev-none">No current or upcoming campaigns.</p>}
+      {campaigns.current.length > 0 ? <CurrentCampaigns rows={campaigns.current} /> : <p className="ev-none">No current or upcoming campaigns.</p>}
       {campaigns.past.length > 0 && (
         <details className="hc-past">
           <summary>
             Past <b>{campaigns.past.length}</b>
           </summary>
-          <CampaignList rows={campaigns.past} />
+          <PastCampaigns rows={campaigns.past} />
         </details>
       )}
     </>
   );
 }
 
-function CampaignList({ title, rows }: { title?: string; rows: CampaignRow[] }) {
+const countStores = (n: number) => `${n} store${n === 1 ? '' : 's'}`;
+
+function CurrentCampaigns({ rows }: { rows: CampaignRow[] }) {
   return (
     <div className="hc">
-      {title && (
-        <h4 className="hc-title">
-          {title} <b>{rows.length}</b>
-        </h4>
-      )}
+      <h4 className="hc-title">
+        Current & upcoming <b>{rows.length}</b>
+      </h4>
+      <ol className="hc-list fd-stagger">
+        {rows.map((c, i) => {
+          const names = c.stores.map((s) => s.name);
+          return (
+            <li key={c.event.id} className="hc-camp" style={{ ['--i' as string]: i }}>
+              <div className="hc-top">
+                <a className="hc-main" href={`#/event/${c.event.id}`}>
+                  <span className="ev-name">{c.event.name}</span>
+                  <span className="ev-meta">
+                    {c.range} · {countStores(c.stores.length)}
+                    {c.done > 0 && ` · ${c.done} done`}
+                  </span>
+                </a>
+                {c.stores.length > 0 && <Ring value={c.progress} size={40} label={`${Math.round(c.progress * 100)} percent of the steps done across ${countStores(c.stores.length)}`} />}
+                <a className="btn ghost hc-open" href={`#/event/${c.event.id}`}>
+                  Open campaign
+                </a>
+              </div>
+              {c.weekends.map((w) => (
+                <div key={w.label} className={cx('hc-wk', w.when)}>
+                  <span className="hc-when">
+                    <b>{w.title}</b> {w.label}
+                  </span>
+                  <ul className="hc-places" aria-label={`${w.title}: ${countStores(w.stores.length)}`}>
+                    {w.stores.map((s) => (
+                      <li key={s.id}>{storeShortName(s.name, names)}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+/** Past campaigns: one line each. */
+function PastCampaigns({ rows }: { rows: CampaignRow[] }) {
+  return (
+    <div className="hc">
       <ol className="hc-list">
         {rows.map((c) => (
           <li key={c.event.id}>
@@ -289,10 +332,9 @@ function CampaignList({ title, rows }: { title?: string; rows: CampaignRow[] }) 
               <span className="hc-main">
                 <span className="ev-name">{c.event.name}</span>
                 <span className="ev-meta">
-                  {c.range} · {c.stores.length} store{c.stores.length === 1 ? '' : 's'}
+                  {c.range} · {countStores(c.stores.length)}
                 </span>
               </span>
-              {c.stores.length > 0 && <Ring value={c.progress} size={44} label={`${Math.round(c.progress * 100)} percent of the steps done across ${c.stores.length} stores`} />}
             </a>
           </li>
         ))}
@@ -317,7 +359,7 @@ function TodayStrip() {
   const counted = inWeek ? week.days.flatMap((d) => d.stores.map((x) => x.store)) : next ? stores.filter((s) => storeDate(s, events[s.eventId]) === next.date) : [];
   const campaigns = [...new Set(counted.length ? counted.map((s) => events[s.eventId].name) : Object.values(events).filter((e) => e.date === next?.date).map((e) => e.name))];
   const live = stores.filter(isLiveNow).length;
-  const reports = unreviewedReports(stores);
+  const reports = homeReports({ events, stores: all }, today).length; // the ones in the Recce reports box below
   const walkIns = onSpotCounts(stores).todo;
   const winners = stores.filter(winnersMissing).length;
   const soon = !!next && !next.past && next.days <= 1;
