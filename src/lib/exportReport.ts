@@ -37,7 +37,7 @@ export async function buildReportFile(event: TournamentEvent, store: Store, opts
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Recce — ${esc(store.name)} — ${esc(event.name)}${banner ? ' (incomplete)' : ''}</title>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..600&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
-<style>${baseCss}\n${reportCss}\n${evidenceCss}\nbody{padding:24px 16px 64px}</style></head>
+<style>${baseCss}\n${reportCss}\n${evidenceCss}\nbody{padding:24px 16px 64px}@media print{body{padding:0}}</style></head>
 <body>${body}</body></html>`;
 
   const rev = opts.submission && opts.submission.rev > 0 ? `-rev${opts.submission.rev}` : opts.submission ? '' : '-draft';

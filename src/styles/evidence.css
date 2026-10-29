@@ -141,4 +141,24 @@
   .ev-rev {
     display: none !important;
   }
+  .ev-banner {
+    margin: 0 0 8px;
+    padding: 6px 10px;
+    font-size: 8pt;
+  }
+  .ev-banner strong {
+    font-size: 7pt;
+  }
+  .ev-banner ul {
+    margin-top: 3px;
+  }
+  .ev-draft {
+    margin: 0 0 6px;
+    padding: 4px 8px;
+    font-size: 8pt;
+  }
+  .rp-photos .ev-ph {
+    padding: 4px;
+    font-size: 6.5pt;
+  }
 }

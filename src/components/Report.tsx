@@ -6,6 +6,7 @@ import { fmtCoord, mapUrl } from '../lib/geo.ts';
 import { readRecce, reccePhotoRefs, storeDate, venueRef, venueRefKind } from '../lib/recce.ts';
 import { isMeasure } from '../lib/speedtest.ts';
 import { isLegacy, revLabel, submissionPolicy, type AnySubmission } from '../lib/submission.ts';
+import { storePrefix, storeShortName } from '../lib/names.ts';
 import { cx, fmtDate, fmtDateTime, fmtTime } from '../lib/util.ts';
 
 /** When / how a photo was captured, kept apart from when it reached the app. */
@@ -62,22 +63,23 @@ export function Report({
   const done = (b: boolean) => (b ? 'Yes' : 'No');
   const gameCell = (l: (typeof r.laptops)[number], g: string) => (l.games[g] && l.launched?.[g] ? '✓' : l.games[g] ? 'Installed, not launched' : '✗');
 
+  const prefix = storePrefix(store.name);
+  const pin = (
+    <>
+      {store.mapsUrl && /^https?:\/\//i.test(store.mapsUrl) ? <a href={store.mapsUrl}>{ref ? fmtCoord(ref) : 'Open in Maps'}</a> : ref ? <a href={mapUrl(ref)}>{fmtCoord(ref)}</a> : '—'}
+      <small className="ev-sub">{refKind === 'hq' ? 'From HQ’s Maps link' : refKind === 'provisional' ? 'Provisional — from the first geotagged photo, not verified by HQ' : 'Not set — photo locations can’t be checked'}</small>
+    </>
+  );
+  const flagged = reccePhotoRefs(r).filter((p) => a.photoFlags[p.id]);
+
+  // Just the label under each photo: when and where it was taken is burned into the picture itself (and the hover title); only problems are listed, once, at the end.
   const photoGrid = (list: PhotoRef[]) =>
     list.length ? (
       <div className="rp-photos">
         {list.map((p) => (
           <figure key={p.id}>
-            {src(p.id) ? <img src={src(p.id)} alt={p.label} data-photo-id={p.id} /> : <div className="ph ev-ph">{banner ? 'Photo missing from this copy' : 'Photo not loaded yet'}</div>}
-            <figcaption>
-              <strong>{p.label}</strong>
-              <span>{photoTimes(p)}</span>
-              <span>{photoPlace(p)}</span>
-              {a.photoFlags[p.id]?.map((f) => (
-                <span key={f} className="warn">
-                  ⚑ {f}
-                </span>
-              ))}
-            </figcaption>
+            {src(p.id) ? <img src={src(p.id)} alt={p.label} title={`${photoTimes(p)} · ${photoPlace(p)}`} data-photo-id={p.id} /> : <div className="ph ev-ph">{banner ? 'Photo missing from this copy' : 'Photo not loaded yet'}</div>}
+            {p.label && <figcaption>{p.label}</figcaption>}
           </figure>
         ))}
       </div>
@@ -94,7 +96,7 @@ export function Report({
       </header>
       <dl>
         {rows.map(([k, v]) => (
-          <div key={k}>
+          <div key={k} className={typeof v === 'string' && v.length > 44 ? 'wide' : undefined}>
             <dt>{k}</dt>
             <dd>{v || '—'}</dd>
           </div>
@@ -122,64 +124,45 @@ export function Report({
       <header className="rp-mast">
         <div className="rp-kicker">
           <span>Store recce report</span>
-          <span>{event.name}</span>
+          <span>{[event.name, prefix].filter(Boolean).join(' · ')}</span>
         </div>
-        <h1>{store.name}</h1>
-        <div className="rp-meta">
-          <div>
-            <dt>Tournament day</dt>
-            <dd>{fmtDate(storeDate(store, event))}</dd>
-          </div>
-          <div>
-            <dt>Admin</dt>
-            <dd>{store.admin || '—'}</dd>
-          </div>
-          <div>
-            <dt>{submission ? 'Submitted' : 'Working draft'}</dt>
-            <dd>
-              {submission ? fmtDateTime(submission.submittedAt) : 'Not submitted as shown'}
-              {submission && !isLegacy(submission) && (
-                <small className="ev-sub">
-                  {revLabel(submission)}
-                  {submission.byName ? ` · by ${submission.byName}` : ''} · {submission.reviewedAt ? `reviewed ${fmtDateTime(submission.reviewedAt)}${submission.reviewedBy ? ` by ${submission.reviewedBy}` : ''}` : 'not reviewed yet'}
-                </small>
-              )}
-            </dd>
-          </div>
-          <div>
-            <dt>Venue location</dt>
-            <dd>
-              {store.mapsUrl && /^https?:\/\//i.test(store.mapsUrl) ? <a href={store.mapsUrl}>{ref ? fmtCoord(ref) : 'Open in Maps'}</a> : ref ? <a href={mapUrl(ref)}>{fmtCoord(ref)}</a> : '—'}
-              <small className="ev-sub">{refKind === 'hq' ? 'From HQ’s Maps link' : refKind === 'provisional' ? 'Provisional — from the first geotagged photo, not verified by HQ' : 'Not set — photo locations can’t be checked'}</small>
-            </dd>
-          </div>
-        </div>
-      </header>
-
-      <section className={cx('rp-verdict', a.verdict)}>
-        <div className="rp-verdict-word">{verdictLabel(a.verdict, !!submission)}</div>
-        <div className="rp-stats">
-          <div>
-            <strong>
-              {gameReady}
-              <small>/{a.policy.gameReadyTarget}</small>
-            </strong>
-            <span>Laptops game-ready</span>
-          </div>
-          <div>
-            <strong>
-              {num(r.network.speed?.down)}
-              <small> Mbps</small>
-            </strong>
-            <span>Download</span>
-          </div>
-          <div>
-            <strong>{yn(r.network.lan)}</strong>
-            <span>LAN</span>
-          </div>
-          <div>
-            <strong>{r.furniture.setup ? setup[r.furniture.setup] : '—'}</strong>
-            <span>Setup</span>
+        <h1>{storeShortName(store.name)}</h1>
+        <p className="rp-meta">
+          {[
+            fmtDate(storeDate(store, event)),
+            store.city,
+            store.admin && `Admin ${store.admin}`,
+            submission ? (isLegacy(submission) ? `Submitted ${fmtDateTime(submission.submittedAt)}` : `${revLabel(submission).replace(/^rev/, 'Rev')} · submitted ${fmtDateTime(submission.submittedAt)}${submission.byName ? ` by ${submission.byName}` : ''}`) : 'Working draft',
+            submission && !isLegacy(submission) && (submission.reviewedAt ? `Reviewed ${fmtDate(submission.reviewedAt)}${submission.reviewedBy ? ` by ${submission.reviewedBy}` : ''}` : 'Not reviewed yet'),
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </p>
+        <div className={cx('rp-verdict', a.verdict)}>
+          <div className="rp-verdict-word">{verdictLabel(a.verdict, !!submission)}</div>
+          <div className="rp-stats">
+            <div>
+              <strong>
+                {gameReady}
+                <small>/{a.policy.gameReadyTarget}</small>
+              </strong>
+              <span>Laptops game-ready</span>
+            </div>
+            <div>
+              <strong>
+                {num(r.network.speed?.down)}
+                <small> Mbps</small>
+              </strong>
+              <span>Download</span>
+            </div>
+            <div>
+              <strong>{yn(r.network.lan)}</strong>
+              <span>LAN</span>
+            </div>
+            <div>
+              <strong>{r.furniture.setup ? setup[r.furniture.setup] : '—'}</strong>
+              <span>Setup</span>
+            </div>
           </div>
         </div>
         {(a.issues.length > 0 || a.sections.some((s) => !s.done)) && (
@@ -196,16 +179,9 @@ export function Report({
             ))}
           </ul>
         )}
-      </section>
+      </header>
 
-      {r.summary && (
-        <blockquote className="rp-quote">
-          <p>{r.summary}</p>
-          <cite>— {store.admin || 'Admin'}, on site</cite>
-        </blockquote>
-      )}
-
-      {block({ n: '01', title: 'Venue', rows: [['Address', store.address], ['Venue spot', store.venue ?? ''], ...(r.venue.area ? [['Admin’s notes', r.venue.area] as [string, string]] : [])], photos: r.venue.photos })}
+      {block({ n: '01', title: 'Venue', rows: [['Address', store.address], ['Venue spot', store.venue ?? ''], ['Venue pin', pin], ...(r.venue.area ? [['Admin’s notes', r.venue.area] as [string, string]] : [])], photos: r.venue.photos })}
 
       {block({
         n: '02',
@@ -287,6 +263,32 @@ export function Report({
         ],
         photos: [...r.collateral.standeePhotos, ...r.collateral.chequePhotos],
       })}
+
+      {r.summary && (
+        <section className="rp-sec rp-notes">
+          <header>
+            <h2>Notes</h2>
+          </header>
+          <p>{r.summary}</p>
+          <cite>— {store.admin || 'Admin'}, on site</cite>
+        </section>
+      )}
+
+      {flagged.length > 0 && (
+        <section className="rp-sec rp-pnotes">
+          <header>
+            <h2>Photo notes</h2>
+            <span className="rp-state">{flagged.length} flagged</span>
+          </header>
+          <ul>
+            {flagged.map((p) => (
+              <li key={p.id}>
+                <b>{p.label || 'Photo'}</b> — {a.photoFlags[p.id].join('; ')}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <footer className="rp-foot">
         <span>
