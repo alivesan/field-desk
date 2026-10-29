@@ -258,7 +258,7 @@ function WeekendItem({ x: { store, event }, i }: { x: HomeStore; i: number }) {
   );
 }
 
-/** Current & upcoming campaigns first, each with the weekends it still plays and the stores in them; Past is folded away. */
+/** Current & upcoming campaigns first, each with this weekend's and next weekend's stores; Past is folded away. */
 function Campaigns({ campaigns }: { campaigns: HomeBuckets['campaigns'] }) {
   return (
     <>
@@ -294,6 +294,7 @@ function CurrentCampaigns({ rows }: { rows: CampaignRow[] }) {
                   <span className="ev-meta">
                     {c.range} · {countStores(c.stores.length)}
                     {c.done > 0 && ` · ${c.done} done`}
+                    {c.later > 0 && ` · ${c.later} later`}
                   </span>
                 </a>
                 {c.stores.length > 0 && <Ring value={c.progress} size={40} label={`${Math.round(c.progress * 100)} percent of the steps done across ${countStores(c.stores.length)}`} />}

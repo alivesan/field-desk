@@ -66,6 +66,7 @@ export function Report({
   const prefix = storePrefix(store.name);
   const pin = (
     <>
+      <span className="rp-pin-k">Venue pin</span>
       {store.mapsUrl && /^https?:\/\//i.test(store.mapsUrl) ? <a href={store.mapsUrl}>{ref ? fmtCoord(ref) : 'Open in Maps'}</a> : ref ? <a href={mapUrl(ref)}>{fmtCoord(ref)}</a> : '—'}
       <small className="ev-sub">{refKind === 'hq' ? 'From HQ’s Maps link' : refKind === 'provisional' ? 'Provisional — from the first geotagged photo, not verified by HQ' : 'Not set — photo locations can’t be checked'}</small>
     </>
@@ -73,9 +74,9 @@ export function Report({
   const flagged = reccePhotoRefs(r).filter((p) => a.photoFlags[p.id]);
 
   // Just the label under each photo: when and where it was taken is burned into the picture itself (and the hover title); only problems are listed, once, at the end.
-  const photoGrid = (list: PhotoRef[]) =>
+  const photoGrid = (list: PhotoRef[], solo?: boolean) =>
     list.length ? (
-      <div className="rp-photos">
+      <div className={cx('rp-photos', solo && 'solo', solo && list.length > 1 && 'multi')}>
         {list.map((p) => (
           <figure key={p.id}>
             {src(p.id) ? <img src={src(p.id)} alt={p.label} title={`${photoTimes(p)} · ${photoPlace(p)}`} data-photo-id={p.id} /> : <div className="ph ev-ph">{banner ? 'Photo missing from this copy' : 'Photo not loaded yet'}</div>}
@@ -87,8 +88,8 @@ export function Report({
       <p className="rp-none">No photos.</p>
     );
 
-  const block = ({ n, title, rows, photos, extra }: { n: string; title: string; rows: [string, ReactNode][]; photos?: PhotoRef[]; extra?: ReactNode }) => (
-    <section className="rp-sec">
+  const block = ({ n, title, rows, photos, extra, cls, solo }: { n: string; title: string; rows: [string, ReactNode][]; photos?: PhotoRef[]; extra?: ReactNode; cls?: string; solo?: boolean }) => (
+    <section className={cx('rp-sec', cls)}>
       <header>
         <span className="rp-n">{n}</span>
         <h2>{title}</h2>
@@ -96,14 +97,14 @@ export function Report({
       </header>
       <dl>
         {rows.map(([k, v]) => (
-          <div key={k} className={typeof v === 'string' && v.length > 44 ? 'wide' : undefined}>
+          <div key={k} className={typeof v === 'string' && v.length > 30 ? 'wide' : undefined}>
             <dt>{k}</dt>
             <dd>{v || '—'}</dd>
           </div>
         ))}
       </dl>
       {extra}
-      {photos && photoGrid(photos)}
+      {photos && photoGrid(photos, solo)}
     </section>
   );
 
@@ -127,6 +128,10 @@ export function Report({
           <span>{[event.name, prefix].filter(Boolean).join(' · ')}</span>
         </div>
         <h1>{storeShortName(store.name)}</h1>
+        <div className="rp-where">
+          <p className="rp-addr">{store.address || 'Address not set'}</p>
+          <div className="rp-pin">{pin}</div>
+        </div>
         <p className="rp-meta">
           {[
             fmtDate(storeDate(store, event)),
@@ -181,22 +186,27 @@ export function Report({
         )}
       </header>
 
-      {block({ n: '01', title: 'Venue', rows: [['Address', store.address], ['Venue spot', store.venue ?? ''], ['Venue pin', pin], ...(r.venue.area ? [['Admin’s notes', r.venue.area] as [string, string]] : [])], photos: r.venue.photos })}
+      <div className="rp-pair">
+        {block({ n: '01', title: 'Venue', cls: 'rp-venue', solo: true, rows: [['Venue spot', store.venue ?? ''], ...(r.venue.area ? [['Admin’s notes', r.venue.area] as [string, string]] : [])], photos: r.venue.photos })}
 
-      {block({
-        n: '02',
-        title: 'Setup',
-        rows: [
-          ['Setup', r.furniture.setup ? setup[r.furniture.setup] : ''],
-          ['Chairs', r.furniture.chairCount != null ? `${r.furniture.chairCount} × ${r.furniture.chairType || 'chairs'}` : r.furniture.chairType],
-          ...(r.furniture.setup === 'standard' ? [['Tablecloth', yn(r.furniture.tablecloth)] as [string, string]] : []),
-        ],
-        photos: r.furniture.photos,
-      })}
+        {block({
+          n: '02',
+          title: 'Setup',
+          cls: 'rp-setup',
+          solo: true,
+          rows: [
+            ['Setup', r.furniture.setup ? setup[r.furniture.setup] : ''],
+            ['Chairs', r.furniture.chairCount != null ? `${r.furniture.chairCount} × ${r.furniture.chairType || 'chairs'}` : r.furniture.chairType],
+            ...(r.furniture.setup === 'standard' ? [['Tablecloth', yn(r.furniture.tablecloth)] as [string, string]] : []),
+          ],
+          photos: r.furniture.photos,
+        })}
+      </div>
 
       {block({
         n: '03',
         title: 'Laptops',
+        cls: 'rp-laptops',
         rows: [
           ['At the store', String(r.laptops.length)],
           ['Game stations', `${gameReady} of ${game.length} fully ready`],

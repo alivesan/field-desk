@@ -88,6 +88,17 @@ export function toornamentLinkProblem(raw: string): string {
 export const toornamentPage = (l: ToornamentLink) =>
   `https://play.toornament.com/en_US/tournaments/${l.tournamentId}/${l.stageId ? `stages/${l.stageId}/` : ''}`;
 
+/**
+ * Where the bracket itself is on Toornament: the stage page (…/stages/<id>/) once a stage is known, else the
+ * tournament's stages list (…/stages/). A sheet's link is usually the registration page; the bracket isn't there.
+ */
+export function toornamentBracketPage(raw: string, stageId?: string): string {
+  const l = parseToornamentLink(raw);
+  if (typeof l === 'string') return raw;
+  const sid = l.stageId ?? stageId;
+  return `https://play.toornament.com/en_US/tournaments/${l.tournamentId}/stages/${sid ? `${sid}/` : ''}`;
+}
+
 /** The JSON URLs server/toornament-fetch.ts asks for. */
 export const toornamentApi = {
   tournament: (tid: string) => `${TOORNAMENT_API}tournaments/${tid}`,

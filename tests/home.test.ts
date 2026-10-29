@@ -265,7 +265,7 @@ test('reports box: stores of a missing campaign are tolerated', () => {
   assert.deepEqual(homeReports(state([], [mk('x', 'gone')]), TODAY), []);
 });
 
-test('a campaign lists the weekends it still plays, with the stores in each; played stores are counted, not listed', () => {
+test('a campaign lists this and next weekend, with the stores in each; played and later stores are counted, not listed', () => {
   const e = ev('e1', '2026-10-31', 'Clash');
   const stores = [
     mk('past', 'e1', { date: '2026-10-24' }),
@@ -279,10 +279,9 @@ test('a campaign lists the weekends it still plays, with the stores in each; pla
   assert.deepEqual(c.weekends.map((w) => [w.when, w.title, w.label, w.stores.map((s) => s.id)]), [
     ['this', 'This weekend', 'Sat 31 Oct – Sun 1 Nov', ['sat', 'sun']],
     ['next', 'Next weekend', 'Sat 7 – Sun 8 Nov', ['next']],
-    ['later', 'Later', 'Sat 14 – Sun 15 Nov', ['wed']],
-    ['later', 'Later', 'Sat 21 – Sun 22 Nov', ['far']],
   ]);
   assert.equal(c.done, 1);
+  assert.equal(c.later, 2); // the weekends after next are counted, not listed
 });
 
 test('a campaign whose stores are all finished is past, even with dates ahead; one with a store left stays current', () => {
@@ -329,8 +328,9 @@ test('Mon 2 Nov 2026: Home and the campaign page agree — last weekend is done,
   assert.deepEqual(page.later.map((w) => w.items.map((x) => x.s.id)), [['sat21']]);
   // Home's This weekend strip and the campaign row list the same stores, and the Recce to do weekend is the one after
   assert.deepEqual(home.thisWeekend.days.flatMap((d) => ids(d.stores)), ['sat7', 'sun8']);
-  assert.deepEqual(home.campaigns.current[0].weekends.map((w) => [w.when, w.stores.map((s) => s.id)]), [['this', ['sat7', 'sun8']], ['next', ['sat14']], ['later', ['sat21']]]);
+  assert.deepEqual(home.campaigns.current[0].weekends.map((w) => [w.when, w.stores.map((s) => s.id)]), [['this', ['sat7', 'sun8']], ['next', ['sat14']]]);
   assert.equal(home.campaigns.current[0].done, 1);
+  assert.equal(home.campaigns.current[0].later, 1);
   assert.equal(home.recceTodo.label, 'Sat 14 Nov – Sun 15 Nov');
   assert.equal(storeWhen('2026-10-31', MON), 'past');
   assert.equal(storeWhen('2026-11-07', '2026-11-01'), 'next'); // the day before, Sunday: still next
