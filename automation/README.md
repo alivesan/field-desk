@@ -76,7 +76,7 @@ Remaining owner checks: the other source mailboxes and additional Steam email la
 
 The earlier shared-download limitation is addressed by the PR #23 support below. The historical play-only workaround is no longer the worker's eligibility rule; live Download/shared-store acceptance is still an owner-assisted check.
 
-## Shared Play/Download holders: Field Desk PR #23
+## Shared Play/Download holders: Field Desk PR #23 (deployed)
 
 The directory's explicit eligibleStoreIds is authoritative: any non-empty list makes the account deliverable, even when assignedStoreId is null. Empty or malformed explicit lists never fall back to a primary. Only older API shapes with no list use assignedStoreId for compatibility. Purpose/date eligibility is computed by Field Desk, not guessed from holder names or by the worker.
 
@@ -85,3 +85,5 @@ Signed start events carrying eligibleStoreIds are acknowledged when storeId belo
 A scan deduplicates account-name search terms but retains every due request ID. It still selects the newest eligible email per account and sends one fitting requestId; Field Desk can display it on multiple eligible cards. A successful reply's displayedStoreIds satisfies only current matching-account lookups whose own freshness/deadline/newest-candidate checks fit that email. Undisplayed or unrelated watches remain open. displayed and request.status are interpreted for the chosen request; another displayed store cannot falsely complete that request. New emails with the same code remain eligible and the original email-identity idempotency keys/expiry are unchanged.
 
 The n8n workflow/export interface is unchanged for this update. Worker code and the mock implement the additive contract. The mock accepts configurable account/holder data and lookup-to-store/display callbacks, with eligibility and display metadata recomputed on idempotent replies. Production readiness remains read-only by default; its optional synthetic polling hint is restricted to a single eligible holder instead of selecting an arbitrary shared store.
+
+Deployment is confirmed: only the worker restarted, state schema migration and saved n8n publication/credentials were verified, and health/API/signature/close probes pass. Real Download/shared-store acceptance is pending the owner-assisted test; earlier individual-store Steam logins remain verified.
