@@ -216,12 +216,26 @@
       }
     },
     {
+      "id": "process-messages-one-at-a-time",
+      "name": "Process messages one at a time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
       "id": "get-full-message",
       "name": "Get full message",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1540,
+        1760,
         0
       ],
       "parameters": {
@@ -254,7 +268,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1760,
+        1980,
         0
       ],
       "parameters": {
@@ -267,7 +281,7 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ mailbox: $('MAILBOX ID').first().json.mailbox, provider: 'gmail', message: $json }) }}",
         "options": {
-          "timeout": 10000
+          "timeout": 30000
         }
       },
       "credentials": {
@@ -282,7 +296,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1980,
+        2200,
         0
       ],
       "parameters": {
@@ -316,7 +330,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2200,
+        2420,
         0
       ],
       "parameters": {
@@ -410,7 +424,7 @@
       "main": [
         [
           {
-            "node": "Get full message",
+            "node": "Process messages one at a time",
             "type": "main",
             "index": 0
           }
@@ -444,6 +458,36 @@
         [
           {
             "node": "Mark message read",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Process messages one at a time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark message read": {
+      "main": [
+        [
+          {
+            "node": "Process messages one at a time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process messages one at a time": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Get full message",
             "type": "main",
             "index": 0
           }

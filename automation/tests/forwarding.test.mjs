@@ -14,6 +14,28 @@ function message({ from = 'Relay <relay@example.com>', auth = 'mx.google.com; dm
   ], body: { data: Buffer.from(body).toString('base64url') } } };
 }
 const parse = (input, trustedForwarders = ['relay@example.com']) => parseEmail(normalize('gmail', input), now, { trustedForwarders });
+const quote = input => {
+  input.payload.body.data = Buffer.from(Buffer.from(input.payload.body.data, 'base64url').toString('utf8').split('\n').map(line => `> ${line}`).join('\n')).toString('base64url');
+  return input;
+};
+
+test('quoted forwarded headers and standalone code use the same normalized text', () => {
+  const parsed = parse(quote(message({ content: 'Dear store_alpha,\nA1B2C' })));
+  assert.equal(parsed.code, 'A1B2C');
+  assert.equal(parsed.username, 'store_alpha');
+});
+
+test('code labels accept capitalization without accepting lowercase code payloads', () => {
+  assert.equal(parse(message({ content: 'Dear store_alpha,\nYour Steam Guard Code IS: A1B2C' })).code, 'A1B2C');
+  for (const code of ['a1b2c', 'A1b2C']) {
+    assert.throws(() => parse(message({ content: `Dear store_alpha,\nYour Steam Guard Code IS: ${code}` })), /ambiguous_or_missing_code/);
+    assert.throws(() => parse(quote(message({ content: `Dear store_alpha,\n${code}` }))), /ambiguous_or_missing_code/);
+  }
+});
+
+test('different quoted codes remain ambiguous', () => {
+  assert.throws(() => parse(quote(message({ content: 'Dear store_alpha,\nA1B2C\nD3E4F' }))), /ambiguous_or_missing_code/);
+});
 
 test('trusted central Gmail forward delivers the original Steam code and account name', () => {
   const parsed = parse(message());

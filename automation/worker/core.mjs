@@ -53,8 +53,8 @@ export function parseEmail(email, now = Date.now(), { trustedForwarders = [] } =
     return time;
   };
   const times = [arrival, parseOriginalDate(email.originalDate)];
+  const lines = email.text.split(/\r?\n/).map(line => forwarded ? line.replace(/^\s*(?:>\s*)+/, '').trim() : line);
   if (forwarded) {
-    const lines = email.text.split(/\r?\n/).map(line => line.replace(/^\s*(?:>\s*)+/, '').trim());
     if (!lines.some(line => /^From\s*:/i.test(line) && addresses(line).length === 1 && addresses(line)[0] === 'noreply@steampowered.com')) throw new Error('forward_origin_unverified');
     const dates = lines.filter(line => /^(?:Date|Sent)\s*:/i.test(line)).map(line => line.replace(/^(?:Date|Sent)\s*:\s*/i, ''));
     if (dates.length !== 1) throw new Error('original_date_unverified');
@@ -62,11 +62,13 @@ export function parseEmail(email, now = Date.now(), { trustedForwarders = [] } =
   }
   if (times.some(time => time > now + 30_000 || now - time >= TTL)) throw new Error('expired_or_invalid_time');
   const received = Math.min(...times);
-  const combined = `${email.subject}\n${email.text}`;
+  const combined = `${email.subject}\n${lines.join('\n')}`;
   if (!/steam\s+guard|new\s+(?:device|computer)|access\s+from\s+a\s+new|login\s+code|log.?in\s+attempt/i.test(combined)) throw new Error('not_guard_email');
   const found = new Set();
-  for (const match of combined.matchAll(/(?:steam\s+guard|access|login|log.?in|security|verification)?\s*code\s*(?:is\s*:?|:)\s*([A-Z0-9]{5})\b/g)) found.add(match[1]);
-  for (const line of email.text.split(/\r?\n/)) if (/^[A-Z0-9]{5}$/.test(line.trim())) found.add(line.trim());
+  for (const match of combined.matchAll(/(?:steam\s+guard|access|login|log.?in|security|verification)?\s*code\s*(?:is\s*:?|:)\s*([A-Z0-9]{5})\b/gi)) {
+    if (/^[A-Z0-9]{5}$/.test(match[1])) found.add(match[1]);
+  }
+  for (const line of lines) if (/^[A-Z0-9]{5}$/.test(line.trim())) found.add(line.trim());
   if (found.size !== 1) throw new Error('ambiguous_or_missing_code');
   const usernames = new Set();
   for (const match of combined.matchAll(/(?:Steam\s+account(?:\s+name)?\s*[:：]\s*|Dear\s+)([A-Za-z0-9_]+)(?:[,\s]|$)/gi)) usernames.add(match[1].toLowerCase());

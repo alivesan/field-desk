@@ -14,7 +14,7 @@ const settings = {
 const credential = (type, name) => ({ [type]: { name } });
 const workerAuth = { authentication: 'genericCredentialType', genericAuthType: 'httpHeaderAuth', credentials: credential('httpHeaderAuth', 'OTP Worker') };
 const gmailAuth = { authentication: 'predefinedCredentialType', nodeCredentialType: 'gmailOAuth2', credentials: credential('gmailOAuth2', 'Central Gmail mailbox') };
-const node = (name, type, x, y, parameters, extra = {}) => ({ id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), name, type: `n8n-nodes-base.${type}`, typeVersion: { manualTrigger: 1, scheduleTrigger: 1.2, set: 3.4, if: 2.2, splitOut: 1, webhook: 2.1, respondToWebhook: 1.4, httpRequest: 4.2 }[type], position: [x, y], parameters, ...extra });
+const node = (name, type, x, y, parameters, extra = {}) => ({ id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), name, type: `n8n-nodes-base.${type}`, typeVersion: { manualTrigger: 1, scheduleTrigger: 1.2, set: 3.4, if: 2.2, splitOut: 1, splitInBatches: 3, webhook: 2.1, respondToWebhook: 1.4, httpRequest: 4.2 }[type], position: [x, y], parameters, ...extra });
 const connect = (connections, from, to, outputIndex = 0) => {
   const main = connections[from]?.main ?? [];
   while (main.length <= outputIndex) main.push([]);
@@ -27,7 +27,7 @@ const condition = (expression) => ({
 });
 const http = (name, x, y, parameters, auth) => {
   const { credentials: _credentialBinding, ...request } = parameters;
-  return node(name, 'httpRequest', x, y, { ...request, options: { ...request.options, timeout: 10000 } }, auth ? { credentials: auth.credentials } : {});
+  return node(name, 'httpRequest', x, y, { ...request, options: { ...request.options, timeout: request.options?.timeout ?? 10000 } }, auth ? { credentials: auth.credentials } : {});
 };
 const query = (pairs) => ({ sendQuery: true, queryParameters: { parameters: pairs.map(([name, value]) => ({ name, value })) } });
 const pagination = (mode, next, complete) => ({ pagination: { pagination: { paginationMode: mode, ...(mode === 'responseContainsNextURL' ? { nextURL: next } : { parameters: { parameters: [{ type: 'qs', name: 'pageToken', value: next }] } }), paginationCompleteWhen: 'other', completeExpression: complete, requestInterval: 100 } } });
@@ -46,22 +46,28 @@ function centralGmailWorkflow() {
     }, auth),
     node('Page has messages?', 'if', 1100, 0, condition('={{ Array.isArray($json.messages) && $json.messages.length > 0 }}')),
     node('One message per item', 'splitOut', 1320, 0, { fieldToSplitOut: 'messages', include: 'noOtherFields', options: {} }),
-    http('Get full message', 1540, 0, {
+    // v3 outputs are [done, loop]; feed each completed/rejected item back for the next.
+    node('Process messages one at a time', 'splitInBatches', 1540, 0, { batchSize: 1, options: {} }),
+    http('Get full message', 1760, 0, {
       method: 'GET', url: '={{ "https://gmail.googleapis.com/gmail/v1/users/me/messages/" + encodeURIComponent($json.id) }}', ...auth,
       ...query([['format', 'full']]),
     }, auth),
-    http('Process in worker', 1760, 0, {
+    http('Process in worker', 1980, 0, {
       method: 'POST', url: `${worker}/process`, ...workerAuth, sendBody: true, contentType: 'json', specifyBody: 'json',
       jsonBody: "={{ JSON.stringify({ mailbox: $('MAILBOX ID').first().json.mailbox, provider: 'gmail', message: $json }) }}",
+      // Account lookup and OTP delivery each have a ten-second worker deadline.
+      options: { timeout: 30000 },
     }, workerAuth),
-    node('Mark processed?', 'if', 1980, 0, condition('={{ $json.markProcessed === true }}')),
-    http('Mark message read', 2200, 0, {
+    node('Mark processed?', 'if', 2200, 0, condition('={{ $json.markProcessed === true }}')),
+    http('Mark message read', 2420, 0, {
       method: 'POST', url: '={{ "https://gmail.googleapis.com/gmail/v1/users/me/messages/" + encodeURIComponent($json.messageId) + "/modify" }}', ...auth,
       sendBody: true, contentType: 'json', specifyBody: 'json', jsonBody: '{"removeLabelIds":["UNREAD"]}',
     }, auth),
   ];
   const connections = {};
-  for (const [from, to] of [['Every 15 seconds', 'MAILBOX ID'], ['MAILBOX ID', 'Ask worker if due'], ['Ask worker if due', 'Due?'], ['Due?', 'List recent messages'], ['List recent messages', 'Page has messages?'], ['Page has messages?', 'One message per item'], ['One message per item', 'Get full message'], ['Get full message', 'Process in worker'], ['Process in worker', 'Mark processed?'], ['Mark processed?', 'Mark message read']]) connect(connections, from, to);
+  for (const [from, to] of [['Every 15 seconds', 'MAILBOX ID'], ['MAILBOX ID', 'Ask worker if due'], ['Ask worker if due', 'Due?'], ['Due?', 'List recent messages'], ['List recent messages', 'Page has messages?'], ['Page has messages?', 'One message per item'], ['One message per item', 'Process messages one at a time'], ['Get full message', 'Process in worker'], ['Process in worker', 'Mark processed?'], ['Mark processed?', 'Mark message read'], ['Mark message read', 'Process messages one at a time']]) connect(connections, from, to);
+  connect(connections, 'Process messages one at a time', 'Get full message', 1);
+  connect(connections, 'Mark processed?', 'Process messages one at a time', 1);
   return { name: 'Steam OTP - central Gmail mailbox', active: false, nodes, connections, settings };
 }
 
@@ -97,6 +103,7 @@ function mockDemoWorkflow() {
       jsonBody: '=' + JSON.stringify({ mockOnly: true, mailbox: 'central-gmail', provider: 'gmail', message: {
         id: 'mock-demo-{{ Date.now() }}', internalDate: '{{ String(Date.now()) }}', payload,
       } }),
+      options: { timeout: 30000 },
     }, workerAuth),
   ];
   const connections = {};

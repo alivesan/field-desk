@@ -30,7 +30,9 @@ test('every workflow imports inactive without saved execution or pinned mail dat
     assert.equal(workflow.pinData, undefined);
     assert.ok(workflow.nodes.every((node) => node.type !== 'n8n-nodes-base.code'));
     assert.ok(workflow.nodes.every((node) => node.parameters.credentials === undefined));
-    assert.ok(workflow.nodes.filter((node) => node.type === 'n8n-nodes-base.httpRequest').every((node) => node.parameters.options.timeout === 10000));
+    for (const request of workflow.nodes.filter((node) => node.type === 'n8n-nodes-base.httpRequest')) {
+      assert.equal(request.parameters.options.timeout, request.parameters.url === 'http://otp-worker:8787/process' ? 30000 : 10000);
+    }
   }
 });
 
@@ -54,6 +56,8 @@ test('central Gmail template uses worker query, pages, processes, and marks acce
     assert.equal(full.parameters.nodeCredentialType, 'gmailOAuth2');
     assert.match(JSON.stringify(full.parameters), /format.*full/);
     const process = byName(workflow, 'Process in worker');
+    assert.equal(process.parameters.options.timeout, 30000);
+    assert.equal(process.parameters.options.batching, undefined);
     assert.match(process.parameters.jsonBody, /provider: 'gmail'/);
     assert.match(process.parameters.jsonBody, /message: \$json/);
     assert.equal(process.credentials.httpHeaderAuth.name, 'OTP Worker');
@@ -62,6 +66,23 @@ test('central Gmail template uses worker query, pages, processes, and marks acce
     assert.match(mark.parameters.jsonBody, /removeLabelIds.*UNREAD/);
     assert.deepEqual(workflow.connections['Mark processed?'].main[0].map((edge) => edge.node), ['Mark message read']);
     assert.deepEqual(new Set(workflow.nodes.flatMap((node) => Object.keys(node.credentials ?? {}))), new Set(['httpHeaderAuth', 'gmailOAuth2']));
+});
+
+test('central Gmail completes each message before advancing on either processing outcome', () => {
+  const workflow = workflows['C-central-gmail.json'];
+  const loop = byName(workflow, 'Process messages one at a time');
+  assert.equal(loop.type, 'n8n-nodes-base.splitInBatches');
+  assert.equal(loop.typeVersion, 3);
+  assert.deepEqual(loop.parameters, { batchSize: 1, options: {} });
+  const destinations = (name, output = 0) => (workflow.connections[name]?.main[output] ?? []).map(edge => edge.node);
+  assert.deepEqual(destinations('One message per item'), [loop.name]);
+  assert.deepEqual(destinations(loop.name, 0), []);
+  assert.deepEqual(destinations(loop.name, 1), ['Get full message']);
+  assert.deepEqual(destinations('Get full message'), ['Process in worker']);
+  assert.deepEqual(destinations('Process in worker'), ['Mark processed?']);
+  assert.deepEqual(destinations('Mark processed?', 0), ['Mark message read']);
+  assert.deepEqual(destinations('Mark message read'), [loop.name]);
+  assert.deepEqual(destinations('Mark processed?', 1), [loop.name]);
 });
 
 test('webhook forwards binary raw body and signature to worker', () => {
