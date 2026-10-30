@@ -40,6 +40,13 @@ test('authenticated empty directory is ready without sending a polling hint', as
   assert.deepEqual(await checkProduction(h.options), { ready: true });
   assert.equal(h.calls.length, 5);
 });
+
+test('routine readiness does not trigger code lookup for an assigned account', async () => {
+  const h = harness(200, [{ username: 'review_test_user', assignedStoreId: 'synthetic-store' }]);
+  assert.deepEqual(await checkProduction(h.options), { ready: true });
+  assert.equal(h.calls.length, 5);
+  assert.ok(h.calls.filter(call => call.options.method === 'POST').every(call => !JSON.parse(call.options.body).accountUsername));
+});
 test('unexpected API failures fail readiness', async () => {
   const h = harness(500);
   await assert.rejects(checkProduction(h.options), /Unexpected Field Desk API status/);
@@ -48,7 +55,7 @@ test('unexpected API failures fail readiness', async () => {
 test('assigned-account readiness signs and repeats the identical polling hint', async () => {
   const hints = [];
   const statuses = [200, 401, 400, 401, 200, 202, 200];
-  const result = await checkProduction({ env, log: () => {}, fetchImpl: async (url, options = {}) => {
+  const result = await checkProduction({ env, sendPollingHint: true, log: () => {}, fetchImpl: async (url, options = {}) => {
     assert.ok(statuses.length, 'unexpected extra readiness request');
     const status = statuses.shift();
     if (options.method === 'POST' && JSON.parse(options.body).accountUsername) {

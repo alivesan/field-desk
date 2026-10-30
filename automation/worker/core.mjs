@@ -34,17 +34,20 @@ export function normalize(provider, message) {
     receivedAt: message.receivedDateTime, text: message.body?.contentType?.toLowerCase() === 'html' ? textFromHtml(message.body.content) : message.body?.content || '' };
   throw new Error('invalid_provider');
 }
-export function parseEmail(email, now = Date.now(), { trustedForwarders = [] } = {}) {
+export function parseEmail(email, now = Date.now(), { trustedForwarders = [], allowRequestedRedirects = false, requestedUsernames = [] } = {}) {
   const arrival = Date.parse(email.receivedAt);
   if (!Number.isFinite(arrival) || arrival > now + 30_000 || now - arrival >= TTL) throw new Error('expired_or_invalid_time');
   const direct = email.sender.length === 1 && email.sender[0] === 'noreply@steampowered.com';
   const forwarded = email.sender.length === 1 && trustedForwarders.map(addr).includes(email.sender[0]);
   if (!direct && !forwarded) throw new Error('sender_rejected');
-  // Multiple results can contain attacker-supplied headers. Fail closed until the
-  // receiving provider's real header layout has been verified with the owner.
+  // Owner-selected redirects can lose original authentication. This opt-in route
+  // requires an exact confirmed recipient and a live request for the body username.
+  const requestedRedirect = allowRequestedRedirects === true && direct && email.recipients.length === 1
+    && trustedForwarders.map(addr).includes(email.recipients[0]);
   const dmarcResults = [...email.auth.matchAll(/\bdmarc=([^;\s]+)/gi)];
   const authDomain = email.auth.match(/\bdmarc=pass\b[^;\r\n]*\bheader\.from=([^;\s]+)/i)?.[1]?.toLowerCase();
-  if (email.authCount !== 1 || dmarcResults.length !== 1 || !/^\s*mx\.google\.com\s*;/i.test(email.auth) || authDomain !== email.sender[0].split('@')[1]) throw new Error('sender_auth_unverified');
+  const authenticated = email.authCount === 1 && dmarcResults.length === 1 && /^\s*mx\.google\.com\s*;/i.test(email.auth) && authDomain === email.sender[0].split('@')[1];
+  if (!authenticated && !requestedRedirect) throw new Error('sender_auth_unverified');
   const parseOriginalDate = value => {
     // Reject timezone-less human forwarding dates instead of guessing server time.
     if (!/(?:[+-]\d{4}|\b(?:GMT|UTC))\s*(?:\([^)]*\))?$/i.test(value || '')) throw new Error('original_date_unverified');
@@ -71,9 +74,10 @@ export function parseEmail(email, now = Date.now(), { trustedForwarders = [] } =
   for (const line of lines) if (/^[A-Z0-9]{5}$/.test(line.trim())) found.add(line.trim());
   if (found.size !== 1) throw new Error('ambiguous_or_missing_code');
   const usernames = new Set();
-  for (const match of combined.matchAll(/(?:Steam\s+account(?:\s+name)?\s*[:：]\s*|Dear\s+)([A-Za-z0-9_]+)(?:[,\s]|$)/gi)) usernames.add(match[1].toLowerCase());
+  for (const match of lines.join('\n').matchAll(/(?:Steam\s+account(?:\s+name)?\s*[:：]\s*|Dear\s+)([A-Za-z0-9_]+)(?:[,\s]|$)/gi)) usernames.add(match[1].toLowerCase());
   if (usernames.size > 1) throw new Error('ambiguous_account_name');
   if (usernames.size !== 1) throw new Error('account_name_missing');
+  if (!authenticated && !requestedUsernames.map(addr).includes([...usernames][0])) throw new Error('no_active_request');
   return { code: [...found][0], username: [...usernames][0] || null, receivedAt: new Date(received).toISOString(), recipients: email.recipients };
 }
 export function matchAccount(parsed, accounts) {

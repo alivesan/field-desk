@@ -1,5 +1,6 @@
 import contextlib
 import io
+import json
 from pathlib import Path
 import runpy
 import shutil
@@ -46,8 +47,38 @@ class ProductionConfiguration(unittest.TestCase):
             self.assertEqual(len(list((root / 'data' / 'backups').glob('*.env'))), 1)
 
     def test_wrong_host_stops_before_reading_configuration(self):
-        with patch('socket.gethostname', return_value='unrelated-app-host'), self.assertRaises(SystemExit):
-            runpy.run_path(str(SOURCE), run_name='__main__')
+        for script in [SOURCE, SOURCE.with_name('enable-requested-redirects.py')]:
+            with patch('socket.gethostname', return_value='unrelated-app-host'), self.assertRaises(SystemExit):
+                runpy.run_path(str(script), run_name='__main__')
+
+    def test_request_policy_preserves_other_settings_and_is_repeat_safe(self):
+        source = SOURCE.with_name('enable-requested-redirects.py')
+        parent = SOURCE.parent.parent / 'test-output'
+        parent.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=parent) as directory:
+            root = Path(directory)
+            (root / 'scripts').mkdir()
+            (root / 'deploy').mkdir()
+            script = root / 'scripts' / source.name
+            shutil.copyfile(source, script)
+            mailbox = {'id': 'existing-central', 'provider': 'gmail', 'trustedForwarders': ['source@example.invalid']}
+            original = '# Keep comment\nWORKER_TOKEN=synthetic-private\nFD_API_KEY=synthetic-api\nMAILBOXES=' + json.dumps([mailbox]) + '\nOTHER_SETTING=preserved\n'
+            env = root / 'deploy' / '.env'
+            env.write_text(original)
+            output = io.StringIO()
+            with patch('socket.gethostname', return_value='field-desk-automation'), contextlib.redirect_stdout(output):
+                runpy.run_path(str(script), run_name='__main__')
+                changed = env.read_text()
+                runpy.run_path(str(script), run_name='__main__')
+            self.assertEqual(changed, env.read_text())
+            self.assertEqual([line for line in changed.splitlines() if not line.startswith('MAILBOXES=')], [line for line in original.splitlines() if not line.startswith('MAILBOXES=')])
+            updated = json.loads(next(line.split('=', 1)[1] for line in changed.splitlines() if line.startswith('MAILBOXES=')))
+            self.assertEqual(updated, [{**mailbox, 'requestOnly': True, 'allowRequestedRedirects': True}])
+            backups = list((root / 'data' / 'backups').glob('*.env'))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual(backups[0].read_text(), original)
+            for private in ['synthetic-private', 'synthetic-api', 'source@example.invalid']:
+                self.assertNotIn(private, output.getvalue())
 
 if __name__ == '__main__':
     unittest.main()

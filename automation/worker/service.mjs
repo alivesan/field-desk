@@ -2,8 +2,12 @@ import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { TTL, digest, normalize, parseEmail, matchAccount, verifySignature } from './core.mjs';
 
-const safeReasons = new Set(['invalid_message','invalid_provider','expired_or_invalid_time','sender_rejected','sender_auth_unverified','forward_origin_unverified','original_date_unverified','account_name_missing','not_guard_email','ambiguous_or_missing_code','ambiguous_account_name','invalid_accounts_response','unmatched_or_ambiguous_account','fielddesk_unavailable']);
+const safeReasons = new Set(['invalid_message','invalid_provider','expired_or_invalid_time','sender_rejected','sender_auth_unverified','forward_origin_unverified','original_date_unverified','account_name_missing','not_guard_email','ambiguous_or_missing_code','ambiguous_account_name','invalid_accounts_response','unmatched_or_ambiguous_account','fielddesk_unavailable','no_active_request']);
 export async function createService({ statePath, mailboxes, baseUrl, apiKey, webhookSecret, fetchImpl = fetch, now = Date.now }) {
+  for (const box of mailboxes) {
+    for (const name of ['requestOnly', 'allowRequestedRedirects']) if (box[name] !== undefined && typeof box[name] !== 'boolean') throw new Error('invalid_mailbox_policy');
+    if (box.allowRequestedRedirects && box.requestOnly !== true) throw new Error('redirects_require_request_only');
+  }
   let state = { delivered: {}, events: {}, boosts: {}, polls: {}, issues: [] };
   try { state = JSON.parse(await readFile(statePath, 'utf8')); } catch (e) { if (e.code !== 'ENOENT') throw new Error('state_unreadable'); }
   for (const key of ['delivered','events','boosts','polls']) if (!state[key] || typeof state[key] !== 'object') throw new Error('invalid_state');
@@ -33,7 +37,7 @@ export async function createService({ statePath, mailboxes, baseUrl, apiKey, web
       const box = mailbox(id); if (!box) return { status: 400, body: { error: 'unknown_mailbox' } };
       prune();
       const active = Object.values(state.boosts).filter(boost => boost.until > now());
-      const normalDue = !state.polls[id] || now() - state.polls[id] >= 60_000;
+      const normalDue = !box.requestOnly && (!state.polls[id] || now() - state.polls[id] >= 60_000);
       const fastDue = active.filter(boost => !boost.lastPoll || now() - boost.lastPoll >= 15_000);
       const due = normalDue || fastDue.length > 0;
       const mode = normalDue ? 'normal' : fastDue.length ? 'boosted' : 'idle';
@@ -57,18 +61,22 @@ export async function createService({ statePath, mailboxes, baseUrl, apiKey, web
       try {
         const email = normalize(input.provider, input.message); id = digest(`${box.id}\0${email.id}`);
         if (state.delivered[id]) return { status: 200, body: { status: 'already_delivered', markProcessed: true, messageId: email.id } };
-        const parsed = parseEmail(email, now(), { trustedForwarders: box.trustedForwarders || [] });
+        const requestedUsernames = Object.values(state.boosts).filter(boost => boost.until > now()).map(boost => boost.username);
+        const parsed = parseEmail(email, now(), { trustedForwarders: box.trustedForwarders || [], allowRequestedRedirects: box.allowRequestedRedirects === true, requestedUsernames });
+        const boostId = digest(parsed.username);
+        const boost = state.boosts[boostId];
+        const checkRequest = () => { if (box.requestOnly && (!boost || boost.until <= now())) throw new Error('no_active_request'); };
+        checkRequest();
         const accounts = await (await fd('/steam/accounts')).json();
         const account = matchAccount(parsed, accounts);
         // Recheck age after network delay. Never persist the code or the provider payload.
         if (now() - Date.parse(parsed.receivedAt) >= TTL) throw new Error('expired_or_invalid_time');
+        checkRequest();
         await fd('/steam/otp', { method: 'POST', headers: { 'Idempotency-Key': `steam-email-${id}` }, body: JSON.stringify({ accountUsername: account.username, code: parsed.code, receivedAt: parsed.receivedAt }) });
         state.delivered[id] = now();
-        const boostId = digest(String(account.username).toLowerCase());
-        const boost = state.boosts[boostId];
-        // Backlog mail must not close a newer login request's fast-poll window.
-        // Sender Date headers have second resolution; allow one second rounding.
-        if (boost && Date.parse(parsed.receivedAt) >= boost.until - TTL - 1000) delete state.boosts[boostId];
+        // Request-only mode ends after any fresh matching code is delivered.
+        // Legacy broad polling retains a newer window when processing backlog mail.
+        if (boost && (box.requestOnly || Date.parse(parsed.receivedAt) >= boost.until - TTL - 1000)) delete state.boosts[boostId];
         await save();
         return { status: 200, body: { status: 'delivered', markProcessed: true, messageId: email.id } };
       } catch (error) {

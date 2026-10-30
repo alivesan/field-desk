@@ -49,3 +49,11 @@ The editor's in-app-browser WebSocket failed before manual execution began; supp
 - Direct Outlook polling is outside this design. An unused Outlook normalization branch does not satisfy the Gmail-specific authentication/date checks; external sources must forward into the one supported Gmail inbox.
 
 Tournament workflows A/B remain deferred. This review does not establish Toornament write access or implement tournament synchronization.
+
+## Owner-directed request-only forwarding follow-up
+
+The owner clarified that the existing forwarded mail, including Spam, should be used when Get code is pressed; no Steam contact-email change or direct Hotmail connection is wanted. This supersedes the earlier blocked-route recommendation. Two explicit mailbox flags enable this policy: `requestOnly` disables broad scanning and requires a live signed account request for every delivery; `allowRequestedRedirects` permits exact Steam From plus one confirmed original recipient despite failed original authentication. The body must contain exactly one requested Steam username. This policy trusts the configured forwarding route and does not claim original sender verification.
+
+Request windows remain per account, survive restart, expire at ten minutes and are rechecked after account lookup. Successful delivery closes only that account's window even when its fresh email predates the button press. Original Date, uppercase code, ambiguity, assignment, deduplication, idempotency and no-secret-logging checks remain. A reviewer found subject-only username acceptance; extraction now requires the body and a regression rejects a subject-only account name.
+
+Validation: 46 Node tests and 3 Python setup tests pass, including signed request → redirected Spam → mock store card, no scan/delivery before a matching request, unrelated usernames, expired windows, restart, original expiry and preserved private settings. Routine production readiness no longer sends a valid account hint; explicit `--poll-hint` is required because it could trigger a real code delivery after activation. Runtime deployment/activation is checked separately; no real login-to-card success is claimed by these synthetic tests.
