@@ -13,7 +13,7 @@ The approved design reads **one central Gmail inbox**. Four original mailboxes (
 
 ## Message and account rules
 
-The [30 October audit](AUDIT.md) records verified production behavior, parser/readiness fixes and the remaining mailbox checks. Its new parser and sequential Gmail workflow changes are prepared in PR #17 but are not yet deployed. Apply them to the worker and existing inactive Gmail workflow before enabling email delivery; see the deployment guide's workflow update procedure.
+The [30 October audit](AUDIT.md) records verified production behavior, parser/readiness fixes and the remaining mailbox checks. The reviewed worker fixes and sequential Gmail workflow, including Spam scanning, are now deployed. The existing Gmail workflow ID and credential bindings were preserved, and it remains inactive pending OAuth and real-message validation.
 
 `MAILBOXES` contains one entry, for example `central-gmail`, with `provider: "gmail"`. Its optional `trustedForwarders` list must contain the **four exact source addresses** supplied by the owner before forwarded mail is accepted. The example environment leaves this list empty. Do not enable source-account forwarding until the owner confirms the addresses and the central inbox is ready.
 
@@ -46,6 +46,8 @@ With Docker Desktop, generate a local ignored `.env` using `node automation/scri
 2. Import the central Gmail workflow and set its `MAILBOX ID` to the configured ID. Create **one** Google OAuth credential for the central inbox and bind it to its Gmail nodes. Gmail API modify scope is needed to read messages and mark them read. For a Google app in testing, add the central account as a test user and resolve consent/token expiry before unattended polling.
 3. Bind the **OTP Worker** credential to worker HTTP nodes. Keep the workflow inactive while the owner supplies real automatic-forward and wrapped-forward samples and their Gmail authentication headers. Verify original timestamps, sender proof, username extraction and duplicate behavior against those samples.
 4. Only after owner confirmation, configure forwarding on the four source accounts and allowlist their exact addresses. No direct source-account OAuth credential is used by this design. Activate delivery only after the mock workflow and Field Desk contract checks pass.
+
+For this VM, the owner signed in to Google Cloud and a dedicated **Field Desk Steam OTP** project was created with Gmail API enabled. The owner accepted Google's User Data Policy. Its OAuth web-client form is prepared with the exact callback `https://n8n.129-225-72-140.sslip.io/rest/oauth2-credential/callback`; final client creation, private credential entry and Gmail consent are owner steps. The n8n credential draft is named **Central Gmail mailbox**, with custom scope `https://www.googleapis.com/auth/gmail.modify` and HTTP Request access restricted to `gmail.googleapis.com`. Those draft settings are not evidence of a completed connection. Google Testing mode requires the central Gmail as a test user and normally expires its consent/tokens after seven days; finish the long-term Google app setup before unattended event use.
 
 The signed request webhook is `/webhook/steam-request` after the workflow is active. It forwards the raw request body to the worker, which checks `X-FieldDesk-Signature: sha256=<HMAC-SHA256>` and stores a ten-minute account-name polling window. Invalid signatures do not change polling. The webhook is a search hint; the automation never signs in to Steam.
 

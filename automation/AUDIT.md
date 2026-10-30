@@ -24,7 +24,7 @@ Additional recovery test: the mock commits a result, its reply is deliberately l
 
 Validation: **37 Node tests and 2 Python setup tests pass**; deterministic exports and whitespace checks pass. Loop parameter names and output ordering were checked against the pinned n8n source. The revised loop has structural tests; it has **not** yet run against a live Gmail credential, multiple real Gmail pages, or a production mailbox batch.
 
-These audit fixes are source changes in PR #17, **not deployed to the running VM**. Update worker source/recreate the worker and update the existing inactive Gmail workflow before activating email delivery. Copying workflow JSON and restarting Compose alone does not update n8n's database.
+These audit fixes from PR #17 are **now deployed to the running VM**, including the later Spam-scanning change. Before deployment, a consistent online n8n database backup, previous workflow export and source snapshot were saved privately on the VM. The existing inactive Gmail workflow was updated with the installed n8n CLI, preserving its ID, project and every existing credential binding; its imported nodes and inactive state were checked directly. Only the worker was recreated. The webhook stayed active; a new production check passed health/signature probes, account API 200, and accepted/deduplicated polling hints without submitting an OTP. Copying workflow JSON and restarting Compose alone would not update n8n's database.
 
 ## Before enabling delivery
 
