@@ -5,6 +5,9 @@
 - **Marketing** (HQ only, `#/marketing`, **Marketing** in the header): this weekend's and next weekend's campaigns, each with the **Discord post** (one message, a heading per day, with Copy) and a **WhatsApp promo per store** — caption, the store's poster, **Share poster + caption** (the phone's share sheet sends the picture with the text to WhatsApp), **Copy caption** and **Download poster**.
 - Prize pool, reporting time, first match, the three promo texts and the Discord invite are typed once per campaign (empty boxes use a default text with the game name); a missing Toornament or Maps link, or poster, is flagged on the card and stays readable in the text as `[Toornament link missing]`.
 - Stored as `event.marketing`, which admins and store teams never receive.
+- **This weekend only:** next weekend's stores join on the Monday, once their links are in.
+- **Fixed for the ROG Showdown:** ₹30,000 prize pool, reporting 11:00 AM, first match 12:30 PM. Empty boxes use these; type in a box only to change it for one campaign.
+- **Players — the night before:** a third block with one message per store for its registered players. It gives the venue, date, reporting and first match times, the Maps link, the **bracket page** on Toornament (`/stages/`, not the registration page), the rules, and the store admin's name and phone, signed "Team La-eGamers". A Tekken campaign starts with the owner's Tekken 8 rules; another game's rules are typed once per campaign. A missing link, admin or phone is flagged on the card.
 
 ## 1.0.0-beta.6
 

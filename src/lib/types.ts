@@ -273,7 +273,7 @@ export interface TournamentEvent {
   closedAt?: string; // ISO — HQ closed the campaign by hand (HQ-only field); it is also complete once every store is finished (src/lib/done.ts)
 }
 
-/** What HQ types once per campaign for the Marketing page; an empty field falls back to a default text or a visible [… missing] marker. */
+/** What HQ types once per campaign for the Marketing page; an empty field falls back to a default (the ROG Showdown's fixed prize pool and times, a stock text) or a visible [… missing] marker. */
 export interface EventMarketing {
   prizePool?: string; // "10,000" — the templates add the ₹
   reportingTime?: string; // free text: "11:00 AM"
@@ -282,6 +282,8 @@ export interface EventMarketing {
   discordClosing?: string;
   whatsappIntro?: string;
   discordInvite?: string; // https link; default is the ROG Showdown server
+  playerIntro?: string; // the one line under the date in the night-before message to registered players
+  rules?: string; // the tournament rules in that message, one "– …" line each
 }
 
 /** The sheet link HQ imports this campaign's stores from — so next time it's one press on Refresh. */
