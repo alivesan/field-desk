@@ -175,3 +175,18 @@ test('Steam accounts come in with the file; a store assigned one needs it to exi
   // a file from before accounts existed imports as before
   assert.equal(parsed().state.accounts && Object.keys(parsed().state.accounts).length, 0);
 });
+
+test('a store’s Steam Guard lookup state is the server’s: a file can’t bring one in, and the current one stays', () => {
+  const theirs = { lookup: { id: 'file-lookup', requestedAt: '2026-10-20T00:00:00.000Z' }, seenThrough: '2026-10-20T00:00:00.000Z' };
+  const mine = { lookup: { id: 'live-lookup', requestedAt: '2026-10-24T06:00:00.000Z' }, dismissedAt: '2026-10-24T06:05:00.000Z' };
+  const inFile = (state?: unknown) => parsed(file({}, { stores: { s1: fixtureStore('s1', 'e1', 'a1', { updatedAt: '2026-10-25T00:00:00.000Z', ...(state ? { otpState: state } : {}) }), s9: fixtureStore('s9', 'e1', null, state ? { otpState: state } : {}) } }));
+  const doc = (plan: ReturnType<typeof planImport>, id: string) => plan.edits.find((e) => e.kind === 'stores' && e.id === id)!.doc as { otpState?: unknown };
+  const here = current();
+  (here.stores.s1 as { otpState?: unknown }).otpState = mine;
+  const plan = planImport(inFile(theirs), here);
+  assert.equal(plan.ok, true, plan.errors.join('\n'));
+  assert.deepEqual(doc(plan, 's1').otpState, mine, 'the server’s own stays');
+  assert.equal(doc(plan, 's9').otpState, undefined, 'a new store starts with none');
+  // none here: none after
+  assert.equal(doc(planImport(inFile(theirs), current()), 's1').otpState, undefined);
+});

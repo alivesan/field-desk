@@ -220,6 +220,9 @@ export function planImport(b: ParsedBackup, current: AppState, opts: ImportOptio
     }
     delete s.steamLogin; // what an admin's copy carries for the store's team — worked out by the server, never saved
     const cur = current.stores[s.id];
+    // The team's Steam Guard lookups are the server's alone: a file can't bring any in, and the current ones stay.
+    if (cur?.otpState) s.otpState = cur.otpState;
+    else delete s.otpState;
     // Submission history is written only by the server — keep what's there; never fabricate revisions.
     const dropped = (s.submissions?.length ?? 0) - (cur?.submissions?.length ?? 0);
     if (cur?.submissions) s.submissions = cur.submissions;

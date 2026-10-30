@@ -124,6 +124,21 @@ test('what a store sees of its account: the login and purpose, never its id, not
   assert.equal(steamLoginFor(store, undefined), undefined);
 });
 
+test('a store’s login carries the lookup its team started, and the old otpRequestedAt, when the server says so', () => {
+  const accounts = { x: acct('x') };
+  const store = { steam: { accountId: 'x', purpose: 'play' as const, assignedAt: '' } };
+  const otpLookup = { id: 'lookup-1', requestedAt: '2026-10-24T06:00:00.000Z' };
+  assert.deepEqual(steamLoginFor(store, accounts, { otpRequest: true, otpLookup, otpRequestedAt: otpLookup.requestedAt }), {
+    username: 'test_rog_x',
+    password: 'fake-pass-123',
+    purpose: 'play',
+    otpRequest: true,
+    otpLookup,
+    otpRequestedAt: otpLookup.requestedAt,
+  });
+  assert.equal('otpLookup' in steamLoginFor(store, accounts, { otpRequest: true })!, false);
+});
+
 test('the refusal says where it is already playing', () => {
   const w = world([{ id: 'a', date: SAT, steam: ['x', 'play'] }, { id: 'b', date: SAT }]);
   const clash = steamConflicts(w, 'b', 'x', 'play');

@@ -226,6 +226,15 @@ function validateStore(c: C, s: Rec, ctx: ValidationContext) {
     c.oneOf(st.purpose, 'steam.purpose', ['play', 'download']);
     c.time(st.assignedAt, 'steam.assignedAt');
   }
+  if (s.otpState !== undefined && c.obj(s.otpState, 'otpState')) {
+    const o = s.otpState;
+    if (o.lookup !== undefined && c.obj(o.lookup, 'otpState.lookup')) {
+      if (typeof o.lookup.id !== 'string' || !/^[\x21-\x7e]{1,200}$/.test(o.lookup.id)) c.bad('otpState.lookup.id', 'must be 1–200 visible ASCII characters');
+      c.time(o.lookup.requestedAt, 'otpState.lookup.requestedAt');
+    }
+    c.optTime(o.seenThrough, 'otpState.seenThrough');
+    c.optTime(o.dismissedAt, 'otpState.dismissedAt');
+  }
   if (s.steamLogin !== undefined) c.bad('steamLogin', 'is worked out by the server for the store’s team — it can’t be saved');
   c.optTime(s.finishedAt, 'finishedAt');
   c.optStr(s.finishedBy, 'finishedBy', 200);

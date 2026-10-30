@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Steam Guard, several PCs one after another:** an old code no longer blocks asking again. The card's button is now **Get code**; with a code on screen it also has **Logged in** (the code goes from every phone of the team) and **Check for new code** (a new look-up for the next email; the old code stays hidden).
+- Each press is its own look-up and tells the e-mail automation (a double tap within 5 seconds is one; 20 in ten minutes is the limit). The automation hears when a look-up ends (`steam.otp.request.closed`), can send the `requestId` it answers, and is told in the answer whether the code is on the card.
+- A code's own ten minutes are unchanged, and HQ's Steam page still shows every new code. Details in `docs/steam-otp-api.md`.
+
 - **Marketing** (HQ only, `#/marketing`, **Marketing** in the header): this weekend's and next weekend's campaigns, each with the **Discord post** (one message, a heading per day, with Copy) and a **WhatsApp promo per store** — caption, the store's poster, **Share poster + caption** (the phone's share sheet sends the picture with the text to WhatsApp), **Copy caption** and **Download poster**.
 - Prize pool, reporting time, first match, the three promo texts and the Discord invite are typed once per campaign (empty boxes use a default text with the game name); a missing Toornament or Maps link, or poster, is flagged on the card and stays readable in the text as `[Toornament link missing]`.
 - Stored as `event.marketing`, which admins and store teams never receive.

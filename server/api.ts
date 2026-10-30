@@ -5,10 +5,10 @@ import fs from 'node:fs';
 import { applyOps, diffDocs, DOC_KINDS, safeParse, validateOps, type Docs, type DocKind, type Op } from '../src/lib/ops.ts';
 import { ADMIN_CODE, normalizeStore, PRINT_TOKEN, validateDocument } from '../src/lib/schema.ts';
 import { applyCommand, COMMAND_ROLES, CommandError, validateCommand, type Command, type CommandContext } from '../src/lib/commands.ts';
-import type { PrintKind, SteamAccount, SteamOtp, Store, ToornamentSource, TournamentEvent } from '../src/lib/types.ts';
+import type { PrintKind, SteamAccount, SteamOtp, Store, StoreOtpState, ToornamentSource, TournamentEvent } from '../src/lib/types.ts';
 import { AUTO_ACTOR, EVENT_TZ, inZone } from '../src/lib/toornament-auto.ts';
 import { cleanPersonName, shortStoreName, teamActorName } from '../src/lib/teams.ts';
-import { currentSteamStore, liveOtp, OTP_TTL_MS, steamHolders, steamLoginFor } from '../src/lib/steam.ts';
+import { cardOtp, currentSteamStore, liveOtp, LOOKUP_WINDOW_MS, OTP_TTL_MS, steamHolders, steamLoginFor } from '../src/lib/steam.ts';
 import { isPrintKind, PRINT_KINDS, printSpecOf, thisWeekKits } from '../src/lib/print.ts';
 import { campaignStoreNames, storeShortName } from '../src/lib/names.ts';
 import { storeDate } from '../src/lib/recce.ts';
@@ -24,7 +24,7 @@ import { createPrinter } from './print.ts';
 import { fetchToornament } from './toornament-fetch.ts';
 import { createToornamentAuto, type ToornamentAutoOptions } from './toornament-auto.ts';
 import { lanOrigins, listensOnAll } from './lan.ts';
-import { bearerMatches, createKeyStore, createOtpRequests, otpFingerprint, steamOtpConfig, type SteamOtpOptions } from './steam-otp.ts';
+import { bearerMatches, createKeyStore, createOtpRequests, otpFingerprint, steamOtpConfig, type OtpWho, type SteamOtpOptions } from './steam-otp.ts';
 
 export { ADMIN_CODE };
 
@@ -56,8 +56,11 @@ export { ADMIN_CODE };
  *                             it, worked out per request, never stored)
  *   POST /api/batch           { id, ops } -> { seq }    field edits; idempotent per (id, payload)
  *   POST /api/command         { id, storeId, cmd } -> { seq }   tournament / submission commands
- *   POST /api/steam/otp-request  { storeId } -> { ok, requestedAt, duplicate }   the store's team / admin (or HQ) asks the
- *                             e-mail automation to look for the Steam Guard code (signed webhook; once a minute per store)
+ *   POST /api/steam/otp-request  { storeId, seen? } -> { ok, requestId, requestedAt, duplicate }   the store's team / admin (or HQ)
+ *                             starts a Steam Guard lookup: the e-mail automation is asked to watch for the next code (signed
+ *                             webhook; a new lookup each press, a double tap within 5 s is the same one, 20 per 10 minutes)
+ *   POST /api/steam/otp-dismiss  { storeId, receivedAt } -> { ok }   "Logged in": that code and older never show again
+ *                             (both write store.otpState, which no client batch may)
  *   GET  /api/stream          server-sent events: every commit, filtered per caller
  *   PUT  /api/photos/:id?store=<storeId>   jpeg body (write-once, owned by that store)
  *   GET  /api/photos/:id
@@ -80,7 +83,7 @@ export { ADMIN_CODE };
  * The Steam OTP automation (server/steam-otp.ts, docs/steam-otp-api.md) has its own bearer key and its own error shape
  * { error, message }; sessions are not accepted there and its key is accepted nowhere else:
  *   GET  /api/v1/steam/accounts   scope steam-accounts:read   the accounts and who holds each now (never a code)
- *   POST /api/v1/steam/otp        scope steam-otp:write       { accountUsername?, accountEmail?, code, receivedAt }
+ *   POST /api/v1/steam/otp        scope steam-otp:write       { accountUsername?, accountEmail?, code, receivedAt, requestId? }
  *
  * Public — no session, for players at the venue (server/public.ts has the limits):
  *   GET  /api/public/checkin/:token   { store, campaign, date, open } — nothing about players
@@ -153,6 +156,7 @@ const MAX_JSON = 4 * 1024 * 1024;
 const STEAM_BODY_MAX = 16 * 1024;
 const IDEMPOTENCY_KEY = /^[\x21-\x7e]{1,128}$/;
 const OTP_CODE = /^[A-Z0-9]{5}$/;
+const REQUEST_ID = /^[\x21-\x7e]{1,200}$/;
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
 const OTP_FUTURE_SKEW_MS = 30 * 1000;
 /** Store fields a field admin may change. Everything else (name, assignment, the team code `access`…) is HQ's. */
@@ -343,17 +347,35 @@ export function createApi(opts: ApiOptions) {
     return { ...day, players, ...(onSpot ? { onSpot } : {}) };
   }
 
+  /** The code a store's card may show now (cardOtp): the lookup state counts only while the feature is on, so turning it off leaves the plain code. */
+  const cardOtpOf = (s: Store, account: SteamAccount | undefined) => cardOtp(account, otpRequests.enabled ? s.otpState : undefined, now());
+
+  /** Whether a lookup is still watched for the store: open (its current one, inside its window), closed (ended, or its window has passed), or not known. */
+  function lookupStatus(store: Store | undefined, id: string): 'open' | 'closed' | 'unknown' {
+    const lookup = store?.otpState?.lookup;
+    if (lookup?.id === id) return now() - Date.parse(lookup.requestedAt) < LOOKUP_WINDOW_MS ? 'open' : 'closed';
+    const known = otpRequests.status(id);
+    return known?.closed && known.storeId === store?.id ? 'closed' : 'unknown';
+  }
+
   /**
-   * What else a store's team learns about its Steam login right now: the Steam Guard code while it is unexpired,
-   * and whether (and since when) it can ask for one. Only a store that still holds the account — its event day
-   * not past — gets any of it.
+   * What else a store's team learns about its Steam login right now: the Steam Guard code its card may show, and
+   * whether it can ask for one and the lookup it last started. Only a store that still holds the account — its event
+   * day not past — gets any of it.
    */
   function otpFor(s: Store, today: string) {
     const account = s.steam && docs.accounts[s.steam.accountId];
     const event = docs.events[s.eventId];
     const date = event ? storeDate(s, event) : s.date;
     if (!account || !date || date < today) return {};
-    return { otp: liveOtp(account, now()), otpRequest: otpRequests.enabled, otpRequestedAt: otpRequests.enabled ? otpRequests.requestedAt(s.id, now()) : undefined };
+    const lookup = otpRequests.enabled ? s.otpState?.lookup : undefined;
+    return {
+      otp: cardOtpOf(s, account),
+      otpRequest: otpRequests.enabled,
+      otpLookup: lookup,
+      // What cards cached before otpLookup read: the lookup's time, while it can still be answered.
+      otpRequestedAt: lookup && now() - Date.parse(lookup.requestedAt) < LOOKUP_WINDOW_MS ? lookup.requestedAt : undefined,
+    };
   }
 
   function visibleDocs(who: Who): Docs {
@@ -376,8 +398,9 @@ export function createApi(opts: ApiOptions) {
       ),
       stores: Object.fromEntries(
         stores.map((s) => {
-          // The team code signs people in: HQ's only. So is which account HQ picked (`steam`); the store gets its login instead.
-          const { roster: _hq, access: _code, steam: _pick, ...rest } = s;
+          // The team code signs people in: HQ's only. So is which account HQ picked (`steam`); the store gets its login instead
+          // (and the lookup it last started, inside it).
+          const { roster: _hq, access: _code, steam: _pick, otpState: _lookups, ...rest } = s;
           const steamLogin = steamLoginFor(s, docs.accounts, otpFor(s, today));
           return [s.id, { ...rest, ...(steamLogin ? { steamLogin } : {}), day: phonesForAdmins(rest.day) } as typeof s];
         }),
@@ -529,10 +552,14 @@ export function createApi(opts: ApiOptions) {
     const { work, touched } = workCopy(ops.map((o) => [o.k, o.id]));
     applyOps(work, ops);
     // A Steam Guard code is written by the server (POST /api/v1/steam/otp) and by nobody else — HQ's batches included.
+    // So is a store's record of its team's lookups (POST /api/steam/otp-request, /otp-dismiss).
     for (const [k, docId] of touched.values()) {
-      // (Deleting the whole account is HQ's call; it takes its code with it.)
+      // (Deleting the whole account or store is HQ's call; it takes the code or the record with it.)
       if (k === 'accounts' && work.accounts[docId] && canonical(work.accounts[docId]?.otp ?? null) !== canonical(docs.accounts[docId]?.otp ?? null)) {
         throw new HttpError(403, 'protected', 'A Steam Guard code is set by the server only.', { paths: [`accounts/${docId}.otp`] });
+      }
+      if (k === 'stores' && work.stores[docId] && canonical(work.stores[docId]?.otpState ?? null) !== canonical(docs.stores[docId]?.otpState ?? null)) {
+        throw new HttpError(403, 'protected', 'A store’s Steam Guard lookups are set by the server only.', { paths: [`stores/${docId}.otpState`] });
       }
     }
     // normalizeStore seeds day.checkInSource when stores load; seed it on write too (and tell every
@@ -597,6 +624,19 @@ export function createApi(opts: ApiOptions) {
     const ops = diffDocs({ events: {}, stores: {}, admins: {}, accounts: { [accountId]: account } }, { events: {}, stores: {}, admins: {}, accounts: { [accountId]: work.accounts[accountId] } });
     check(work, touched, true);
     const id = `steam-otp-${randomBytes(9).toString('base64url')}`;
+    commit(id, sha256(canonical({ ops })), work, touched, id, ops);
+  }
+
+  /** The server's own write of a store's Steam Guard lookup state: validated and committed like a batch, so every device of that team hears of it live. */
+  function recordOtpState(storeId: string, next: StoreOtpState) {
+    const store = docs.stores[storeId];
+    if (!store) return;
+    const { work, touched } = workCopy([['stores', storeId]]);
+    work.stores[storeId].otpState = next;
+    const ops = diffDocs({ events: {}, stores: { [storeId]: store }, admins: {}, accounts: {} }, { events: {}, stores: { [storeId]: work.stores[storeId] }, admins: {}, accounts: {} });
+    if (!ops.length) return;
+    check(work, touched, true);
+    const id = `steam-otp-state-${randomBytes(9).toString('base64url')}`;
     commit(id, sha256(canonical({ ops })), work, touched, id, ops);
   }
 
@@ -801,7 +841,7 @@ export function createApi(opts: ApiOptions) {
       return send(res, 200, { seq: runCommand(who, body.id, body.storeId, cmd) });
     }
 
-    if (route === 'POST /api/steam/otp-request') {
+    if (route === 'POST /api/steam/otp-request' || route === 'POST /api/steam/otp-dismiss') {
       const body = await readJson(req, 2000);
       const storeId = typeof body?.storeId === 'string' ? body.storeId : '';
       if (!/^[\w-]{1,64}$/.test(storeId)) throw new HttpError(400, 'bad-request', 'bad store id');
@@ -812,9 +852,43 @@ export function createApi(opts: ApiOptions) {
       const account = store.steam && docs.accounts[store.steam.accountId];
       const event = docs.events[store.eventId];
       if (!account || !event || storeDate(store, event) < eventToday()) throw new HttpError(409, 'conflict', 'This store has no Steam account to ask a code for.');
-      const r = otpRequests.request({ storeId, storeName: store.name, accountUsername: account.username, accountEmail: account.email?.trim() || undefined });
-      log('info', 'steam-otp-requested', { principal: who.principal, store: storeId, duplicate: r.duplicate });
-      return send(res, 200, { ok: true, requestedAt: r.at, duplicate: r.duplicate });
+      const asked: OtpWho = { storeId, storeName: store.name, accountUsername: account.username, accountEmail: account.email?.trim() || undefined };
+      const timeOf = (v: unknown) => (typeof v === 'string' && ISO_TIME.test(v) ? Date.parse(v) : NaN);
+      /** The newest code the team has moved past: never beyond the account's own newest code, so one the phone never saw stays. */
+      const movedPast = (seen: string | null | undefined) => {
+        const have = account.otp?.receivedAt;
+        const was = store.otpState?.seenThrough;
+        if (!seen || !have) return was;
+        const upTo = new Date(Math.min(Date.parse(seen), Date.parse(have))).toISOString();
+        return was && Date.parse(was) >= Date.parse(upTo) ? was : upTo;
+      };
+      const lookup = store.otpState?.lookup;
+      const live = lookup && now() - Date.parse(lookup.requestedAt) < LOOKUP_WINDOW_MS ? lookup : undefined;
+
+      if (route === 'POST /api/steam/otp-dismiss') {
+        if (!Number.isFinite(timeOf(body.receivedAt))) throw new HttpError(400, 'bad-request', 'receivedAt must be an ISO time.');
+        const seenThrough = movedPast(body.receivedAt as string) ?? (body.receivedAt as string);
+        recordOtpState(storeId, { seenThrough, dismissedAt: new Date(now()).toISOString() });
+        if (live) otpRequests.closeRequest(live.id, 'dismissed', { ...asked, requestedAt: live.requestedAt });
+        log('info', 'steam-otp-dismissed', { principal: who.principal, store: storeId, request: lookup?.id });
+        return send(res, 200, { ok: true });
+      }
+
+      const seen = body.seen;
+      if (seen !== undefined && seen !== null && !Number.isFinite(timeOf(seen))) throw new HttpError(400, 'bad-request', 'seen must be an ISO time, or left out.');
+      const seenThrough = movedPast(seen as string | null | undefined);
+      // A double tap is the lookup already made.
+      if (lookup && now() - Date.parse(lookup.requestedAt) < (opts.steam?.duplicateWithinMs ?? 5000)) {
+        if (seenThrough !== store.otpState?.seenThrough) recordOtpState(storeId, { ...store.otpState, seenThrough });
+        log('info', 'steam-otp-requested', { principal: who.principal, store: storeId, request: lookup.id, duplicate: true });
+        return send(res, 200, { ok: true, requestId: lookup.id, requestedAt: lookup.requestedAt, duplicate: true });
+      }
+      if (otpRequests.recentCount(storeId) >= (opts.steam?.maxLookupsPer10Min ?? 20)) throw new HttpError(429, 'too-many', 'Too many code requests — wait a minute, or call HQ.');
+      const r = otpRequests.request(asked);
+      recordOtpState(storeId, { lookup: { id: r.id, requestedAt: r.at }, ...(seenThrough ? { seenThrough } : {}) });
+      if (live) otpRequests.closeRequest(live.id, 'superseded', { ...asked, requestedAt: live.requestedAt });
+      log('info', 'steam-otp-requested', { principal: who.principal, store: storeId, request: r.id, duplicate: false });
+      return send(res, 200, { ok: true, requestId: r.id, requestedAt: r.at, duplicate: false });
     }
 
     if (route === 'GET /api/stream') {
@@ -1031,11 +1105,12 @@ export function createApi(opts: ApiOptions) {
     } catch {
       /* not JSON */
     }
-    const { accountUsername, accountEmail, code, receivedAt } = body ?? {};
+    const { accountUsername, accountEmail, code, receivedAt, requestId } = body ?? {};
     const named = (v: unknown) => v === undefined || typeof v === 'string';
     if (!body || !named(accountUsername) || !named(accountEmail) || (accountUsername === undefined && accountEmail === undefined) || typeof receivedAt !== 'string') {
       return steamFail(res, 400, 'invalid_body', 'Send { accountUsername and/or accountEmail, code, receivedAt } as JSON.');
     }
+    if (requestId !== undefined && (typeof requestId !== 'string' || !REQUEST_ID.test(requestId))) return steamFail(res, 400, 'invalid_request_id', 'requestId must be 1–200 visible ASCII characters.');
     const account = identifyAccount(accountUsername as string | undefined, accountEmail as string | undefined);
     if (!account) return steamFail(res, 400, 'unknown_account', 'No single Steam account matches that username / email.');
     if (typeof code !== 'string' || !OTP_CODE.test(code)) return steamFail(res, 400, 'invalid_code', 'code must be 5 capital letters or digits.');
@@ -1051,13 +1126,23 @@ export function createApi(opts: ApiOptions) {
       expiresAt: o.expiresAt,
     });
 
+    /** Beside the stored result, never inside it: whether the team's card shows this very code now, and the state of the lookup it answers. */
+    const alongside = (storeId: string, at: string) => {
+      const store = docs.stores[storeId];
+      const shown = store?.steam?.accountId === account.id ? cardOtpOf(store, docs.accounts[account.id]) : undefined;
+      return {
+        displayed: !!shown && Date.parse(shown.receivedAt) === Date.parse(at),
+        ...(typeof requestId === 'string' ? { request: { id: requestId, status: lookupStatus(store, requestId) } } : {}),
+      };
+    };
+
     // A retry of something already stored is answered from the stored result — before the time window, because a
     // retry after a lost answer may arrive when the code's own time has run out.
     const fingerprint = otpFingerprint(account.username, code, receivedMs);
     const seenKey = typeof key === 'string' ? otpKeys.get(key) : undefined;
     if (seenKey) {
       if (seenKey.fingerprint !== fingerprint) return steamFail(res, 409, 'idempotency_key_reused', 'That Idempotency-Key was used for a different request.');
-      return send(res, 200, { ...seenKey.result, duplicate: true });
+      return send(res, 200, { ...seenKey.result, duplicate: true, ...alongside(String(seenKey.result.assignedStoreId), String(seenKey.result.receivedAt)) });
     }
 
     const t = now();
@@ -1078,13 +1163,14 @@ export function createApi(opts: ApiOptions) {
       if (receivedMs < currentMs) return steamFail(res, 409, 'older_than_current', 'A newer code is already stored for that account.');
       if (receivedMs === currentMs) {
         if (current.code !== code) return steamFail(res, 409, 'conflicting_code', 'A different code is already stored with that receivedAt.');
-        return send(res, 200, { ...keep(result(account, store.id, current)), duplicate: true }); // expiry stays where it was
+        return send(res, 200, { ...keep(result(account, store.id, current)), duplicate: true, ...alongside(store.id, current.receivedAt) }); // expiry stays where it was
       }
     }
     const next: SteamOtp = { code, receivedAt: new Date(receivedMs).toISOString(), expiresAt: new Date(receivedMs + OTP_TTL_MS).toISOString() };
     recordOtp(account.id, next);
-    log('info', 'steam-otp-stored', { account: account.id, store: store.id });
-    return send(res, 200, keep(result(account, store.id, next)));
+    const along = alongside(store.id, next.receivedAt);
+    log('info', 'steam-otp-stored', { account: account.id, store: store.id, request: typeof requestId === 'string' ? requestId : undefined, displayed: along.displayed });
+    return send(res, 200, { ...keep(result(account, store.id, next)), ...along });
   }
 
   /* ---------- print files ---------- */

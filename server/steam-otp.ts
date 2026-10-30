@@ -1,14 +1,15 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Logger } from './log.ts';
+import { LOOKUP_GRACE_MS, LOOKUP_WINDOW_MS } from '../src/lib/steam.ts';
 
 /*
  * The server's side of the Steam Guard (OTP) automation — see docs/steam-otp-api.md.
  *
  *   FD_STEAM_API_KEY          bearer token of the automation: the ONLY credential /api/v1/steam/* accepts
  *                             (and accepted nowhere else). Unset = those routes answer 503 not_configured.
- *   FD_STEAM_WEBHOOK_URL      where a store's "Request code" is sent (steam.otp.requested), signed with
- *   FD_STEAM_WEBHOOK_SECRET   HMAC-SHA256 over the exact bytes sent. Both unset = the feature is off.
+ *   FD_STEAM_WEBHOOK_URL      where a store's "Get code" is sent (steam.otp.requested, and steam.otp.request.closed
+ *   FD_STEAM_WEBHOOK_SECRET   when it ends early), signed with HMAC-SHA256 over the exact bytes sent. Both unset = the feature is off.
  *
  * Nothing in here logs a request body, a code, a header or the webhook address.
  */
@@ -23,8 +24,10 @@ export interface SteamOtpOptions {
   retryDelaysMs?: number[];
   /** One delivery attempt gives up after this long. Default 5 s. */
   attemptTimeoutMs?: number;
-  /** One request per store per this long. Default 60 s. */
-  requestEveryMs?: number;
+  /** A press within this long of the store's last lookup is that same lookup (a double tap). Default 5 s. */
+  duplicateWithinMs?: number;
+  /** Lookups one store may start in 10 minutes. Default 20. */
+  maxLookupsPer10Min?: number;
 }
 
 export interface SteamOtpConfig {
@@ -98,14 +101,41 @@ export const otpFingerprint = (username: string, code: string, receivedMs: numbe
 
 /* ---------- the request webhook ---------- */
 
-export interface OtpRequestPayload {
-  id: string;
-  type: 'steam.otp.requested';
-  at: string;
+/** Who a lookup is for: the store and the account its team signs in with. */
+export interface OtpWho {
   storeId: string;
   storeName: string;
   accountUsername: string;
   accountEmail?: string;
+}
+
+export interface OtpRequestPayload {
+  id: string;
+  type: 'steam.otp.requested';
+  at: string;
+  /** = id and = at, under the names the automation's answers use. */
+  requestId: string;
+  requestedAt: string;
+  /** Emails dated from here on (a minute before the lookup) may answer it; the automation watches until `watchUntil`. */
+  acceptFrom: string;
+  watchUntil: string;
+  storeId: string;
+  storeName: string;
+  accountUsername: string;
+  accountEmail?: string;
+}
+
+export type OtpCloseReason = 'dismissed' | 'superseded';
+
+export interface OtpClosePayload {
+  id: string;
+  type: 'steam.otp.request.closed';
+  at: string;
+  requestId: string;
+  storeId: string;
+  accountUsername: string;
+  accountEmail?: string;
+  reason: OtpCloseReason;
 }
 
 export type Delivery = 'pending' | 'delivered' | 'failed';
@@ -114,43 +144,58 @@ export interface OtpRequestState {
   id: string;
   at: string;
   delivery: Delivery;
-  /** True when this call found a request made in the last minute instead of making a new one. */
-  duplicate: boolean;
 }
 
-interface Pending {
-  payload: OtpRequestPayload;
+/** One event on its way to the webhook: its bytes are made once; `stopped` ends the retries. */
+interface Job {
+  kind: 'request' | 'close';
+  id: string;
+  request: string;
+  store: string;
+  body: Buffer;
+  signature: string;
+  deadline: number;
+  stopped: boolean;
+  wake?: () => void;
+}
+
+/** A lookup started in the last 10 minutes: for the status answer and the per-store cap. */
+interface Recent {
+  storeId: string;
   atMs: number;
-  delivery: Delivery;
+  closed?: OtpCloseReason;
+  job: Job;
 }
 
-/** A request is a hint for the automation to look for the e-mail; it is answered for this long (the code's own life). */
-export const REQUEST_WINDOW_MS = 10 * 60 * 1000;
 const DEFAULT_DELAYS = [5000, 15000, 45000, 90000];
 
 /**
- * Remembers the last request of each store (in memory only — it is a polling hint, so one lost in a restart
- * costs the team a second press) and delivers it, signed, to the webhook: 2xx done; a timeout, a network
- * error or a 5xx is tried again later with the same id and the very same bytes until 10 minutes after `at`;
- * any other answer ends it.
+ * Delivers each lookup (a signed steam.otp.requested) to the webhook: 2xx done; a timeout, a network error or a 5xx
+ * is tried again later with the same id and the very same bytes until 10 minutes after `at`; any other answer ends
+ * it. A lookup that ends early (the team dismissed it, or started another) stops its retries and is followed by a
+ * steam.otp.request.closed, delivered the same way but only while the lookup could still be watched. Which lookup a
+ * store is on lives on the store document; this keeps only a short memory of the recent ones.
  */
 export function createOtpRequests(cfg: SteamOtpConfig['webhook'], o: SteamOtpOptions, now: () => number, log: Logger) {
   const delays = o.retryDelaysMs?.length ? o.retryDelaysMs : DEFAULT_DELAYS;
   const timeoutMs = o.attemptTimeoutMs ?? 5000;
-  const every = o.requestEveryMs ?? 60000;
-  const byStore = new Map<string, Pending>();
+  const recent = new Map<string, Recent>();
   const timers = new Set<ReturnType<typeof setTimeout>>();
   const inflight = new Set<AbortController>();
   let closed = false;
 
-  const sleep = (ms: number) =>
+  const sleep = (ms: number, job: Job) =>
     new Promise<void>((resolve) => {
-      const t = setTimeout(() => {
+      const wake = () => {
+        clearTimeout(t);
         timers.delete(t);
+        job.wake = undefined;
         resolve();
-      }, ms);
+      };
+      const t = setTimeout(wake, ms);
       t.unref();
       timers.add(t);
+      job.wake = wake;
     });
 
   /** One attempt: 'ok' (2xx), 'retry' (timeout / network / 5xx) or 'stop' (anything else). */
@@ -177,55 +222,97 @@ export function createOtpRequests(cfg: SteamOtpConfig['webhook'], o: SteamOtpOpt
     }
   }
 
-  async function deliver(p: Pending) {
-    // The bytes are made once: every retry sends exactly these, with the signature over exactly these.
-    const body = Buffer.from(JSON.stringify(p.payload), 'utf8');
-    const signature = `sha256=${createHmac('sha256', cfg!.secret).update(body).digest('hex')}`;
-    const deadline = p.atMs + REQUEST_WINDOW_MS;
-    for (let n = 0; !closed; n++) {
-      const outcome = await attempt(body, signature);
-      if (closed) return;
+  async function deliver(job: Job) {
+    for (let n = 0; !closed && !job.stopped; n++) {
+      const outcome = await attempt(job.body, job.signature);
+      if (closed || job.stopped) return;
       if (outcome === 'ok') {
-        p.delivery = 'delivered';
         return;
       }
       const delay = delays[Math.min(n, delays.length - 1)];
-      if (outcome === 'stop' || now() + delay > deadline) {
-        p.delivery = 'failed';
-        log('warn', 'steam-otp-request-undelivered', { id: p.payload.id, store: p.payload.storeId, attempts: n + 1, why: outcome === 'stop' ? 'refused' : 'out-of-time' });
+      if (outcome === 'stop' || now() + delay > job.deadline) {
+        if (job.kind === 'request') log('warn', 'steam-otp-request-undelivered', { id: job.id, store: job.store, attempts: n + 1, why: outcome === 'stop' ? 'refused' : 'out-of-time' });
+        // A worker that doesn't know the event answers 400 unsupported_event: expected, and final.
+        else log('info', outcome === 'stop' ? 'steam-otp-close-refused' : 'steam-otp-close-undelivered', { id: job.id, request: job.request, store: job.store });
         return;
       }
-      await sleep(delay);
+      await sleep(delay, job);
     }
   }
 
+  /** The bytes are made once: every retry sends exactly these, with the signature over exactly these. */
+  function send(kind: Job['kind'], payload: OtpRequestPayload | OtpClosePayload, request: string, store: string, deadline: number): Job {
+    const body = Buffer.from(JSON.stringify(payload), 'utf8');
+    const signature = `sha256=${createHmac('sha256', cfg!.secret).update(body).digest('hex')}`;
+    const job: Job = { kind, id: payload.id, request, store, body, signature, deadline, stopped: false };
+    void deliver(job).catch(() => {});
+    return job;
+  }
+
+  const prune = () => {
+    for (const [id, r] of recent) if (now() - r.atMs >= LOOKUP_WINDOW_MS) recent.delete(id);
+  };
+
   return {
     enabled: !!cfg,
-    /** Makes (and starts delivering) a request for the store, or returns the one made in the last minute. */
-    request(who: { storeId: string; storeName: string; accountUsername: string; accountEmail?: string }): OtpRequestState {
-      const prev = byStore.get(who.storeId);
-      if (prev && now() - prev.atMs < every) return { id: prev.payload.id, at: prev.payload.at, delivery: prev.delivery, duplicate: true };
+    /** Starts a new lookup for the store (always a new id) and delivers its event. */
+    request(who: OtpWho): OtpRequestState {
+      prune();
       const atMs = now();
+      const at = new Date(atMs).toISOString();
+      const id = randomUUID();
       const payload: OtpRequestPayload = {
-        id: randomUUID(),
+        id,
         type: 'steam.otp.requested',
-        at: new Date(atMs).toISOString(),
+        at,
+        requestId: id,
+        requestedAt: at,
+        acceptFrom: new Date(atMs - LOOKUP_GRACE_MS).toISOString(),
+        watchUntil: new Date(atMs + LOOKUP_WINDOW_MS).toISOString(),
         storeId: who.storeId,
         storeName: who.storeName,
         accountUsername: who.accountUsername,
         ...(who.accountEmail ? { accountEmail: who.accountEmail } : {}),
       };
-      const p: Pending = { payload, atMs, delivery: 'pending' };
-      byStore.set(who.storeId, p);
-      void deliver(p).catch(() => {
-        p.delivery = 'failed';
-      });
-      return { id: payload.id, at: payload.at, delivery: 'pending', duplicate: false };
+      const job = send('request', payload, id, who.storeId, atMs + LOOKUP_WINDOW_MS);
+      recent.set(id, { storeId: who.storeId, atMs, job });
+      return { id, at, delivery: 'pending' };
     },
-    /** When the store last asked, while that can still be answered. */
-    requestedAt(storeId: string, nowMs: number): string | undefined {
-      const p = byStore.get(storeId);
-      return p && nowMs - p.atMs < REQUEST_WINDOW_MS ? p.payload.at : undefined;
+    /** Ends a lookup early: its retries stop and the automation is told — unless its watch has run out anyway. */
+    closeRequest(id: string, reason: OtpCloseReason, who: OtpWho & { requestedAt: string }) {
+      prune();
+      const known = recent.get(id);
+      if (known) {
+        known.closed = reason;
+        known.job.stopped = true;
+        known.job.wake?.();
+      }
+      const deadline = Date.parse(who.requestedAt) + LOOKUP_WINDOW_MS;
+      if (now() >= deadline) return;
+      const payload: OtpClosePayload = {
+        id: randomUUID(),
+        type: 'steam.otp.request.closed',
+        at: new Date(now()).toISOString(),
+        requestId: id,
+        storeId: who.storeId,
+        accountUsername: who.accountUsername,
+        ...(who.accountEmail ? { accountEmail: who.accountEmail } : {}),
+        reason,
+      };
+      send('close', payload, id, who.storeId, deadline);
+    },
+    /** What is remembered of a recent lookup: its store, and why it ended if it did. */
+    status(id: string): { storeId: string; closed?: OtpCloseReason } | undefined {
+      prune();
+      const r = recent.get(id);
+      return r && { storeId: r.storeId, closed: r.closed };
+    },
+    /** How many lookups the store started in the last 10 minutes. */
+    recentCount(storeId: string): number {
+      prune();
+      let n = 0;
+      for (const r of recent.values()) if (r.storeId === storeId) n++;
+      return n;
     },
     close() {
       closed = true;
