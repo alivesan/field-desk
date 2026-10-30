@@ -72,8 +72,9 @@ export function OtpCode({ code, expiresAt, now }: { code: string; expiresAt: str
  * lasts, with Logged in and Check for new code when a team signs in on several PCs; "Waiting for a new Steam email…"
  * after a lookup was started; the Get code button when the server can ask; and the plain "call HQ" line whenever there
  * is no code. A code the team has moved past is hidden here at once, without waiting for the server's word.
+ * `brief` (the folded strip) keeps only the button, the waiting line or the code — no hints, no call-HQ line.
  */
-function OtpBlock({ storeId, login, hqPhone, compact }: { storeId: string; login: SteamLogin; hqPhone?: string; compact?: boolean }) {
+function OtpBlock({ storeId, login, hqPhone, compact, brief }: { storeId: string; login: SteamLogin; hqPhone?: string; compact?: boolean; brief?: boolean }) {
   const now = useNow(1000);
   const [asked, setAsked] = useState<SteamLogin['otpLookup']>();
   const [hiddenThrough, setHiddenThrough] = useState<string | undefined>(); // receivedAt of the newest code hidden here
@@ -133,7 +134,7 @@ function OtpBlock({ storeId, login, hqPhone, compact }: { storeId: string; login
               Check for new code
             </button>
           </div>
-          <p className="sc-hint">Signing in on another PC? Press Check for new code, then sign in — Steam emails a new code each time.</p>
+          {!brief && <p className="sc-hint">Signing in on another PC? Press Check for new code, then sign in — Steam emails a new code each time.</p>}
         </>
       )}
       {waiting && (
@@ -141,7 +142,7 @@ function OtpBlock({ storeId, login, hqPhone, compact }: { storeId: string; login
           <p className="sc-wait" role="status">
             Waiting for a new Steam email… ({clock(now - Date.parse(waiting))})
           </p>
-          <p className="sc-hint">Start the Steam sign-in on the PC — Steam only emails a code when a PC signs in.</p>
+          {!brief && <p className="sc-hint">Start the Steam sign-in on the PC — Steam only emails a code when a PC signs in.</p>}
         </>
       )}
       {!live && !waiting && login.otpRequest && (
@@ -149,10 +150,10 @@ function OtpBlock({ storeId, login, hqPhone, compact }: { storeId: string; login
           <button type="button" className="btn sc-ask" disabled={busy} onClick={() => void request()}>
             {busy ? 'Asking…' : 'Get code'}
           </button>
-          <p className="sc-hint">Press Get code, then sign in to Steam on the PC — Steam emails the code only then.</p>
+          {!brief && <p className="sc-hint">Press Get code, then sign in to Steam on the PC — Steam emails the code only then.</p>}
         </>
       )}
-      {!live && (
+      {!live && !brief && (
         <p className="sc-otp">
           {compact ? 'No code? Call HQ' : `${waiting ? 'No code yet? ' : ''}For the Steam Guard code (OTP), call HQ`}
           {hqPhone ? ': ' : '.'}
@@ -198,8 +199,9 @@ function LoginDetails({ login }: { login: SteamLogin }) {
 }
 
 /**
- * The match-day version: a thin strip above the tabs. Steam ID and "Login details" on one row; the ID, password and tips
- * open on demand (remembered per store for this tab), while the Steam Guard code block is always there.
+ * The match-day version: a thin strip above the tabs, folded by default to one row (Steam ID, Details) plus the code's
+ * own line — Get code, the waiting line, or the code with Logged in / Check for new code, which always shows. Details
+ * opens the password, the tips and the hints (remembered per store for this tab).
  */
 function SteamStrip({ storeId, login, hqPhone }: { storeId: string; login: SteamLogin; hqPhone?: string }) {
   const play = login.purpose === 'play';
@@ -225,11 +227,13 @@ function SteamStrip({ storeId, login, hqPhone }: { storeId: string; login: Steam
       <div className="sc-strip-row">
         <h3 className="sc-title">Steam</h3>
         <span className={play ? 'chip ok' : 'chip warn'}>{play ? 'For playing' : 'For downloads only'}</span>
-        <span className="sc-strip-id" title={login.username}>
-          {login.username}
-        </span>
+        {!open && (
+          <span className="sc-strip-id" title={login.username}>
+            {login.username}
+          </span>
+        )}
         <button type="button" className="btn ghost sc-strip-toggle" aria-expanded={open} aria-controls={`sc-details-${storeId}`} onClick={toggle}>
-          Login details
+          {open ? 'Less' : 'Details'}
         </button>
       </div>
       {open && (
@@ -237,7 +241,7 @@ function SteamStrip({ storeId, login, hqPhone }: { storeId: string; login: Steam
           <LoginDetails login={login} />
         </div>
       )}
-      <OtpBlock storeId={storeId} login={login} hqPhone={hqPhone} compact />
+      <OtpBlock storeId={storeId} login={login} hqPhone={hqPhone} compact brief={!open} />
     </section>
   );
 }
