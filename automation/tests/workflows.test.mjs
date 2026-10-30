@@ -31,7 +31,7 @@ test('every workflow imports inactive without saved execution or pinned mail dat
     assert.ok(workflow.nodes.every((node) => node.type !== 'n8n-nodes-base.code'));
     assert.ok(workflow.nodes.every((node) => node.parameters.credentials === undefined));
     for (const request of workflow.nodes.filter((node) => node.type === 'n8n-nodes-base.httpRequest')) {
-      assert.equal(request.parameters.options.timeout, request.parameters.url === 'http://otp-worker:8787/process' ? 30000 : 10000);
+      assert.equal(request.parameters.options.timeout, request.parameters.url === 'http://otp-worker:8787/process-batch' ? 120000 : request.parameters.url === 'http://otp-worker:8787/process' ? 30000 : 10000);
     }
   }
 });
@@ -58,10 +58,11 @@ test('central Gmail template uses worker query, pages, processes, and marks acce
     assert.equal(full.parameters.nodeCredentialType, 'gmailOAuth2');
     assert.match(JSON.stringify(full.parameters), /format.*full/);
     const process = byName(workflow, 'Process in worker');
-    assert.equal(process.parameters.options.timeout, 30000);
+    assert.equal(process.parameters.options.timeout, 120000);
     assert.equal(process.parameters.options.batching, undefined);
     assert.match(process.parameters.jsonBody, /provider: 'gmail'/);
-    assert.match(process.parameters.jsonBody, /message: \$json/);
+    assert.match(process.parameters.jsonBody, /messages: \$json.messages/);
+    assert.match(process.parameters.jsonBody, /requestIds:.*Ask worker if due/);
     assert.equal(process.credentials.httpHeaderAuth.name, 'OTP Worker');
     const mark = byName(workflow, 'Mark message read');
     assert.equal(mark.parameters.nodeCredentialType, 'gmailOAuth2');
@@ -70,21 +71,26 @@ test('central Gmail template uses worker query, pages, processes, and marks acce
     assert.deepEqual(new Set(workflow.nodes.flatMap((node) => Object.keys(node.credentials ?? {}))), new Set(['httpHeaderAuth', 'gmailOAuth2']));
 });
 
-test('central Gmail completes each message before advancing on either processing outcome', () => {
+test('central Gmail collects the full scan before ranking and marks each result sequentially', () => {
   const workflow = workflows['C-central-gmail.json'];
-  const loop = byName(workflow, 'Process messages one at a time');
+  const loop = byName(workflow, 'Fetch messages one at a time');
   assert.equal(loop.type, 'n8n-nodes-base.splitInBatches');
   assert.equal(loop.typeVersion, 3);
   assert.deepEqual(loop.parameters, { batchSize: 1, options: {} });
   const destinations = (name, output = 0) => (workflow.connections[name]?.main[output] ?? []).map(edge => edge.node);
   assert.deepEqual(destinations('One message per item'), [loop.name]);
-  assert.deepEqual(destinations(loop.name, 0), []);
+  assert.deepEqual(destinations(loop.name, 0), ['Collect scan messages']);
   assert.deepEqual(destinations(loop.name, 1), ['Get full message']);
-  assert.deepEqual(destinations('Get full message'), ['Process in worker']);
-  assert.deepEqual(destinations('Process in worker'), ['Mark processed?']);
+  assert.deepEqual(destinations('Get full message'), [loop.name]);
+  assert.deepEqual(byName(workflow, 'Collect scan messages').parameters, { aggregate: 'aggregateAllItemData', destinationFieldName: 'messages', include: 'allFields', options: { includeBinaries: false } });
+  assert.deepEqual(destinations('Collect scan messages'), ['Process in worker']);
+  assert.equal(byName(workflow, 'Process in worker').parameters.url, 'http://otp-worker:8787/process-batch');
+  assert.deepEqual(destinations('Process in worker'), ['One processing result per item']);
+  assert.deepEqual(destinations('One processing result per item'), ['Mark messages one at a time']);
+  assert.deepEqual(destinations('Mark messages one at a time', 1), ['Mark processed?']);
   assert.deepEqual(destinations('Mark processed?', 0), ['Mark message read']);
-  assert.deepEqual(destinations('Mark message read'), [loop.name]);
-  assert.deepEqual(destinations('Mark processed?', 1), [loop.name]);
+  assert.deepEqual(destinations('Mark message read'), ['Mark messages one at a time']);
+  assert.deepEqual(destinations('Mark processed?', 1), ['Mark messages one at a time']);
 });
 
 test('webhook forwards binary raw body and signature to worker', () => {

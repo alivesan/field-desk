@@ -220,8 +220,8 @@
       }
     },
     {
-      "id": "process-messages-one-at-a-time",
-      "name": "Process messages one at a time",
+      "id": "fetch-messages-one-at-a-time",
+      "name": "Fetch messages one at a time",
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
       "position": [
@@ -267,25 +267,43 @@
       }
     },
     {
-      "id": "process-in-worker",
-      "name": "Process in worker",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "id": "collect-scan-messages",
+      "name": "Collect scan messages",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
       "position": [
         1980,
         0
       ],
       "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "messages",
+        "include": "allFields",
+        "options": {
+          "includeBinaries": false
+        }
+      }
+    },
+    {
+      "id": "process-in-worker",
+      "name": "Process in worker",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2200,
+        0
+      ],
+      "parameters": {
         "method": "POST",
-        "url": "http://otp-worker:8787/process",
+        "url": "http://otp-worker:8787/process-batch",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ mailbox: $('MAILBOX ID').first().json.mailbox, provider: 'gmail', message: $json }) }}",
+        "jsonBody": "={{ JSON.stringify({ mailbox: $('MAILBOX ID').first().json.mailbox, provider: 'gmail', messages: $json.messages, requestIds: $('Ask worker if due').first().json.requestIds }) }}",
         "options": {
-          "timeout": 30000
+          "timeout": 120000
         }
       },
       "credentials": {
@@ -295,12 +313,41 @@
       }
     },
     {
+      "id": "one-processing-result-per-item",
+      "name": "One processing result per item",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        2420,
+        0
+      ],
+      "parameters": {
+        "fieldToSplitOut": "results",
+        "include": "noOtherFields",
+        "options": {}
+      }
+    },
+    {
+      "id": "mark-messages-one-at-a-time",
+      "name": "Mark messages one at a time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2640,
+        0
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
       "id": "mark-processed-",
       "name": "Mark processed?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        2200,
+        2860,
         0
       ],
       "parameters": {
@@ -334,7 +381,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2420,
+        3080,
         0
       ],
       "parameters": {
@@ -428,7 +475,7 @@
       "main": [
         [
           {
-            "node": "Process messages one at a time",
+            "node": "Fetch messages one at a time",
             "type": "main",
             "index": 0
           }
@@ -436,6 +483,17 @@
       ]
     },
     "Get full message": {
+      "main": [
+        [
+          {
+            "node": "Fetch messages one at a time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect scan messages": {
       "main": [
         [
           {
@@ -450,7 +508,18 @@
       "main": [
         [
           {
-            "node": "Mark processed?",
+            "node": "One processing result per item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One processing result per item": {
+      "main": [
+        [
+          {
+            "node": "Mark messages one at a time",
             "type": "main",
             "index": 0
           }
@@ -468,7 +537,7 @@
         ],
         [
           {
-            "node": "Process messages one at a time",
+            "node": "Mark messages one at a time",
             "type": "main",
             "index": 0
           }
@@ -479,19 +548,37 @@
       "main": [
         [
           {
-            "node": "Process messages one at a time",
+            "node": "Mark messages one at a time",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Process messages one at a time": {
+    "Fetch messages one at a time": {
+      "main": [
+        [
+          {
+            "node": "Collect scan messages",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get full message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark messages one at a time": {
       "main": [
         [],
         [
           {
-            "node": "Get full message",
+            "node": "Mark processed?",
             "type": "main",
             "index": 0
           }

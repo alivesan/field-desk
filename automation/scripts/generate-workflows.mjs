@@ -14,7 +14,7 @@ const settings = {
 const credential = (type, name) => ({ [type]: { name } });
 const workerAuth = { authentication: 'genericCredentialType', genericAuthType: 'httpHeaderAuth', credentials: credential('httpHeaderAuth', 'OTP Worker') };
 const gmailAuth = { authentication: 'predefinedCredentialType', nodeCredentialType: 'gmailOAuth2', credentials: credential('gmailOAuth2', 'Central Gmail mailbox') };
-const node = (name, type, x, y, parameters, extra = {}) => ({ id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), name, type: `n8n-nodes-base.${type}`, typeVersion: { manualTrigger: 1, scheduleTrigger: 1.2, set: 3.4, if: 2.2, splitOut: 1, splitInBatches: 3, webhook: 2.1, respondToWebhook: 1.4, httpRequest: 4.2 }[type], position: [x, y], parameters, ...extra });
+const node = (name, type, x, y, parameters, extra = {}) => ({ id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), name, type: `n8n-nodes-base.${type}`, typeVersion: { manualTrigger: 1, scheduleTrigger: 1.2, set: 3.4, if: 2.2, splitOut: 1, splitInBatches: 3, aggregate: 1, webhook: 2.1, respondToWebhook: 1.4, httpRequest: 4.2 }[type], position: [x, y], parameters, ...extra });
 const connect = (connections, from, to, outputIndex = 0) => {
   const main = connections[from]?.main ?? [];
   while (main.length <= outputIndex) main.push([]);
@@ -47,27 +47,31 @@ function centralGmailWorkflow() {
     node('Page has messages?', 'if', 1100, 0, condition('={{ Array.isArray($json.messages) && $json.messages.length > 0 }}')),
     node('One message per item', 'splitOut', 1320, 0, { fieldToSplitOut: 'messages', include: 'noOtherFields', options: {} }),
     // v3 outputs are [done, loop]; feed each completed/rejected item back for the next.
-    node('Process messages one at a time', 'splitInBatches', 1540, 0, { batchSize: 1, options: {} }),
+    node('Fetch messages one at a time', 'splitInBatches', 1540, 0, { batchSize: 1, options: {} }),
     http('Get full message', 1760, 0, {
       method: 'GET', url: '={{ "https://gmail.googleapis.com/gmail/v1/users/me/messages/" + encodeURIComponent($json.id) }}', ...auth,
       ...query([['format', 'full']]),
     }, auth),
-    http('Process in worker', 1980, 0, {
-      method: 'POST', url: `${worker}/process`, ...workerAuth, sendBody: true, contentType: 'json', specifyBody: 'json',
-      jsonBody: "={{ JSON.stringify({ mailbox: $('MAILBOX ID').first().json.mailbox, provider: 'gmail', message: $json }) }}",
-      // Account lookup and OTP delivery each have a ten-second worker deadline.
-      options: { timeout: 30000 },
+    node('Collect scan messages', 'aggregate', 1980, 0, { aggregate: 'aggregateAllItemData', destinationFieldName: 'messages', include: 'allFields', options: { includeBinaries: false } }),
+    http('Process in worker', 2200, 0, {
+      method: 'POST', url: `${worker}/process-batch`, ...workerAuth, sendBody: true, contentType: 'json', specifyBody: 'json',
+      jsonBody: "={{ JSON.stringify({ mailbox: $('MAILBOX ID').first().json.mailbox, provider: 'gmail', messages: $json.messages, requestIds: $('Ask worker if due').first().json.requestIds }) }}",
+      options: { timeout: 120000 },
     }, workerAuth),
-    node('Mark processed?', 'if', 2200, 0, condition('={{ $json.markProcessed === true }}')),
-    http('Mark message read', 2420, 0, {
+    node('One processing result per item', 'splitOut', 2420, 0, { fieldToSplitOut: 'results', include: 'noOtherFields', options: {} }),
+    node('Mark messages one at a time', 'splitInBatches', 2640, 0, { batchSize: 1, options: {} }),
+    node('Mark processed?', 'if', 2860, 0, condition('={{ $json.markProcessed === true }}')),
+    http('Mark message read', 3080, 0, {
       method: 'POST', url: '={{ "https://gmail.googleapis.com/gmail/v1/users/me/messages/" + encodeURIComponent($json.messageId) + "/modify" }}', ...auth,
       sendBody: true, contentType: 'json', specifyBody: 'json', jsonBody: '{"removeLabelIds":["UNREAD"]}',
     }, auth),
   ];
   const connections = {};
-  for (const [from, to] of [['Every 15 seconds', 'MAILBOX ID'], ['MAILBOX ID', 'Ask worker if due'], ['Ask worker if due', 'Due?'], ['Due?', 'List recent messages'], ['List recent messages', 'Page has messages?'], ['Page has messages?', 'One message per item'], ['One message per item', 'Process messages one at a time'], ['Get full message', 'Process in worker'], ['Process in worker', 'Mark processed?'], ['Mark processed?', 'Mark message read'], ['Mark message read', 'Process messages one at a time']]) connect(connections, from, to);
-  connect(connections, 'Process messages one at a time', 'Get full message', 1);
-  connect(connections, 'Mark processed?', 'Process messages one at a time', 1);
+  for (const [from, to] of [['Every 15 seconds', 'MAILBOX ID'], ['MAILBOX ID', 'Ask worker if due'], ['Ask worker if due', 'Due?'], ['Due?', 'List recent messages'], ['List recent messages', 'Page has messages?'], ['Page has messages?', 'One message per item'], ['One message per item', 'Fetch messages one at a time'], ['Get full message', 'Fetch messages one at a time'], ['Collect scan messages', 'Process in worker'], ['Process in worker', 'One processing result per item'], ['One processing result per item', 'Mark messages one at a time'], ['Mark processed?', 'Mark message read'], ['Mark message read', 'Mark messages one at a time']]) connect(connections, from, to);
+  connect(connections, 'Fetch messages one at a time', 'Get full message', 1);
+  connect(connections, 'Fetch messages one at a time', 'Collect scan messages', 0);
+  connect(connections, 'Mark messages one at a time', 'Mark processed?', 1);
+  connect(connections, 'Mark processed?', 'Mark messages one at a time', 1);
   return { name: 'Steam OTP - central Gmail mailbox', active: false, nodes, connections, settings };
 }
 

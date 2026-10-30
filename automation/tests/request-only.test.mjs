@@ -72,7 +72,7 @@ test('request-only mode does not scan or deliver before a signed matching reques
       if (url.endsWith('/steam/accounts')) return Response.json(accounts);
       posts++; assert.equal(JSON.parse(init.body).accountUsername, 'store_alpha'); return Response.json({ ok: true });
     } });
-  assert.deepEqual((await service.due(box.id)).body, { due: false, boosted: false, query: '', mode: 'idle' });
+  assert.deepEqual((await service.due(box.id)).body, { due: false, boosted: false, query: '', mode: 'idle', requestIds: [] });
   assert.equal((await service.process({ mailbox: box.id, provider: 'gmail', message: mail() })).body.status, 'no_active_request');
   assert.equal(calls, 0);
   assert.equal((await service.webhook(Buffer.from('{}'), 'sha256=' + '0'.repeat(64))).status, 401);
@@ -127,7 +127,7 @@ test('redirect opt-in cannot run without request-only mode or with invalid polic
 });
 
 test('signed request delivers a forwarded Spam code to the mock store card', async t => {
-  const server = createServer({ apiKey: 'synthetic-api', now: () => start });
+  const server = createServer({ apiKey: 'synthetic-api', now: () => start, lookupStatus: id => id === 'store_alpha' ? 'open' : 'unknown' });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise(resolve => server.close(resolve)));
   const origin = `http://127.0.0.1:${server.address().port}`;

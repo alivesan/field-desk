@@ -71,10 +71,16 @@ function renderStore(cards, now) {
 }
 
 /** Create an in-memory demo server. Every instance has isolated card and idempotency state. */
-export function createServer({ apiKey = process.env.FD_API_KEY, now = () => Date.now() } = {}) {
+export function createServer({ apiKey = process.env.FD_API_KEY, now = () => Date.now(), lookupStatus = () => 'unknown', isDisplayed = () => true } = {}) {
   if (typeof apiKey !== 'string' || apiKey.length === 0) throw new Error('FD_API_KEY is required');
   const cards = new Map();
   const idempotency = new Map();
+  const view = (result, body, account, currentTime) => {
+    const card = cards.get(account.username);
+    const status = body.requestId === undefined ? undefined : lookupStatus(body.requestId, account.username);
+    return { ...result, displayed: Boolean(card && card.expiresAt > currentTime && card.receivedAt === Date.parse(result.receivedAt) && (status === undefined || status === 'open') && isDisplayed(account.username, card.receivedAt)),
+      ...(status ? { request: { id: body.requestId, status } } : {}) };
+  };
 
   return http.createServer(async (request, response) => {
     const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
@@ -106,11 +112,12 @@ export function createServer({ apiKey = process.env.FD_API_KEY, now = () => Date
       return;
     }
     if (!body || typeof body !== 'object' || Array.isArray(body)) return json(response, 400, { error: 'invalid body' });
+    if (body.requestId !== undefined && (typeof body.requestId !== 'string' || !/^[\x21-\x7e]{1,200}$/.test(body.requestId))) return json(response, 400, { error: 'invalid_request_id' });
     const account = identifyAccount(body);
     if (!account) return json(response, 400, { error: 'unknown or ambiguous account' });
     if (typeof body.code !== 'string' || !/^[A-Z0-9]{5}$/.test(body.code)) return json(response, 400, { error: 'invalid code' });
     const receivedAt = parseReceivedAt(body.receivedAt);
-    if (!Number.isFinite(receivedAt) || receivedAt <= currentTime - TEN_MINUTES || receivedAt > currentTime + FUTURE_ALLOWANCE) return json(response, 400, { error: 'receivedAt outside allowed window' });
+    if (!Number.isFinite(receivedAt)) return json(response, 400, { error: 'invalid receivedAt' });
 
     for (const [key, value] of idempotency) if (value.expiresAt <= currentTime) idempotency.delete(key);
     const idempotencyKey = request.headers['idempotency-key'];
@@ -119,8 +126,9 @@ export function createServer({ apiKey = process.env.FD_API_KEY, now = () => Date
     if (idempotencyKey && idempotency.has(idempotencyKey)) {
       const previous = idempotency.get(idempotencyKey);
       if (previous.fingerprint !== fingerprint) return json(response, 409, { error: 'Idempotency-Key reused for different request' });
-      return json(response, 200, previous.result);
+      return json(response, 200, view({ ...previous.result, duplicate: true }, body, account, currentTime));
     }
+    if (receivedAt <= currentTime - TEN_MINUTES || receivedAt > currentTime + FUTURE_ALLOWANCE) return json(response, 400, { error: 'receivedAt outside allowed window' });
 
     const existing = cards.get(account.username);
     if (existing && receivedAt < existing.receivedAt) return json(response, 409, { error: 'older code cannot replace current code' });
@@ -128,8 +136,8 @@ export function createServer({ apiKey = process.env.FD_API_KEY, now = () => Date
     const expiresAt = receivedAt + TEN_MINUTES;
     cards.set(account.username, { code: body.code, receivedAt, expiresAt });
     const result = { ok: true, accountUsername: account.username, accountEmail: account.email, assignedStoreId: account.assignedStoreId, receivedAt: new Date(receivedAt).toISOString(), expiresAt: new Date(expiresAt).toISOString() };
-    if (idempotencyKey) idempotency.set(idempotencyKey, { fingerprint, result, expiresAt });
-    return json(response, 200, result);
+    if (idempotencyKey) idempotency.set(idempotencyKey, { fingerprint, result, expiresAt: currentTime + 48 * 3600_000 });
+    return json(response, 200, view(result, body, account, currentTime));
   });
 }
 

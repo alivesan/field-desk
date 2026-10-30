@@ -34,3 +34,11 @@ The owner currently uses the central Gmail directly plus two Hotmail accounts wi
 ## Deferred tournament work
 
 Workflow A/B are not implemented. Before those phases agree result source/origin IDs, revisions/conflict rules, participant ID mappings, structured scores, complete undo payloads, final/completion detection, and reopening after an undo. Toornament browser automation is a separate future feasibility test, not part of this release.
+
+## Additive lookup contract: PR #21
+
+Reviewed the merged contract at `ce130764068ad8af6bc09762cc14798a41bcdc10` using Git without editing application files. Automation now understands both signed event types, acknowledges close events with 2xx, validates/persists the fixed request bounds, sends requestId with eligible codes, and checks displayed plus request status on every successful reply. Closed/unknown stops its watch; open/not-displayed keeps looking for a newer email. Old event shapes and prior ledgers remain compatible.
+
+Each scan carries its captured request IDs, compares every fetched candidate before delivery and uses the newest eligible original email date. The exact acceptFrom boundary is inclusive; older mail is rejected even if forwarded recently. Distinct email IDs with the same code remain eligible. New lookups supersede old ones; closed and delayed-start events are deduplicated/reordered safely, including after restart. No change to Field Desk's idempotency fingerprint or expiry is requested.
+
+No additional app contract change is required. Remaining acceptance is an owner-assisted test of the new Logged in / Check for new code UX through the updated workflow; the previous live forwarded-Spam delivery is already confirmed. The finite per-scan bound is 250 messages / 16 MB; exceeding it fails rather than selecting from a truncated scan. The mock verifies API response behavior and synthetic store delivery, not the app's complete store UI.
