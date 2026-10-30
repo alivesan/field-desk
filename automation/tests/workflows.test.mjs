@@ -51,6 +51,8 @@ test('central Gmail template uses worker query, pages, processes, and marks acce
     assert.equal(list.parameters.authentication, 'predefinedCredentialType');
     assert.equal(list.parameters.options.pagination.pagination.paginationCompleteWhen, 'other');
     assert.equal(list.parameters.queryParameters.parameters.find((parameter) => parameter.name === 'q').value, "={{ $('Ask worker if due').first().json.query }}");
+    assert.equal(list.parameters.queryParameters.parameters.find((parameter) => parameter.name === 'includeSpamTrash').value, 'true');
+    assert.ok(!list.parameters.queryParameters.parameters.some(parameter => parameter.name.startsWith('labelIds')));
     assert.doesNotMatch(JSON.stringify(list.parameters), /UNREAD|isRead eq false/);
     const full = byName(workflow, 'Get full message');
     assert.equal(full.parameters.nodeCredentialType, 'gmailOAuth2');

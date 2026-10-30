@@ -28,7 +28,9 @@ Both formats still require a supported Steam Guard/new-device context, one unamb
 
 ## Polling and delivery
 
-The central Gmail workflow ticks every 15 seconds and asks the worker whether a scan is due. A **broad scan** runs at most every 60 seconds. A signed `steam.otp.requested` event opens a separate, ten-minute **account-name scan** for the named account every 15 seconds. The broad and account windows keep separate clocks so one cannot suppress the other. Provider queries include already-read messages for safe retries. Mark-read happens only after confirmed or previously recorded delivery.
+The central Gmail workflow ticks every 15 seconds and asks the worker whether a scan is due. A **broad scan** runs at most every 60 seconds. A signed `steam.otp.requested` event opens a separate, ten-minute **account-name scan** for the named account every 15 seconds. The broad and account windows keep separate clocks so one cannot suppress the other. Provider queries include already-read messages and Spam for safe retries, with `includeSpamTrash=true` and `-in:trash` to exclude deleted messages. They are not restricted to the Inbox. Mark-read happens only after confirmed or previously recorded delivery.
+
+Spam location does not bypass sender authentication, username, age or ambiguity checks. A forwarded message showing Gmail's unauthenticated-sender warning needs local header inspection; moving it out of Spam does not prove its origin. Current strict validation may reject it until an authenticated forwarding layout is verified. Never enable delivery solely because the visible From name and Steam username look right.
 
 Flow: central Gmail list → full message → worker sender/forwarding/age/username validation → GET `/steam/accounts` → POST `/steam/otp` with an idempotency key → mark read. A small dependency-free Node worker keeps hashes, polling times and sanitized issue reasons in a persistent ledger. It does not save OTPs or full email payloads. A lost HTTP response still needs server-side idempotency for exactly-once effects; see [CONTRACT-NOTES.md](CONTRACT-NOTES.md).
 

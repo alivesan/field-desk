@@ -41,7 +41,7 @@ function centralGmailWorkflow() {
     node('Due?', 'if', 660, 0, condition('={{ $json.due === true && typeof $json.query === "string" && $json.query.length > 0 }}')),
     http('List recent messages', 880, 0, {
       method: 'GET', url: 'https://gmail.googleapis.com/gmail/v1/users/me/messages', ...auth,
-      ...query([['q', "={{ $('Ask worker if due').first().json.query }}"], ['maxResults', '100']]),
+      ...query([['q', "={{ $('Ask worker if due').first().json.query }}"], ['maxResults', '100'], ['includeSpamTrash', 'true']]),
       options: pagination('updateAParameterInEachRequest', '={{ $response.body.nextPageToken }}', '={{ !$response.body.nextPageToken }}'),
     }, auth),
     node('Page has messages?', 'if', 1100, 0, condition('={{ Array.isArray($json.messages) && $json.messages.length > 0 }}')),

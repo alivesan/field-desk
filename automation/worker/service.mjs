@@ -38,7 +38,7 @@ export async function createService({ statePath, mailboxes, baseUrl, apiKey, web
       const due = normalDue || fastDue.length > 0;
       const mode = normalDue ? 'normal' : fastDue.length ? 'boosted' : 'idle';
       const sources = ['noreply@steampowered.com', ...(box.trustedForwarders || [])];
-      let query = `after:${Math.floor((now() - TTL) / 1000)} {${sources.map(source => `from:${source}`).join(' ')}}`;
+      let query = `after:${Math.floor((now() - TTL) / 1000)} -in:trash {${sources.map(source => `from:${source}`).join(' ')}}`;
       if (mode === 'boosted') query += ` {${fastDue.map(boost => `"${boost.username}"`).join(' ')}}`;
       if (due) {
         if (normalDue) state.polls[id] = now();

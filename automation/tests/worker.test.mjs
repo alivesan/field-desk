@@ -66,6 +66,7 @@ test('persistent dedupe, concurrent delivery, retry, no plaintext state, and boo
   fail = false; assert.equal((await service.process(retry)).body.markProcessed, true); assert.equal(posts, 2);
   const disk = await readFile(options.statePath, 'utf8'); for (const forbidden of ['A1B2C', 'Steam Guard', 'synthetic-secret']) assert.ok(!disk.includes(forbidden));
   const normal = (await service.due('central-gmail')).body; assert.equal(normal.due, true); assert.equal(normal.mode, 'normal'); assert.equal(typeof normal.query, 'string');
+  assert.match(normal.query, /-in:trash/); assert.doesNotMatch(normal.query, /in:inbox|is:unread/);
   clock += 15_000; assert.equal((await service.due('central-gmail')).body.due, false);
   const event = JSON.stringify({ id: 'request-one', type: 'steam.otp.requested', at: new Date(clock).toISOString(), accountUsername: 'store_alpha' });
   const signature = `sha256=${createHmac('sha256', options.webhookSecret).update(event).digest('hex')}`;

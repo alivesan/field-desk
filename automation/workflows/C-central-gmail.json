@@ -136,6 +136,10 @@
             {
               "name": "maxResults",
               "value": "100"
+            },
+            {
+              "name": "includeSpamTrash",
+              "value": "true"
             }
           ]
         },
