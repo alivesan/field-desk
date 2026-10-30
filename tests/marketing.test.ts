@@ -9,6 +9,7 @@ import {
   campaignIssues,
   defaultDiscordClosing,
   defaultDiscordIntro,
+  defaultPlayerIntro,
   defaultWhatsappIntro,
   discordPost,
   DISCORD_INVITE,
@@ -17,12 +18,15 @@ import {
   longDay,
   marketingText,
   marketingWeekends,
+  playerIssues,
+  playerMessage,
   posterOf,
   storeIssues,
+  TEKKEN_RULES,
   whatsappPromo,
 } from '../src/lib/marketing.ts';
 import { validateDocument } from '../src/lib/schema.ts';
-import type { EventMarketing, Store, TournamentEvent } from '../src/lib/types.ts';
+import type { Admin, EventMarketing, Store, TournamentEvent } from '../src/lib/types.ts';
 import { fixtureEvent, fixtureStore, seedBasic, startTestServer } from './helpers/server.ts';
 
 const TODAY = '2026-10-29';
@@ -104,11 +108,14 @@ test('missing links and facts stay in the text as [… missing] and are listed i
   assert.ok(promo.includes('*Register Now:* [Toornament link missing]\n*Location:* [Maps link missing]'));
   assert.ok(promo.startsWith('*ROG SHOWDOWN - [City missing]*'));
 
-  assert.deepEqual(campaignIssues({}), ['No prize pool', 'No reporting time', 'No first match time']);
-  assert.deepEqual(campaignIssues(SET), []);
+  // the prize pool and times are fixed for the ROG Showdown: nothing typed means ₹30,000, 11:00 AM, 12:30 PM
   const empty = whatsappPromo(ev({ marketing: undefined }), st('x'));
-  assert.ok(empty.includes('*Valorant | ₹[Prize pool missing] Prize Pool | Free Entry*'));
-  assert.ok(empty.includes('*Reporting Time:* [Reporting time missing]\n*First Match:* [First match time missing]'));
+  assert.ok(empty.includes('*Valorant | ₹30,000 Prize Pool | Free Entry*'));
+  assert.ok(empty.includes('*Reporting Time:* 11:00 AM\n*First Match:* 12:30 PM'));
+  // only the rules can be missing: a game without stock rules, until HQ types them
+  assert.deepEqual(campaignIssues(ev(), {}), ['No rules']);
+  assert.deepEqual(campaignIssues(ev(), { rules: '– Bo3' }), []);
+  assert.deepEqual(campaignIssues({ name: 'x', games: ['Tekken 8'] }, {}), []);
 });
 
 test('empty promo texts fall back to defaults with the game name in them', () => {
@@ -159,7 +166,7 @@ test('the poster is the print kit\'s poster file', () => {
   assert.equal(posterOf(st('x', { print: { ...kit, files: [kit.files[0]] } })), undefined);
 });
 
-test('the page lists this weekend and next, by weekend then campaign; later and past stores are left out', () => {
+test('the page lists this weekend only, by campaign; next weekend (it joins on Monday), later and past stores are left out', () => {
   const e1 = ev({ name: 'Zulu Cup' });
   const e2 = fixtureEvent('e2', { name: 'Alpha Cup', date: '2026-10-31', games: ['Tekken 8'] }) as unknown as TournamentEvent;
   const e3 = fixtureEvent('e3', { name: 'Later Cup', date: '2026-11-14' }) as unknown as TournamentEvent;
@@ -172,10 +179,63 @@ test('the page lists this weekend and next, by weekend then campaign; later and 
     fixtureStore('e', 'e3', null, { name: 'E' }) as unknown as Store,
   ];
   const w = marketingWeekends({ events: { e1, e2, e3 }, stores: Object.fromEntries(stores.map((s) => [s.id, s])) }, TODAY);
-  assert.deepEqual(w.map((x) => [x.when, x.title, x.label]), [['this', 'This weekend', 'Sat 31 Oct – Sun 1 Nov'], ['next', 'Next weekend', 'Sat 7 – Sun 8 Nov']]);
+  assert.deepEqual(w.map((x) => [x.when, x.title, x.label]), [['this', 'This weekend', 'Sat 31 Oct – Sun 1 Nov']]);
   assert.deepEqual(w[0].campaigns.map((c) => [c.event.name, c.stores.map((s) => s.id)]), [['Alpha Cup', ['c']], ['Zulu Cup', ['a']]]);
-  assert.deepEqual(w[1].campaigns.map((c) => [c.event.name, c.stores.map((s) => s.id)]), [['Alpha Cup', ['d']], ['Zulu Cup', ['b']]]);
+  // on the Monday, next weekend's stores are this weekend's
+  const monday = marketingWeekends({ events: { e1, e2, e3 }, stores: Object.fromEntries(stores.map((s) => [s.id, s])) }, '2026-11-02');
+  assert.deepEqual(monday.map((x) => x.label), ['Sat 7 – Sun 8 Nov']);
+  assert.deepEqual(monday[0].campaigns.map((c) => [c.event.name, c.stores.map((s) => s.id)]), [['Alpha Cup', ['d']], ['Zulu Cup', ['b']]]);
   assert.deepEqual(marketingWeekends({ events: { e3 }, stores: { e: stores[5] } }, TODAY), []);
+});
+
+test('the players\' message the night before: the owner\'s template, with the bracket page, the rules and the admin to call', () => {
+  const tekken = ev({ games: ['Tekken 8'], marketing: undefined });
+  const admins: Record<string, Admin> = { ad1: { id: 'ad1', name: 'Rhea', phone: '+91 98765 43210', code: 'K7Q2', createdAt: '2026-10-01T00:00:00.000Z' } };
+  const store = st('Mumbai Alpha', { adminId: 'ad1', admin: 'Rhea', toornament: { url: 'https://play.toornament.com/en_GB/tournaments/123456/', stageId: '789' } });
+  assert.equal(
+    playerMessage(tekken, store, admins),
+    [
+      'ROG SHOWDOWN - Mumbai',
+      'Saturday, 31 October 2026',
+      defaultPlayerIntro('Tekken 8'),
+      'Venue: ASUS ROG Exclusive Store — Mumbai Alpha, Mumbai',
+      'Reporting time: 11:00 AM',
+      'First match: 12:30 PM',
+      '',
+      'Location: https://maps.app.goo.gl/Mumbai Alpha',
+      'Bracket: https://play.toornament.com/en_US/tournaments/123456/stages/789/',
+      '',
+      '',
+      'TOURNAMENT RULES',
+      'Game: Tekken 8',
+      TEKKEN_RULES,
+      '',
+      "Admin's decision is final.",
+      '',
+      'Admin contact: Rhea - +91 98765 43210',
+      '',
+      'See you there.',
+      '',
+      'Team La-eGamers',
+    ].join('\n'),
+  );
+  assert.ok(TEKKEN_RULES.startsWith('– Format: Single Elimination until Semis\n') && TEKKEN_RULES.endsWith('– winners of event from one city cant participate in other cities'));
+  assert.deepEqual(playerIssues(store, admins), []);
+
+  // HQ's own line and rules win; another game has no stock rules
+  const typed = playerMessage(ev({ marketing: { playerIntro: 'It’s on!', rules: '– Bo3 all rounds' } }), store, admins);
+  assert.ok(typed.includes('Saturday, 31 October 2026\nIt’s on!\nVenue:') && typed.includes('Game: Valorant\n– Bo3 all rounds\n\n'));
+  assert.ok(playerMessage(ev({ marketing: undefined }), store, admins).includes('Game: Valorant\n[Rules missing]'));
+
+  // nothing to point at: markers in the text, words on the screen
+  const bare = st('Bare', { toornament: undefined, mapsUrl: '', adminId: null, admin: '' });
+  const msg = playerMessage(tekken, bare, admins);
+  assert.ok(msg.includes('Location: [Maps link missing]\nBracket: [Bracket link missing]'));
+  assert.ok(msg.includes('Admin contact: [Admin missing] - [Admin phone missing]'));
+  assert.deepEqual(playerIssues(bare, admins), ['No bracket link', 'No Maps link', 'No admin']);
+  // an admin HQ's list doesn't have: the name copied onto the store, no phone
+  assert.deepEqual(playerIssues(st('x', { adminId: 'gone', admin: 'Old Name' }), admins), ['No admin phone']);
+  assert.ok(playerMessage(tekken, st('x', { adminId: 'gone', admin: 'Old Name' }), admins).includes('Admin contact: Old Name - [Admin phone missing]'));
 });
 
 test('marketing is checked: known text fields only, with sizes and an https invite', () => {
@@ -187,6 +247,8 @@ test('marketing is checked: known text fields only, with sizes and an https invi
   assert.match(doc({ prizePool: 5 }).join(), /marketing\.prizePool/);
   assert.match(doc({ prizePool: 'x'.repeat(41) }).join(), /marketing\.prizePool/);
   assert.match(doc({ discordIntro: 'x'.repeat(1001) }).join(), /marketing\.discordIntro/);
+  assert.deepEqual(doc({ playerIntro: 'On tomorrow!', rules: TEKKEN_RULES }), []);
+  assert.match(doc({ rules: 'x'.repeat(3001) }).join(), /marketing\.rules/);
   assert.match(doc({ discordInvite: 'http://discord.gg/abc' }).join(), /marketing\.discordInvite/);
   assert.match(doc('text').join(), /marketing/);
 });
