@@ -2,25 +2,28 @@
 
 Only automation/ is changed. No application changes are made by this branch.
 
-As of 29 October 2026, the Oracle n8n/worker/mock stack is running and one synthetic `C-demo-mock` n8n CLI execution returned `SUCCESS` with `status: delivered`. The published n8n webhook returned 202 for a valid signed body, 200 for its duplicate, and 401 for a modified body. Owner setup is complete, and https://n8n.129-225-72-140.sslip.io/healthz returns 200 with verified TLS. The live Field Desk endpoint has not been used. Central Gmail OAuth, exact forwarding addresses and real Steam samples remain pending; Gmail polling is disabled.
+As of 30 October 2026, the Oracle n8n/worker/Caddy stack targets the authorized live API at `https://fieldesk.runs-at.dev/api/v1`; the mock container is removed. HTTPS health and the private webhook signature probes pass. The authenticated live account read returns `503 not_configured`, so full integration awaits private installation of the VM-generated handoff variables in Field Desk. No live OTP was submitted. Central Gmail OAuth, exact forwarding addresses and real Steam samples remain pending; Gmail polling is disabled.
 
-## Required before live delivery
+## Contract reviewed: PR #16
 
-1. **Scope:** define the exact scope for GET /steam/accounts. The supplied scope list includes `read`, `results:write`, `brackets:write`, `steam-otp:write`, but refers to an unspecified HQ scope. Return a bare array per spec. Use a separate HQ credential with only account-read + steam-otp:write access.
-2. **Idempotency:** POST /steam/otp should accept `Idempotency-Key` and return a successful response for repeated identical submissions. The worker sends `steam-email-<sha256(mailbox ID + provider message ID)>`. A crash or lost response between the POST and local acknowledgement can otherwise cause a repeated POST. Email marking alone cannot close this gap. Retain keys at least 24 hours; reject key reuse for another payload.
-3. **Expiry:** calculate card expiry from receivedAt + 10 minutes, not POST arrival. Reject stale timestamps and excessive future clock skew. Repeated requests must not extend expiry. Mock allows 30 seconds future skew.
-4. **Ordering:** an older code must not replace a newer one; conflicting codes with identical receivedAt must fail safely. Worker serializes its processing but provider delivery order is not guaranteed.
-5. **Assignments:** confirm assignedStoreId means the currently active weekend assignment. Return one unambiguous username record, and reject unassigned accounts at POST time too. The worker requires a Steam username in every accepted email and never uses the forwarded recipient or central Gmail address to select an account. Shared addresses therefore do not authorize a guessed assignment.
-6. **Errors:** document response bodies/status for delivered, duplicate, older-than-current, no assignment, permission failure and temporary outage. Current worker treats non-2xx as retryable until the email expires and records a sanitized issue.
-7. **Privacy:** API/reverse proxy/application logging must redact OTP bodies and Authorization. Response must not echo the code. The automation disables execution payload retention; it cannot control Field Desk's logs.
+The source of truth is [docs/steam-otp-api.md](../docs/steam-otp-api.md). The requested scope, idempotency, expiry, ordering, assignment, error and privacy details are now documented. No further app contract change is required for the current hookup.
+
+- The dedicated `FD_STEAM_API_KEY` has fixed scopes `steam-accounts:read` and `steam-otp:write`. The worker sends bearer auth without session cookies. Account aliases `username` and `email` match the worker's existing input shape; `active` describes an unexpired OTP, not assignment.
+- The worker's `steam-email-<sha256(mailbox ID + provider message ID)>` idempotency header fits the documented ASCII limit. Successful retries are durable for 48 hours and do not extend expiry. Expiry is original `receivedAt + 10 minutes`, with at most 30 seconds future skew.
+- Older/conflicting results and unassigned accounts are rejected by Field Desk. Worker non-2xx handling remains a bounded retry until mail expiry with a sanitized `fielddesk_unavailable` issue. More specific error reporting is a later worker improvement; `not_assigned` can clear when HQ assigns the account.
+- No OTP bodies or authorization material are logged by the automation. The app contract documents equivalent API/proxy behavior. No real-code integration test is claimed yet.
+
+Private handoff file on the automation VM: `/home/ubuntu/field-desk/automation/data/private/fielddesk-otp-production.env` (600). It holds app variable names `FD_STEAM_API_KEY`, `FD_STEAM_WEBHOOK_SECRET`, `FD_STEAM_WEBHOOK_URL`. Owner/Claude must transfer and merge these privately into the existing app environment and restart its service. Do not send values through chat. Automation `FD_API_KEY` and `FD_WEBHOOK_SECRET` already match those generated values; existing n8n encryption and worker keys are preserved.
 
 ## Request webhook
 
-The intended private destination is `http://10.0.0.230:5678/webhook/steam-request`. The VM listener and host firewall are prepared, but a dedicated Oracle ingress rule for private TCP 5678 is still pending the integration stage. Add it only to the automation VM's own network security group; do not change the shared subnet security list or the Field Desk VM.
+The published private destination is `http://10.0.0.230:5678/webhook/steam-request`. The VM listener and persistent host firewall are active. Under the owner's explicit 30 October authorization, Oracle's associated subnet security list now permits stateful TCP 5678 from `10.0.0.0/16` only; prior ingress and egress were preserved. No Field Desk VM configuration was changed. Public 5678 is blocked. Actual traffic from Field Desk (`10.0.0.242`) remains to be checked after its variables are installed.
 
-Expected payload: `{id,type:"steam.otp.requested",at,storeId,storeName,accountUsername?,accountEmail?}`. At least one account identifier is required. UTF-8 JSON is signed byte-for-byte with `X-FieldDesk-Signature: sha256=<hex HMAC-SHA256>`.
+Documented app payload: `{id,type:"steam.otp.requested",at,storeId,storeName,accountUsername,accountEmail?}`. UTF-8 JSON is signed byte-for-byte with `X-FieldDesk-Signature: sha256=<hex HMAC-SHA256>`.
 
 Oracle destination: `http://<n8n-private-ip>:5678/webhook/steam-request`. The n8n workflow forwards raw bytes to the worker, which verifies HMAC before parsing. Acknowledge only after persisting the event ID and polling window. 202 means accepted; 200 duplicate; 401 bad signature; 400 malformed/stale event. Retry timeouts/5xx with backoff using the same event ID. Requests older than 10 minutes cannot restart the window. This is a polling hint, not a Steam login request: automation never logs in to Steam.
+
+Field Desk's documented five-second attempt timeout and retry schedule are compatible with duplicate event IDs; worker account-directory reads currently allow ten seconds. A slow account read may therefore outlast the first app attempt, which will retry. Until its key is configured, well-formed signed account requests receive 503 rather than a false success. Verified production probes: private health 200, unsigned 401, signed malformed 400 and tampered body 401. The earlier mock integration verified valid 202 and duplicate 200; production valid-account acceptance is still pending.
 
 There is one central Gmail inbox. A request opens a separate 10-minute account-name query window for the named Steam account, scanned at most every 15 seconds. The broad inbox scan remains at most once per 60 seconds on its own clock. A burst cannot suppress or reset the broad scan. Multiple requests share the scheduler and do not create a thread per request.
 

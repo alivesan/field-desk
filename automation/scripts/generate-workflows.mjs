@@ -94,7 +94,7 @@ function mockDemoWorkflow() {
     node('MOCK ONLY - manual trigger', 'manualTrigger', 0, 0, {}, { notes: 'Synthetic demo only. Remove this workflow before production.', notesInFlow: true }),
     http('MOCK ONLY - process synthetic mail', 260, 0, {
       method: 'POST', url: `${worker}/process`, ...workerAuth, sendBody: true, contentType: 'json', specifyBody: 'json',
-      jsonBody: '=' + JSON.stringify({ mailbox: 'central-gmail', provider: 'gmail', message: {
+      jsonBody: '=' + JSON.stringify({ mockOnly: true, mailbox: 'central-gmail', provider: 'gmail', message: {
         id: 'mock-demo-{{ Date.now() }}', internalDate: '{{ String(Date.now()) }}', payload,
       } }),
     }, workerAuth),

@@ -49,6 +49,8 @@ export async function createService({ statePath, mailboxes, baseUrl, apiKey, web
     }),
     process: input => serial(async () => {
       prune();
+      const fixture = input.mockOnly === true || input.message?.id?.startsWith('mock-demo-') || input.message?.id === 'synthetic-demo';
+      if (fixture && !/^http:\/\/(?:mock|127\.0\.0\.1|localhost)(?::\d+)?\/api\/v1\/?$/.test(baseUrl)) return { status: 400, body: { status: 'mock_only_blocked', markProcessed: false } };
       const box = mailbox(input.mailbox);
       if (!box || input.provider !== box.provider) return { status: 400, body: { error: 'mailbox_provider_mismatch' } };
       let id;

@@ -12,11 +12,13 @@ The `automation` directory is mounted read only at `/app`; the worker saves its 
 
 ## Oracle Ubuntu 24.04 preparation
 
-For initial acceptance testing, use `-f compose.yaml -f compose.mock.yaml -f compose.bootstrap.yaml` and start only `n8n otp-worker mock`. The VM has completed this stage and now runs compose.yaml plus compose.mock.yaml, without the bootstrap override. Owner setup is complete and https://n8n.129-225-72-140.sslip.io/healthz returns 200 with verified TLS. A private pre-HTTPS n8n volume backup and environment snapshot are in ignored automation/data/backups/. The bootstrap override binds n8n to loopback, uses temporary HTTP cookies, and runs without Caddy. Connect through an SSH tunnel forwarding local 5678 to remote `127.0.0.1:5678`; n8n `/healthz` was verified on VM loopback and through the tunnel. For a fresh installation, let the owner complete the profile before starting Caddy. The mock override publishes its preview only at VM localhost port 8790; the private demo tunnel forwards PC localhost port 8791 to that port. Open http://localhost:8791/mock/store for synthetic cards. Remove the bootstrap override before HTTPS operation; remove the mock override only after the real API is approved. Never launch Caddy with the bootstrap override. All stages share the same persistent volumes. Central Gmail OAuth has not been configured, and its workflow remains disabled.
+For initial synthetic acceptance testing, use `-f compose.yaml -f compose.mock.yaml -f compose.bootstrap.yaml` and start only `n8n otp-worker mock`. The existing VM completed that stage and, with owner authorization on 30 October 2026, now runs **`compose.yaml` alone against production**. The mock is removed. Owner setup is complete and https://n8n.129-225-72-140.sslip.io/healthz returns 200 with verified TLS. Private pre-HTTPS and pre-production configuration backups are in ignored `automation/data/backups/`. The bootstrap override binds n8n to loopback, uses temporary HTTP cookies, and runs without Caddy; never combine it with a public HTTPS launch. All stages retain the same persistent volumes. Central Gmail OAuth has not been configured, and its workflow remains disabled.
 
 Use a host with an assigned `10.0.0.0/16` private IPv4 address. Choose `N8N_DOMAIN=n8n.<public-ip-with-dots-replaced-by-dashes>.sslip.io` and confirm that it resolves to the host's public IPv4. In the Oracle security list or network security group, allow public TCP 80 and 443, retain the existing SSH rule, and allow TCP 5678 only from `10.0.0.0/16`. Restrict SSH to your own source address if that is your existing policy.
 
-The Oracle Always Free VM `field-desk-automation` is already created at public IPv4 `129.225.72.140` and private IPv4 `10.0.0.230`. Docker 29.9.2, Compose 5.6.1 and 2 GB swap were confirmed active on 29 October 2026. `setup.sh` remains the reproducible Ubuntu 24.04 preparation script. It installs Docker from its official repository, adds swap only when needed, and inserts persistent port rules without flushing existing firewall or SSH rules. Its persistent rule now allows loopback TCP 5678 for the SSH tunnel before dropping non-private sources. The machine firewall was updated; Oracle's shared ingress rules were not changed. Check `sudo systemctl status fielddesk-automation-firewall.service`, `sudo iptables -S INPUT`, and `sudo iptables -S DOCKER-USER` after Docker restarts. Confirm Oracle ingress and host firewall allow public 80/443 and private 5678 only as intended.
+The Oracle Always Free VM `field-desk-automation` is already created at public IPv4 `129.225.72.140` and private IPv4 `10.0.0.230`. Docker 29.9.2, Compose 5.6.1 and 2 GB swap were confirmed active on 29 October 2026. `setup.sh` remains the reproducible Ubuntu 24.04 preparation script. It installs Docker from its official repository, adds swap only when needed, and inserts persistent port rules without flushing existing firewall or SSH rules. Its persistent rule allows loopback TCP 5678 for the SSH tunnel before dropping non-private sources, and protects Docker forwarding. On 30 October the owner explicitly authorized adding stateful TCP 5678 from `10.0.0.0/16` to the subnet security list; that single rule was applied and verified with previous ingress and all egress preserved. Check `sudo systemctl status fielddesk-automation-firewall.service`, `sudo iptables -S INPUT`, and `sudo iptables -S DOCKER-USER` after Docker restarts.
+
+The read-only default of `automation/scripts/oracle-private-webhook.py` verifies the known subnet and all associated security lists using the owner's OCI SDK profile. It refuses broader existing 5678 ingress; `--apply` adds only the missing exact rule using the list's ETag. The official Python `oci` SDK is required. The local SDK environment and metadata backup are ignored under `automation/data/`. No compute instance or Field Desk server is changed by that helper.
 
 ### VM import and mock check
 
@@ -43,10 +45,45 @@ Three workflows are imported. After a successful import, the plaintext `credenti
 sudo docker compose -f compose.yaml -f compose.mock.yaml -f compose.bootstrap.yaml exec -T otp-worker node /app/scripts/check-runtime.mjs
 ```
 
-The optional `--n8n` mode passed through the actual published n8n webhook: valid signed request 202, duplicate 200, modified body 401. It verifies raw-body HMAC and response status forwarding through n8n. It can be repeated from `automation/deploy` with `sudo docker compose -f compose.yaml -f compose.mock.yaml -f compose.bootstrap.yaml exec -T otp-worker node /app/scripts/check-runtime.mjs --n8n`. The synthetic demo also returned `status: delivered` and `SUCCESS` through n8n CLI. Keep the mock endpoint in place. n8n currently uses `N8N_WEBHOOK_URL` rather than the deprecated `WEBHOOK_URL` setting, and production execution concurrency is capped at two.
+The optional `--n8n` mode passed through the actual published n8n webhook: valid signed request 202, duplicate 200, modified body 401. It verifies raw-body HMAC and response status forwarding through n8n. Repeat it only on a mock stack, with the same Compose overrides. The synthetic demo also returned `status: delivered` and `SUCCESS` through n8n CLI. Production rejects both the new `mockOnly` demo and known legacy demo message IDs before calling Field Desk. n8n uses `N8N_WEBHOOK_URL` rather than the deprecated `WEBHOOK_URL` setting, and production execution concurrency is capped at two.
 
 For a fresh production installation, create a private `.env` containing all four random secrets, the one central Gmail `MAILBOXES` entry with the owner's four exact `trustedForwarders` addresses, `PRIVATE_IP`, `N8N_DOMAIN`, and `FIELD_DESK_BASE_URL`. **The owner must authorize use of `https://fieldesk.runs-at.dev/api/v1` before setting it or activating any live workflow.** Do not configure the source accounts to forward until the owner confirms them. Check the values with `docker compose -f compose.yaml config --quiet`, then start only after authorization with `docker compose -f compose.yaml up -d`. Caddy obtains HTTPS for the supplied domain. n8n publishes 5678 on the private IP, while the worker has no published port.
 
 Keep `N8N_ENCRYPTION_KEY` stable: n8n credentials cannot be decrypted after a key change. Back up the `.env` securely along with the `n8n_data` and `worker_data` Docker volumes before upgrades. Stop the stack or use a consistent snapshot when backing up the volumes; test restoration separately. Execution payload persistence is disabled in both Compose files to avoid retaining OTP values, but workflow definitions and credentials remain in n8n's persistent volume. Keep n8n's owner login secured and review workflows before activation.
 
-On the existing VM, retain the current .env and N8N_ENCRYPTION_KEY when moving from mock to live. Change only the approved Field Desk configuration and account allowlist; do not generate a new encryption key. The current HTTPS stage uses docker compose -f compose.yaml -f compose.mock.yaml up -d. The Gmail workflow remains disabled and both private tunnels remain available.
+## Existing VM: production handoff and checks
+
+The approved switch has run on `field-desk-automation`. `python3 automation/scripts/promote-production.py` preserves the n8n encryption key, worker token and mailbox configuration. On its first run it generates independent production `FD_API_KEY` and `FD_WEBHOOK_SECRET` on the VM and sets `FIELD_DESK_BASE_URL=https://fieldesk.runs-at.dev/api/v1`. Subsequent runs reuse that handoff, avoiding accidental rotation.
+
+The private, owner-readable handoff is `/home/ubuntu/field-desk/automation/data/private/fielddesk-otp-production.env` (directory 700, file 600). It contains **names and values for the app**, with these mappings:
+
+| Automation setting | Field Desk setting |
+|---|---|
+| `FD_API_KEY` | `FD_STEAM_API_KEY` |
+| `FD_WEBHOOK_SECRET` | `FD_STEAM_WEBHOOK_SECRET` |
+| private webhook URL | `FD_STEAM_WEBHOOK_URL` |
+
+The URL is `http://10.0.0.230:5678/webhook/steam-request`. The owner/Claude must transfer these three values privately and **merge them into** Field Desk's existing environment, then restart/recreate the app as its deployment requires. Do not replace its whole environment file. Do not paste the values into chat, commit them, or include them in shell command arguments. Astra does not access the Field Desk server. Its API currently returns `503 not_configured` until this app-side setup is complete.
+
+From `/home/ubuntu/field-desk/automation/deploy`, the production launch is:
+
+```bash
+sudo docker compose -f compose.yaml config --quiet
+sudo systemctl restart fielddesk-automation-firewall
+sudo docker compose -f compose.yaml up -d --remove-orphans
+```
+
+Only n8n, worker and Caddy should remain. Private port 5678 is bound to `10.0.0.230` and loopback, with no public wildcard binding. The worker port is internal only. The owner login, n8n credentials and both persistent data volumes are preserved.
+
+Production verification, run on this VM, uses the private host interface and never posts an OTP:
+
+```bash
+sudo docker run --rm --network host \
+  --env-file /home/ubuntu/field-desk/automation/deploy/.env \
+  -v /home/ubuntu/field-desk/automation:/app:ro \
+  node:24-alpine node /app/scripts/check-production.mjs
+```
+
+Verified on 30 October: private health 200, unsigned webhook 401, correctly signed malformed event 400, tampered bytes 401; public HTTPS health 200 with certificate verification, and public TCP 5678 blocked. The first probe after recreation timed out; the repeat passed. The live account read returned 503, so valid-account acceptance is pending the private key installation. The check will then verify an assigned account's polling hint (202 and duplicate 200), if one exists. An actual Request code press from Field Desk at `10.0.0.242` must still be checked after its settings are installed. Gmail delivery remains disabled until the separate mailbox checks are complete.
+
+For updates, securely back up the environment and data volumes, copy the reviewed `automation/` sources without overwriting `.env` or `data/`, and rerun the production launch. Recreate `otp-worker` when worker source changes; a mounted source update alone does not restart Node. Keep explicit image versions tested together, inspect Compose service status, and rerun the production check. Never change `N8N_ENCRYPTION_KEY` during an update.
