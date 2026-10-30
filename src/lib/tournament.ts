@@ -1,11 +1,11 @@
 /*
- * Tournament commands (match.start / finish / undo, bracket.load / reset, stations.set, the
+ * Tournament commands (match.start / finish / undo, bracket.load / reset / place, stations.set, the
  * players / seeding commands, and on-the-spot registration). Pure handlers over one store's match day — run by the server inside its commit and
  * optimistically by the client. See src/lib/commands.ts.
  *
  * How `base` is used:
- *   bracket.load / bracket.reset — destructive: `base` must equal the current day version,
- *     so a device that hasn't seen the latest bracket can't replace or wipe it.
+ *   bracket.load / bracket.reset / bracket.place — destructive: `base` must equal the current day version,
+ *     so a device that hasn't seen the latest bracket can't replace, wipe or re-slot it.
  *   stations.set / match.start / match.finish / match.undo / players.onspot / onspot.mark / onspot.remove / winners.set / winners.clear —
  *     `base` is informational only.
  *     These are checked against the *current* state (station free, players checked in and
@@ -30,6 +30,7 @@ export const TOURNAMENT_COMMANDS: Record<string, Role[]> = {
   'players.set': ['super'],
   'players.seed': ['super'],
   'bracket.build': ['super'],
+  'bracket.place': ['super'], // a first-round slot, before that match is played — e.g. a late walk-in HQ has put on Toornament
   'stations.set': ['super', 'admin'],
   'match.start': ['super', 'admin'],
   'match.finish': ['super', 'admin'],
@@ -82,6 +83,10 @@ export function tournamentCommand(store: Store, cmd: Command, ctx: CommandContex
       next = { ...day, matches: buildBracket(players, checkedPairs(players, cmd.pairs, (p) => isWalkIn(day, p)), ctx.commandId), stations };
       break;
     }
+    case 'bracket.place':
+      if (cmd.base !== version) throw conflict(staleMsg);
+      next = place(day, cmd);
+      break;
     case 'stations.set':
       next = setStations(day, cmd.count);
       break;
@@ -278,6 +283,7 @@ function onSpot(day: MatchDay, cmd: Extract<Command, { type: 'players.onspot' }>
   const record = day.onSpot ?? [];
   const entryId = `os-${ctx.commandId}`;
   if (record.some((e) => e.id === entryId)) return day; // already applied (a device re-running its own pending command)
+  if (day.matches.length > 0 && ctx.actor.role !== 'super') throw conflict('The bracket is out, so on-spot registration is closed here. Ask HQ to add a player.');
   const raw = typeof cmd.name === 'string' ? cmd.name.replace(/\s+/g, ' ').trim() : '';
   if (!raw) throw invalid('Type the player’s name.');
   if (raw.length > MAX_NAME) throw invalid(`Keep the name to ${MAX_NAME} characters.`);
@@ -396,6 +402,33 @@ function clearWinners(day: MatchDay): MatchDay {
   if (!day.winners) throw conflict('There are no winner details saved for this store.');
   const { winners: _gone, ...rest } = day;
   return rest;
+}
+
+/* ---------- bracket.place ---------- */
+
+/**
+ * bracket.place: HQ puts a player into a first-round slot, or empties it, while that match hasn't
+ * been played (pending, or a bye). The match is rebuilt as "not played" so resolve re-derives the bye
+ * and what it feeds; withMatch refuses if that would re-point a match that has started. The player
+ * who leaves the slot stays on the list, and check-ins are untouched.
+ */
+function place(day: MatchDay, cmd: Extract<Command, { type: 'bracket.place' }>): MatchDay {
+  const m = find(day, cmd.matchId);
+  const L = label(day, m);
+  if (cmd.side !== 'a' && cmd.side !== 'b') throw invalid('Pick a side of the match.');
+  if (cmd.playerId !== null && typeof cmd.playerId !== 'string') throw invalid('Pick a player, or leave the slot empty.');
+  if (m.round !== 0) throw conflict(`${L} isn’t a first-round match — only first-round slots can be changed.`);
+  if (m.status !== 'pending' && !m.bye) throw conflict(`${L} has already ${m.status === 'live' ? 'started' : 'been played'} — undo it first, or change a match that hasn’t been played.`);
+  if (cmd.playerId === m[cmd.side]) return day; // already how it is
+  if (cmd.playerId === null) {
+    if (!(cmd.side === 'a' ? m.b : m.a)) throw invalid('A match needs at least one player.');
+  } else {
+    const id = cmd.playerId;
+    if (!day.players.some((p) => p.id === id)) throw conflict('That player isn’t on the list any more — the list changed on another device.');
+    const into = day.matches.find((x) => x.a === id || x.b === id);
+    if (into) throw conflict(`${who(day, id)} is already in ${label(day, into)}. Empty that slot first.`);
+  }
+  return withMatch(day, { ...reopened(m), [cmd.side]: cmd.playerId });
 }
 
 /* ---------- stations.set ---------- */

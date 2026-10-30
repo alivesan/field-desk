@@ -391,7 +391,7 @@ const onspot = (name: string, over: Partial<Extract<Command, { type: 'players.on
 
 test('players.onspot: an admin registers a walk-in — next seed, checked in by staff, recorded for HQ; the bracket is never touched', () => {
   const c = desk();
-  const four = loaded(4);
+  const four = checkAll(run(emptyStore(), { type: 'players.set', base: 0, players: players(4) }));
   const s = run(four, onspot('  Ravi   K. ', { phone: '+91 98200 55555', ign: '  RaviOP ' }), c);
   const p = s.day.players[4];
   assert.deepEqual(p, { id: playerIdFor('9820055555', 'Ravi K.'), name: 'Ravi K.', seed: 5, phone: '9820055555', ign: 'RaviOP' });
@@ -406,13 +406,29 @@ test('players.onspot: an admin registers a walk-in — next seed, checked in by 
   assert.deepEqual(e.day.players, [{ id: playerIdFor(undefined, 'Meera'), name: 'Meera', seed: 1 }]);
   assert.equal(e.day.onSpot?.[0].phone, undefined);
 
-  // while matches are under way: recorded, the live match stays live
-  let live = run(four, { type: 'match.start', base: 1, matchId: m(four, 0, 0).id, station: 1 });
+  // once the bracket is out only HQ registers: recorded, the live match stays live
+  const out = loaded(4);
+  let live = run(out, { type: 'match.start', base: 1, matchId: m(out, 0, 0).id, station: 1 });
   const before = live.day.matches;
-  live = run(live, onspot('Late Comer', { base: 0 }), desk());
+  live = run(live, onspot('Late Comer', { base: 0 }), ctx());
   assert.deepEqual(live.day.matches, before);
   assert.equal(live.day.players.length, 5);
   assert.equal(live.day.onSpot?.length, 1);
+});
+
+test('players.onspot: closed for the desk once the bracket is out (admin and store team), open before it; HQ can still register', () => {
+  const msg = /The bracket is out, so on-spot registration is closed here. Ask HQ to add a player./;
+  const before = checkAll(run(emptyStore(), { type: 'players.set', base: 0, players: players(4) }));
+  assert.equal(run(before, onspot('Early Bird'), desk()).day.players.length, 5);
+  const out = loaded(4);
+  rejects(() => run(out, onspot('Late Comer'), desk()), 'conflict', msg);
+  rejects(() => run(out, onspot('Late Comer'), ctx({ actor: { principal: 'store:s1', name: 'Rhea (Store team)', role: 'admin' } })), 'conflict', msg);
+  const hq = run(out, onspot('Late Comer'), ctx());
+  assert.equal(hq.day.players.length, 5);
+  assert.deepEqual(hq.day.matches, out.day.matches);
+  // after a reset the desk may register again
+  const reset = run(out, { type: 'bracket.reset', base: dayVersion(out) });
+  assert.equal(run(reset, onspot('Late Comer'), desk()).day.players.length, 5);
 });
 
 test('players.onspot: a phone already on the list is refused; bad input is invalid', () => {
@@ -459,7 +475,7 @@ test('players.onspot: ids never clash; caps at 256 players / registrations', () 
 
 test('players.onspot: deterministic per command id; a view that already has it is unchanged', () => {
   const c = desk();
-  const two = loaded(2);
+  const two = run(emptyStore(), { type: 'players.set', base: 0, players: players(2) });
   const a = run(two, onspot('Same', { phone: '9000000009' }), c);
   const b = run(two, onspot('Same', { phone: '9000000009' }), c);
   assert.deepEqual(a, b);
@@ -524,4 +540,108 @@ test('bracket.load from Toornament: a walk-in not on Toornament yet stays on the
   assert.ok(r.day.checkIn[ravi.id], 'still checked in');
   assert.equal(r.day.onSpot?.length, 1);
   rejects(() => run(s, { type: 'bracket.load', base: dayVersion(s), players: P, pairs: [['p1', 'p4'], ['p2', ravi.id]] }), 'invalid', /Player 3 isn’t in any pairing/);
+});
+
+/* ---------- bracket.place: HQ changes a first-round slot ---------- */
+
+/** Round 0: M1 p1 v p2, M2 p3 v bye, M3 p4 v p5, M4 p6 v bye — plus a walk-in HQ registered who has no slot. All checked in. */
+function slotted(): Store {
+  const pairs: [string | null, string | null][] = [['p1', 'p2'], ['p3', null], ['p4', 'p5'], ['p6', null]];
+  const s = run(emptyStore(4), { type: 'bracket.load', base: 0, players: players(6), pairs, stations: 4 });
+  return checkAll(run(s, onspot('Walk In'), ctx()));
+}
+const place = (s: Store, matchId: string, side: 'a' | 'b', playerId: string | null, over: Partial<Extract<Command, { type: 'bracket.place' }>> = {}): Command => ({ type: 'bracket.place', base: dayVersion(s), matchId, side, playerId, ...over });
+const walkId = (s: Store) => s.day.players.find((p) => p.name === 'Walk In')!.id;
+
+test('bracket.place: a walk-in fills an empty bye slot — the bye becomes a real match and its winner leaves round 1', () => {
+  const s = slotted();
+  const bye = m(s, 0, 1);
+  assert.ok(bye.bye && bye.status === 'done');
+  assert.equal(m(s, 1, 0).b, 'p3', 'the bye winner had advanced');
+  const t = run(s, place(s, bye.id, 'b', walkId(s)));
+  const now = byId(t, bye.id);
+  assert.deepEqual([now.a, now.b, now.winner, now.status], ['p3', walkId(s), null, 'pending']);
+  assert.ok(!now.bye);
+  assert.equal(m(t, 1, 0).b, null, 'pulled back out of round 1');
+  assert.equal(dayVersion(t), dayVersion(s) + 1);
+  assert.deepEqual(t.day.players, s.day.players);
+  assert.deepEqual(t.day.checkIn, s.day.checkIn);
+  // the new match plays like any other
+  const started = run(t, { type: 'match.start', base: dayVersion(t), matchId: bye.id, station: 1 });
+  assert.equal(byId(started, bye.id).status, 'live');
+});
+
+test('bracket.place: a no-show is replaced in a pending match; the replaced player stays on the list', () => {
+  const s = slotted();
+  const m1 = m(s, 0, 0);
+  const t = run(s, place(s, m1.id, 'a', walkId(s)));
+  assert.deepEqual([byId(t, m1.id).a, byId(t, m1.id).b, byId(t, m1.id).status], [walkId(s), 'p2', 'pending']);
+  assert.ok(t.day.players.some((p) => p.id === 'p1') && t.day.checkIn.p1, 'p1 stays on the list, still checked in');
+  assert.ok(!t.day.matches.some((x) => x.a === 'p1' || x.b === 'p1'));
+  // and p1 can now be put in the empty bye slot
+  const u = run(t, place(t, m(t, 0, 1).id, 'b', 'p1'));
+  assert.deepEqual([m(u, 0, 1).a, m(u, 0, 1).b], ['p3', 'p1']);
+});
+
+test('bracket.place: emptying a slot gives the opponent a bye and they advance; a match can’t lose both players', () => {
+  const s = slotted();
+  const m1 = m(s, 0, 0);
+  const t = run(s, place(s, m1.id, 'b', null));
+  const now = byId(t, m1.id);
+  assert.deepEqual([now.a, now.b, now.bye, now.status, now.winner], ['p1', null, true, 'done', 'p1']);
+  assert.equal(m(t, 1, 0).a, 'p1', 'advanced');
+  assert.ok(t.day.players.some((p) => p.id === 'p2'), 'p2 stays on the list');
+  // the other side of that bye can't be emptied too; an empty slot stays empty without a version bump
+  rejects(() => run(t, place(t, m1.id, 'a', null)), 'invalid', /A match needs at least one player\./);
+  assert.equal(run(t, place(t, m1.id, 'b', null)), t);
+  rejects(() => run(s, place(s, m(s, 0, 1).id, 'a', null)), 'invalid', /at least one player/);
+});
+
+test('bracket.place: a live or played match is refused, and so is one whose next match has started', () => {
+  const s = slotted();
+  const m1 = m(s, 0, 0);
+  const live = run(s, { type: 'match.start', base: dayVersion(s), matchId: m1.id, station: 1 });
+  rejects(() => run(live, place(live, m1.id, 'a', walkId(s))), 'conflict', /M1 has already started — undo it first, or change a match that hasn’t been played\./);
+  const done = run(live, { type: 'match.finish', base: dayVersion(live), matchId: m1.id, winner: 'p1' });
+  rejects(() => run(done, place(done, m1.id, 'a', walkId(s))), 'conflict', /M1 has already been played — undo it first/);
+  // M5 (p1 v the bye's p3) is being played, so M2's bye can't be given an opponent
+  const m5 = m(done, 1, 0);
+  const next = run(done, { type: 'match.start', base: dayVersion(done), matchId: m5.id, station: 2 });
+  rejects(() => run(next, place(next, m(next, 0, 1).id, 'b', walkId(s))), 'conflict', /M5 \(Player 1 vs Player 3\) has already started — undo that first\./);
+  // undo M5 and M1, and it works again
+  const undone = run(run(next, { type: 'match.undo', base: dayVersion(next), matchId: m5.id }), { type: 'match.undo', base: dayVersion(next) + 1, matchId: m1.id });
+  assert.equal(run(undone, place(undone, m1.id, 'a', walkId(s))).day.matches.find((x) => x.id === m1.id)!.a, walkId(s));
+});
+
+test('bracket.place: only first-round matches, only players on the list, and nobody already in the bracket', () => {
+  const s = slotted();
+  rejects(() => run(s, place(s, m(s, 1, 0).id, 'a', walkId(s))), 'conflict', /M5 isn’t a first-round match/);
+  rejects(() => run(s, place(s, 'nope', 'a', walkId(s))), 'conflict', /no longer in this bracket/);
+  rejects(() => run(s, place(s, m(s, 0, 1).id, 'b', 'ghost')), 'conflict', /isn’t on the list/);
+  rejects(() => run(s, place(s, m(s, 0, 1).id, 'b', 'p4')), 'conflict', /^Player 4 is already in M3\. Empty that slot first\.$/);
+  rejects(() => run(s, place(s, m(s, 0, 0).id, 'b', 'p1')), 'conflict', /Player 1 is already in M1\./);
+  // the same player in the same slot changes nothing
+  assert.equal(run(s, place(s, m(s, 0, 0).id, 'a', 'p1')), s);
+});
+
+test('bracket.place: HQ only, and only from a device that has seen the latest bracket', () => {
+  const s = slotted();
+  const cmd = place(s, m(s, 0, 1).id, 'b', walkId(s));
+  rejects(() => run(s, cmd, desk()), 'forbidden', /can’t bracket\.place/);
+  rejects(() => run(s, place(s, m(s, 0, 1).id, 'b', walkId(s), { base: dayVersion(s) - 1 })), 'conflict', /changed on another device/);
+  rejects(() => run(s, place(s, m(s, 0, 1).id, 'b', walkId(s), { base: dayVersion(s) + 1 })), 'conflict', /changed on another device/);
+});
+
+test('validateCommand: bracket.place shape', () => {
+  assert.equal(validateCommand({ type: 'bracket.place', base: 3, matchId: 'x', side: 'b', playerId: null }).type, 'bracket.place');
+  assert.equal(validateCommand({ type: 'bracket.place', base: 3, matchId: 'x', side: 'a', playerId: 'p1' }).type, 'bracket.place');
+  for (const bad of [
+    { type: 'bracket.place', base: 3, side: 'a', playerId: 'p1' },
+    { type: 'bracket.place', base: 3, matchId: 'x', side: 'c', playerId: 'p1' },
+    { type: 'bracket.place', base: 3, matchId: 'x', side: 'a' },
+    { type: 'bracket.place', base: 3, matchId: 'x', side: 'a', playerId: '' },
+    { type: 'bracket.place', base: 3, matchId: 'x', side: 'a', playerId: 'p'.repeat(201) },
+    { type: 'bracket.place', base: 3, matchId: 'x', side: 'a', playerId: 7 },
+  ])
+    assert.throws(() => validateCommand(bad), CommandError);
 });
