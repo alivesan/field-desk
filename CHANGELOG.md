@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Match day on phones:** the Steam login is now a thin strip above the tabs — Steam ID, **Login details** (opens the ID, password and tips; remembered per store for the tab) and the Steam Guard code block always in view. The four numbers at the top fit on one row, and a free station with nothing to call is a single line instead of an empty card.
 - **Seeding tab for HQ** on match day (after Queue; Bracket stays last): every first-round slot in bracket order with its player, seed, *(on-spot)* tag and check-in, a pencil to change it, **+ Free slot** on an empty one, and a lock on slots whose match is live or played. The picker offers players not in the bracket, players moved from another slot (the two swap places) and *Empty this slot*; players without a slot are listed below with **Place…**. Field Desk doesn’t change Toornament, so do it there too.
 - `bracket.place` gains `swap`: a player who already has a first-round slot trades places with whoever (or nobody) is in the target slot. Both matches must be unplayed, neither may be left empty, and a started match downstream still refuses it.
 - **“A new version of Field Desk is ready”:** a bar under the header with **Reload** appears when a newer version has been deployed (checked every 2 minutes and when you come back to the tab), so a phone that hasn’t reloaded stops running last night’s page.

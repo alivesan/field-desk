@@ -779,6 +779,30 @@
     width: 100%;
   }
 }
+/* a phone: all four numbers on one row, labels wrapping under their numeral */
+@media (max-width: 480px) {
+  .day-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: start;
+    gap: 14px 8px;
+  }
+  .day-stats > div {
+    min-width: 0;
+    gap: 6px;
+  }
+  .day-stats strong {
+    font-size: 36px;
+  }
+  .day-stats > div span {
+    font-size: 9.5px;
+    line-height: 1.25;
+    letter-spacing: 0.05em;
+  }
+  .day-stats .btn {
+    grid-column: 1 / -1;
+  }
+}
 
 /* a newer build is live (src/components/UpdateBar.tsx): slim, under the header, in the page flow so it never covers a button */
 .update-bar {

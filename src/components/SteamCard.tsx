@@ -72,8 +72,9 @@ export function OtpCode({ code, expiresAt, now }: { code: string; expiresAt: str
  * lasts, with Logged in and Check for new code when a team signs in on several PCs; "Waiting for a new Steam email…"
  * after a lookup was started; the Get code button when the server can ask; and the plain "call HQ" line whenever there
  * is no code. A code the team has moved past is hidden here at once, without waiting for the server's word.
+ * `brief` (the folded strip) keeps only the button, the waiting line or the code — no hints, no call-HQ line.
  */
-function OtpBlock({ storeId, login, hqPhone }: { storeId: string; login: SteamLogin; hqPhone?: string }) {
+function OtpBlock({ storeId, login, hqPhone, compact, brief }: { storeId: string; login: SteamLogin; hqPhone?: string; compact?: boolean; brief?: boolean }) {
   const now = useNow(1000);
   const [asked, setAsked] = useState<SteamLogin['otpLookup']>();
   const [hiddenThrough, setHiddenThrough] = useState<string | undefined>(); // receivedAt of the newest code hidden here
@@ -133,7 +134,7 @@ function OtpBlock({ storeId, login, hqPhone }: { storeId: string; login: SteamLo
               Check for new code
             </button>
           </div>
-          <p className="sc-hint">Signing in on another PC? Press Check for new code, then sign in — Steam emails a new code each time.</p>
+          {!brief && <p className="sc-hint">Signing in on another PC? Press Check for new code, then sign in — Steam emails a new code each time.</p>}
         </>
       )}
       {waiting && (
@@ -141,7 +142,7 @@ function OtpBlock({ storeId, login, hqPhone }: { storeId: string; login: SteamLo
           <p className="sc-wait" role="status">
             Waiting for a new Steam email… ({clock(now - Date.parse(waiting))})
           </p>
-          <p className="sc-hint">Start the Steam sign-in on the PC — Steam only emails a code when a PC signs in.</p>
+          {!brief && <p className="sc-hint">Start the Steam sign-in on the PC — Steam only emails a code when a PC signs in.</p>}
         </>
       )}
       {!live && !waiting && login.otpRequest && (
@@ -149,12 +150,13 @@ function OtpBlock({ storeId, login, hqPhone }: { storeId: string; login: SteamLo
           <button type="button" className="btn sc-ask" disabled={busy} onClick={() => void request()}>
             {busy ? 'Asking…' : 'Get code'}
           </button>
-          <p className="sc-hint">Press Get code, then sign in to Steam on the PC — Steam emails the code only then.</p>
+          {!brief && <p className="sc-hint">Press Get code, then sign in to Steam on the PC — Steam emails the code only then.</p>}
         </>
       )}
-      {!live && (
+      {!live && !brief && (
         <p className="sc-otp">
-          {waiting ? 'No code yet? ' : ''}For the Steam Guard code (OTP), call HQ{hqPhone ? ': ' : '.'}
+          {compact ? 'No code? Call HQ' : `${waiting ? 'No code yet? ' : ''}For the Steam Guard code (OTP), call HQ`}
+          {hqPhone ? ': ' : '.'}
           {hqPhone && (
             <a href={`tel:${hqPhone.replace(/[^\d+]/g, '')}`} className="sc-call">
               {hqPhone}
@@ -169,21 +171,11 @@ function OtpBlock({ storeId, login, hqPhone }: { storeId: string; login: SteamLo
 export const DOWNLOAD_TIP = 'Downloading: many PCs can download at once with this account.';
 export const PLAY_TIP = 'Playing: only one PC can be online with it at a time. To play on all PCs, start the game once online, then turn off Wi-Fi and play offline.';
 
-/**
- * The store team's Steam login (Store.steamLogin, worked out by the server for that store only): Steam ID,
- * password, what it is for, and how Steam lets several PCs share it. Renders nothing when HQ hasn't given
- * the store an account. `hqPhone`, when the app has one, turns "call HQ" into a tap-to-call link.
- */
-export function SteamCard({ store, hqPhone }: { store: Pick<Store, 'id' | 'steamLogin'>; hqPhone?: string }) {
-  const login = store.steamLogin;
-  if (!login) return null;
+/** Steam ID and password with Copy, then the two tips on sharing the account. */
+function LoginDetails({ login }: { login: SteamLogin }) {
   const play = login.purpose === 'play';
   return (
-    <section className="sc" aria-label="Steam account for this store">
-      <div className="sc-head">
-        <h3 className="sc-title">Steam account for this store</h3>
-        <span className={play ? 'chip ok' : 'chip warn'}>{play ? 'For playing' : 'For downloads only'}</span>
-      </div>
+    <>
       <dl className="sc-fields">
         <div>
           <dt>Steam ID</dt>
@@ -202,6 +194,76 @@ export function SteamCard({ store, hqPhone }: { store: Pick<Store, 'id' | 'steam
         <li className={play ? undefined : 'lead'}>{DOWNLOAD_TIP}</li>
         <li className={play ? 'lead' : undefined}>{PLAY_TIP}</li>
       </ul>
+    </>
+  );
+}
+
+/**
+ * The match-day version: a thin strip above the tabs, folded by default to one row (Steam ID, Details) plus the code's
+ * own line — Get code, the waiting line, or the code with Logged in / Check for new code, which always shows. Details
+ * opens the password, the tips and the hints (remembered per store for this tab).
+ */
+function SteamStrip({ storeId, login, hqPhone }: { storeId: string; login: SteamLogin; hqPhone?: string }) {
+  const play = login.purpose === 'play';
+  const memo = `fd.steamOpen.${storeId}`;
+  const [open, setOpen] = useState(() => {
+    try {
+      return sessionStorage.getItem(memo) === 'open';
+    } catch {
+      return false;
+    }
+  });
+  const toggle = () => {
+    const now = !open;
+    setOpen(now);
+    try {
+      sessionStorage.setItem(memo, now ? 'open' : 'closed');
+    } catch {
+      /* private mode — it just starts closed again */
+    }
+  };
+  return (
+    <section className="sc sc-strip" aria-label="Steam account for this store">
+      <div className="sc-strip-row">
+        <h3 className="sc-title">Steam</h3>
+        <span className={play ? 'chip ok' : 'chip warn'}>{play ? 'For playing' : 'For downloads only'}</span>
+        {!open && (
+          <span className="sc-strip-id" title={login.username}>
+            {login.username}
+          </span>
+        )}
+        <button type="button" className="btn ghost sc-strip-toggle" aria-expanded={open} aria-controls={`sc-details-${storeId}`} onClick={toggle}>
+          {open ? 'Less' : 'Details'}
+        </button>
+      </div>
+      {open && (
+        <div id={`sc-details-${storeId}`}>
+          <LoginDetails login={login} />
+        </div>
+      )}
+      <OtpBlock storeId={storeId} login={login} hqPhone={hqPhone} compact brief={!open} />
+    </section>
+  );
+}
+
+/**
+ * The store team's Steam login (Store.steamLogin, worked out by the server for that store only): Steam ID,
+ * password, what it is for, and how Steam lets several PCs share it. Renders nothing when HQ hasn't given
+ * the store an account. `hqPhone`, when the app has one, turns "call HQ" into a tap-to-call link. `compact`
+ * (match day) is the thin strip above the tabs instead of the full card.
+ */
+export function SteamCard({ store, hqPhone, compact }: { store: Pick<Store, 'id' | 'steamLogin'>; hqPhone?: string; compact?: boolean }) {
+  const login = store.steamLogin;
+  if (!login) return null;
+  if (compact) return <SteamStrip storeId={store.id} login={login} hqPhone={hqPhone} />;
+  const play = login.purpose === 'play';
+  return (
+    <section className="sc" aria-label="Steam account for this store">
+      <div className="sc-head">
+        <h3 className="sc-title">Steam account for this store</h3>
+        <span className={play ? 'chip ok' : 'chip warn'}>{play ? 'For playing' : 'For downloads only'}</span>
+      </div>
+      <LoginDetails login={login} />
       <OtpBlock storeId={store.id} login={login} hqPhone={hqPhone} />
     </section>
   );

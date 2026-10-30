@@ -126,7 +126,9 @@ function StoreTasks({ store, event, now, index }: { store: Store; event: Tournam
   const next =
     open && collect
       ? { label: 'Collect winner details', href: `${base}/day` }
-      : st.kind === 'failed'
+      : open && days <= 0 && !finished && !q?.champion
+        ? { label: 'Open match day', href: `${base}/day` } // on the day, match day comes before any recce chore
+        : st.kind === 'failed'
         ? { label: 'Fix the recce submission', href: `${base}/recce` }
         : !st.acknowledged && st.kind !== 'waiting'
           ? { label: r.startedAt ? 'Continue the recce' : 'Start the recce', href: `${base}/recce` }
