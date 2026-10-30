@@ -2,7 +2,7 @@
 
 Only automation/ is changed. No application changes are made by this branch.
 
-As of 30 October 2026, the Oracle n8n/worker/Caddy stack targets the authorized live API at `https://fieldesk.runs-at.dev/api/v1`; the mock container is removed. HTTPS health and the private webhook signature probes pass. The owner/Claude privately merged the VM-generated `FD_STEAM_*` variables into Field Desk; the authenticated account API returned 200 and a wrong key returned 401. Host and container reachability and an actual Request code event have been verified. No live OTP was submitted. Central Gmail OAuth, exact forwarding addresses and real Steam samples remain pending; Gmail polling is disabled.
+As of 30 October 2026, the Oracle n8n/worker/Caddy stack targets the authorized live API at `https://fieldesk.runs-at.dev/api/v1`; the mock container is removed. HTTPS health and the private webhook signature probes pass. The owner/Claude privately merged the VM-generated `FD_STEAM_*` variables into Field Desk; the authenticated account API returned 200 and a wrong key returned 401. Host and container reachability and an actual Request code event have been verified. No live OTP was submitted. Central Gmail OAuth is saved and bound to the configured workflow. A read-only header check found four messages; three failed the receiving Gmail Steam-alignment check. Confirmed forwarding addresses, authenticated layouts and real delivery checks remain pending; Gmail polling is disabled.
 
 ## Contract reviewed: PR #16
 

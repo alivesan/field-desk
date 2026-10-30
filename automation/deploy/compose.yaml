@@ -31,6 +31,7 @@ services:
       N8N_SECURE_COOKIE: "true"
       N8N_PORT: "5678"
       N8N_PROXY_HOPS: "1"
+      N8N_PUSH_BACKEND: sse
       N8N_WEBHOOK_URL: https://${N8N_DOMAIN:?Set N8N_DOMAIN in .env}/
       N8N_EDITOR_BASE_URL: https://${N8N_DOMAIN:?Set N8N_DOMAIN in .env}/
       EXECUTIONS_DATA_SAVE_ON_SUCCESS: none

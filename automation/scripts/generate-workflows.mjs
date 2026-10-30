@@ -111,10 +111,44 @@ function mockDemoWorkflow() {
   return { name: 'MOCK ONLY - Steam OTP synthetic Gmail demo', active: false, nodes, connections, settings };
 }
 
+function gmailHeaderCheckWorkflow() {
+  const headers = '($json.payload?.headers || []).filter(h => String(h.name).toLowerCase() === "authentication-results")';
+  const googleHeaders = `${headers}.filter(h => /^\\s*mx\\.google\\.com\\s*;/i.test(String(h.value || "")))`;
+  const flag = pattern => `={{ ${googleHeaders}.length === 1 && ${googleHeaders}.every(h => ${pattern}.test(String(h.value || ""))) }}`;
+  const assignments = [
+    ['inSpam', '={{ Array.isArray($json.labelIds) && $json.labelIds.includes("SPAM") }}', 'boolean'],
+    ['gmailVerifier', `={{ ${googleHeaders}.length === 1 }}`, 'boolean'],
+    ['dmarcPass', flag('/\\bdmarc=pass\\b/i'), 'boolean'],
+    ['dmarcAlignedToSteam', flag('/\\bdmarc=pass\\b[^;\\r\\n]*\\bheader\\.from=steampowered\\.com(?=[;\\s]|$)/i'), 'boolean'],
+    ['dkimPass', flag('/\\bdkim=pass\\b/i'), 'boolean'],
+    ['spfPass', flag('/\\bspf=pass\\b/i'), 'boolean'],
+    ['arcPass', flag('/\\barc=pass\\b/i'), 'boolean'],
+    ['authHeaderCount', `={{ ${headers}.length }}`, 'number'],
+  ].map(([name, value, type]) => ({ id: `header-check-${name}`, name, value, type }));
+  const nodes = [
+    node('CHECK ONLY - manual trigger', 'manualTrigger', 0, 0, {}),
+    http('List up to five recent Steam messages', 220, 0, {
+      method: 'GET', url: 'https://gmail.googleapis.com/gmail/v1/users/me/messages', ...gmailAuth,
+      ...query([['q', 'newer_than:1d -in:trash from:noreply@steampowered.com'], ['maxResults', '5'], ['includeSpamTrash', 'true'], ['fields', 'messages/id']]),
+    }, gmailAuth),
+    node('Any messages?', 'if', 440, 0, condition('={{ Array.isArray($json.messages) && $json.messages.length > 0 }}')),
+    node('One header check per message', 'splitOut', 660, 0, { fieldToSplitOut: 'messages', include: 'noOtherFields', options: {} }),
+    http('Get authentication metadata only', 880, 0, {
+      method: 'GET', url: '={{ "https://gmail.googleapis.com/gmail/v1/users/me/messages/" + encodeURIComponent($json.id) }}', ...gmailAuth,
+      ...query([['format', 'metadata'], ['metadataHeaders', 'Authentication-Results'], ['fields', 'labelIds,payload/headers']]),
+    }, gmailAuth),
+    node('Safe forwarding header flags', 'set', 1100, 0, { assignments: { assignments }, includeOtherFields: false, options: {} }),
+  ];
+  const connections = {};
+  for (let index = 0; index < nodes.length - 1; index++) connect(connections, nodes[index].name, nodes[index + 1].name);
+  return { name: 'CHECK ONLY - Gmail forwarding headers', active: false, nodes, connections, settings };
+}
+
 export const workflows = {
   'C-central-gmail.json': centralGmailWorkflow(),
   'steam-request-webhook.json': webhookWorkflow(),
   'C-demo-mock.json': mockDemoWorkflow(),
+  'C-gmail-header-check.json': gmailHeaderCheckWorkflow(),
 };
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
