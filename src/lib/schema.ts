@@ -21,6 +21,7 @@ import { HH_MM, toornamentLinkProblem } from './toornament.ts';
 import { MAX_IGN } from './phone.ts';
 import { INSTAGRAM_HANDLE } from './winnerInput.ts';
 import { PRINT_KINDS } from './print.ts';
+import { MARKETING_MAX } from './marketing.ts';
 
 export type DocKind = 'events' | 'stores' | 'admins' | 'accounts';
 
@@ -158,6 +159,14 @@ function validateEvent(c: C, e: Rec, ctx: ValidationContext) {
       if (typeof v.size !== 'string' || !v.size.trim() || v.size.length > 60) c.bad(`printSpec.${k}.size`, 'must be text of 1–60 characters');
       c.num(v.qty, `printSpec.${k}.qty`, 1, 100000, true);
     }
+  }
+  if (e.marketing !== undefined && c.obj(e.marketing, 'marketing')) {
+    const m = e.marketing;
+    for (const [k, v] of Object.entries(m)) {
+      if (!c.oneOf(k, `marketing.${k}`, Object.keys(MARKETING_MAX))) continue;
+      c.str(v, `marketing.${k}`, MARKETING_MAX[k as keyof typeof MARKETING_MAX]);
+    }
+    if (typeof m.discordInvite === 'string' && m.discordInvite.trim() && !/^https:\/\/\S+$/.test(m.discordInvite.trim())) c.bad('marketing.discordInvite', 'must be an https link');
   }
   if (e.toornamentAuto !== undefined && c.obj(e.toornamentAuto, 'toornamentAuto')) {
     if (typeof e.toornamentAuto.from !== 'string' || !HH_MM.test(e.toornamentAuto.from)) c.bad('toornamentAuto.from', 'must be a time of day, HH:MM (24-hour)');

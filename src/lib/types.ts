@@ -268,8 +268,20 @@ export interface TournamentEvent {
   printSheet?: PrintSheetSource; // HQ-only: the creatives sheet (one tab per date, a block of 5 Drive links per store)
   printDesk?: PrintDesk; // HQ-only: the no-sign-in link for whoever downloads every store's print files
   printSpec?: Partial<Record<PrintKind, PrintSpec>>; // print instructions; missing kinds use PRINT_DEFAULTS
+  marketing?: EventMarketing; // HQ-only: prize pool, times and promo texts that fill the Discord post and the WhatsApp promos (src/lib/marketing.ts)
   toornamentAuto?: { from: string }; // 'HH:MM' India time: when the server starts checking Toornament for each store's bracket on its day (default 12:30)
   closedAt?: string; // ISO — HQ closed the campaign by hand (HQ-only field); it is also complete once every store is finished (src/lib/done.ts)
+}
+
+/** What HQ types once per campaign for the Marketing page; an empty field falls back to a default text or a visible [… missing] marker. */
+export interface EventMarketing {
+  prizePool?: string; // "10,000" — the templates add the ₹
+  reportingTime?: string; // free text: "11:00 AM"
+  firstMatch?: string; // free text: "12:00 PM"
+  discordIntro?: string;
+  discordClosing?: string;
+  whatsappIntro?: string;
+  discordInvite?: string; // https link; default is the ROG Showdown server
 }
 
 /** The sheet link HQ imports this campaign's stores from — so next time it's one press on Refresh. */

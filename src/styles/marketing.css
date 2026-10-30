@@ -1,0 +1,180 @@
+/*
+ * Marketing: HQ's page (#/marketing, pages/MarketingPage.tsx) — the Discord post and the WhatsApp promos
+ * of this weekend's and next weekend's campaigns. Weekend headings reuse .hs / .hs-head (desk.css);
+ * the poster thumbnail is .pf-thumb (print.css). Tokens come from base.css.
+ */
+
+.mk-camp {
+  margin: 0 0 40px;
+}
+.mk-camp-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  margin-bottom: 12px;
+}
+.mk-camp-head h3 {
+  font-size: 28px;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- prize pool, times, texts ---------- */
+
+.mk-settings {
+  margin: 0 0 20px;
+}
+.mk-settings > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 10px 0;
+  cursor: pointer;
+  font: 500 11px/1.3 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.mk-settings[open] > summary {
+  margin-bottom: 12px;
+}
+.mk-form {
+  margin-bottom: 0;
+}
+.mk-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 20px;
+}
+.mk-form .field textarea::placeholder,
+.mk-form .field input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+.mk-note {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+/* ---------- the two blocks of a campaign ---------- */
+
+.mk-block {
+  margin: 0 0 24px;
+}
+.mk-block-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+.mk-block-head h4 {
+  margin: 0 auto 0 0;
+  font: 400 22px/1.1 var(--serif);
+  letter-spacing: -0.015em;
+}
+.mk-block-head h4 b {
+  margin-right: 6px;
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+.mk-warn {
+  margin: 0 0 10px;
+  font-size: 13.5px;
+  color: var(--warn);
+}
+.mk-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+/* the text as it will be pasted: monospace, wrapped, never wider than the screen */
+.mk-pre {
+  margin: 0;
+  padding: 14px 16px;
+  min-width: 0;
+  font: 400 13px/1.55 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  background: var(--paper-2);
+}
+
+/* ---------- one store ---------- */
+
+.mk-stores {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr));
+  gap: 16px;
+}
+.mk-store {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--rule);
+}
+.mk-store-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+  margin-bottom: 10px;
+}
+.mk-store-head h5 {
+  margin: 0;
+  font: 400 22px/1.1 var(--serif);
+  letter-spacing: -0.015em;
+  overflow-wrap: anywhere;
+}
+.mk-store-body {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+.mk-store-body.no-poster {
+  grid-template-columns: minmax(0, 1fr);
+}
+.mk-poster {
+  min-width: 0;
+}
+.mk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+@media (max-width: 640px) {
+  .mk-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mk-camp-head h3 {
+    font-size: 24px;
+  }
+  .mk-store {
+    padding: 12px;
+  }
+  .mk-store-body {
+    grid-template-columns: minmax(0, 1fr); /* the poster above its caption, so the caption keeps the full width */
+    gap: 10px;
+  }
+  .mk-poster {
+    width: 132px;
+  }
+  .mk-pre {
+    padding: 12px;
+    font-size: 12.5px;
+  }
+  .mk-actions .btn {
+    flex: 1 1 140px;
+  }
+}

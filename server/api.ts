@@ -70,7 +70,8 @@ export { ADMIN_CODE };
  *        Drive, streamed under its proper name ("Subham Infotech - A3 Poster.jpg")
  *   GET  /api/print/zip/:storeId       the same store's files as one zip
  *   Nothing is recorded when a file is downloaded: the client writes store.printDownloads itself (a store field a
- *   team may write); store.print, event.printSheet / printDesk / printSpec are HQ's.
+ *   team may write); store.print, event.printSheet / printDesk / printSpec are HQ's
+ *   (so is event.marketing, the Marketing page's prize pool, times and promo texts).
  *
  * No request for these: from 12:30 on a store's day the server checks its Toornament stage every 5
  * minutes and loads the bracket once the players are placed (server/toornament-auto.ts; off in
@@ -368,7 +369,8 @@ export function createApi(opts: ApiOptions) {
           .filter(([id]) => eventIds.has(id))
           .map(([id, e]) => {
             // The creatives sheet link and the print desk's token are capabilities too (the desk link is public).
-            const { storeSheet: _hq, printSheet: _sheet, printDesk: _desk, ...rest } = e as typeof e & { storeSheet?: unknown; printSheet?: unknown; printDesk?: unknown };
+            // The marketing texts (prize pool, promo copy) are HQ's own working notes.
+            const { storeSheet: _hq, printSheet: _sheet, printDesk: _desk, marketing: _promo, ...rest } = e as typeof e & { storeSheet?: unknown; printSheet?: unknown; printDesk?: unknown; marketing?: unknown };
             return [id, rest as typeof e];
           }),
       ),
