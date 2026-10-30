@@ -3,7 +3,7 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 export const TTL = 600_000;
 export const digest = value => createHash('sha256').update(value).digest('hex');
 const addr = value => String(value || '').trim().toLowerCase();
-const addresses = value => (String(value || '').match(/[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || []).map(addr);
+const addresses = value => [...new Set((String(value || '').match(/[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || []).map(addr))];
 export function textFromHtml(html) {
   return String(html || '').replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
     .replace(/<(?:br|\/p|\/div|\/tr|\/td|\/h[1-6])\b[^>]*>/gi, '\n').replace(/<[^>]+>/g, ' ')
@@ -74,7 +74,14 @@ export function parseEmail(email, now = Date.now(), { trustedForwarders = [], al
   for (const line of lines) if (/^[A-Z0-9]{5}$/.test(line.trim())) found.add(line.trim());
   if (found.size !== 1) throw new Error('ambiguous_or_missing_code');
   const usernames = new Set();
-  for (const match of lines.join('\n').matchAll(/(?:Steam\s+account(?:\s+name)?\s*[:：]\s*|Dear\s+)([A-Za-z0-9_]+)(?:[,\s]|$)/gi)) usernames.add(match[1].toLowerCase());
+  const body = lines.join('\n');
+  for (const match of body.matchAll(/(?:Steam\s+account(?:\s+name)?\s*[:：]\s*|Dear\s+)([A-Za-z0-9_]+)(?:[,\s]|$)/gi)) usernames.add(match[1].toLowerCase());
+  // During a signed request the exact account name is already known. Steam's
+  // layouts need not use a particular greeting, but the name must occur in body.
+  for (const value of requestedUsernames) {
+    const username = addr(value);
+    if (/^[a-z0-9_]{1,64}$/.test(username) && new RegExp(`(?:^|[^a-z0-9_])${username}(?=$|[^a-z0-9_])`, 'i').test(body)) usernames.add(username);
+  }
   if (usernames.size > 1) throw new Error('ambiguous_account_name');
   if (usernames.size !== 1) throw new Error('account_name_missing');
   if (!authenticated && !requestedUsernames.map(addr).includes([...usernames][0])) throw new Error('no_active_request');

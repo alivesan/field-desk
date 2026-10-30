@@ -36,6 +36,10 @@ function request(service, username, at = start, id = username) {
 test('requested redirects need exact source recipient and body username, with age and ambiguity checks', () => {
   const policy = { ...box, requestedUsernames: ['store_alpha'] };
   assert.equal(parseEmail(normalize('gmail', mail()), start, policy).username, 'store_alpha');
+  const repeatedDisplayAddress = mail();
+  repeatedDisplayAddress.payload.headers.find(h => h.name === 'To').value = '"source@hotmail.com" <source@hotmail.com>';
+  assert.deepEqual(normalize('gmail', repeatedDisplayAddress).recipients, ['source@hotmail.com']);
+  assert.equal(parseEmail(normalize('gmail', repeatedDisplayAddress), start, policy).username, 'store_alpha');
   assert.throws(() => parseEmail(normalize('gmail', mail()), start), /sender_auth_unverified/);
   assert.throws(() => parseEmail(normalize('gmail', mail()), start, { ...policy, requestedUsernames: [] }), /no_active_request/);
   assert.throws(() => parseEmail(normalize('gmail', mail('store_beta')), start, policy), /no_active_request/);
@@ -47,6 +51,13 @@ test('requested redirects need exact source recipient and body username, with ag
   subjectOnly.payload.headers.find(h => h.name === 'Subject').value = 'Steam account: store_alpha';
   subjectOnly.payload.body.data = Buffer.from('Steam Guard code is: A1B2C').toString('base64url');
   assert.throws(() => parseEmail(normalize('gmail', subjectOnly), start, policy), /account_name_missing/);
+  const accountInSentence = mail();
+  accountInSentence.payload.body.data = Buffer.from('Here is the Steam Guard code for account store_alpha:\nA1B2C').toString('base64url');
+  assert.equal(parseEmail(normalize('gmail', accountInSentence), start, policy).username, 'store_alpha');
+  accountInSentence.payload.body.data = Buffer.from('Here is the Steam Guard code for account store_alpha_extra:\nA1B2C').toString('base64url');
+  assert.throws(() => parseEmail(normalize('gmail', accountInSentence), start, policy), /account_name_missing/);
+  accountInSentence.payload.body.data = Buffer.from('Steam Guard for store_alpha and store_beta:\nA1B2C').toString('base64url');
+  assert.throws(() => parseEmail(normalize('gmail', accountInSentence), start, { ...policy, requestedUsernames: ['store_alpha', 'store_beta'] }), /ambiguous_account_name/);
   const ambiguous = mail(); ambiguous.payload.body.data = Buffer.from('Dear store_alpha,\nSteam Guard\nA1B2C\nD3E4F').toString('base64url');
   assert.throws(() => parseEmail(normalize('gmail', ambiguous), start, policy), /ambiguous_or_missing_code/);
   assert.throws(() => parseEmail(normalize('gmail', mail('store_alpha', 'stale', start - TTL)), start, policy), /expired_or_invalid_time/);
