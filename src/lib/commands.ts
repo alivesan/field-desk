@@ -66,6 +66,7 @@ export function validateCommand(input: unknown): Command {
       str('matchId');
       if (c.side !== 'a' && c.side !== 'b') throw new CommandError('invalid', 'side must be "a" or "b"');
       if (c.playerId !== null) str('playerId');
+      if (c.swap !== undefined && c.swap !== true) throw new CommandError('invalid', 'swap must be true');
       break;
     case 'stations.set':
       int('count', 1, 64);

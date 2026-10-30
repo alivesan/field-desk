@@ -22,8 +22,9 @@ export type Command =
   | { type: 'players.set'; base: number; players: Player[] } // replace the roster (0–256); clears an unstarted bracket
   | { type: 'players.seed'; base: number; order: string[] } // every player id, in seed order; clears an unstarted bracket
   | { type: 'bracket.build'; base: number; stations?: number; pairs?: [string | null, string | null][] | null } // from the saved seeds
-  // HQ: put a player into a first-round slot (null = empty it) while that match hasn't been played; `base` must be current
-  | { type: 'bracket.place'; base: number; matchId: string; side: 'a' | 'b'; playerId: string | null }
+  // HQ: put a player into a first-round slot (null = empty it) while that match hasn't been played; `base` must be current.
+  // swap: the player already sits in another first-round slot — the two slots trade occupants (an empty target is fine)
+  | { type: 'bracket.place'; base: number; matchId: string; side: 'a' | 'b'; playerId: string | null; swap?: true }
   | { type: 'stations.set'; base: number; count: number }
   | { type: 'match.start'; base: number; matchId: string; station: number }
   | { type: 'match.finish'; base: number; matchId: string; winner: string; score?: string; walkover?: boolean }

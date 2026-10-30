@@ -632,9 +632,83 @@ test('bracket.place: HQ only, and only from a device that has seen the latest br
   rejects(() => run(s, place(s, m(s, 0, 1).id, 'b', walkId(s), { base: dayVersion(s) + 1 })), 'conflict', /changed on another device/);
 });
 
+test('bracket.place swap: two players in different pending matches trade slots', () => {
+  const s = slotted();
+  const [m1, m3] = [m(s, 0, 0), m(s, 0, 2)];
+  const t = run(s, place(s, m3.id, 'b', 'p1', { swap: true }));
+  assert.deepEqual([byId(t, m1.id).a, byId(t, m1.id).b, byId(t, m1.id).status], ['p5', 'p2', 'pending']);
+  assert.deepEqual([byId(t, m3.id).a, byId(t, m3.id).b, byId(t, m3.id).status], ['p4', 'p1', 'pending']);
+  assert.equal(dayVersion(t), dayVersion(s) + 1);
+  assert.deepEqual(t.day.players, s.day.players);
+  assert.deepEqual(t.day.checkIn, s.day.checkIn);
+  // without swap it is still refused, with the old advice
+  rejects(() => run(s, place(s, m3.id, 'b', 'p1')), 'conflict', /^Player 1 is already in M1\. Empty that slot first\.$/);
+  // the player already in that slot: nothing changes
+  assert.equal(run(s, place(s, m3.id, 'b', 'p5', { swap: true })), s);
+});
+
+test('bracket.place swap: into an empty bye slot — the source match becomes a bye, or is refused if it would be empty', () => {
+  const s = slotted();
+  const [m1, m2] = [m(s, 0, 0), m(s, 0, 1)];
+  assert.ok(m2.bye && m(s, 1, 0).b === 'p3');
+  const t = run(s, place(s, m2.id, 'b', 'p1', { swap: true }));
+  assert.deepEqual([byId(t, m2.id).a, byId(t, m2.id).b, byId(t, m2.id).status, byId(t, m2.id).bye], ['p3', 'p1', 'pending', undefined]);
+  assert.deepEqual([byId(t, m1.id).a, byId(t, m1.id).b, byId(t, m1.id).bye, byId(t, m1.id).winner], [null, 'p2', true, 'p2']);
+  assert.deepEqual([m(t, 1, 0).a, m(t, 1, 0).b], ['p2', null], 'p2 advanced, p3 pulled back out of round 1');
+  // p3 sits alone in M2: moving them to the empty slot of M4 would leave M2 with nobody
+  rejects(() => run(s, place(s, m(s, 0, 3).id, 'b', 'p3', { swap: true })), 'invalid', /A match needs at least one player\./);
+  // …but with an opponent in the target slot it is fine: that player takes p3’s place and M2 stays a bye
+  const u = run(s, place(s, m(s, 0, 3).id, 'a', 'p3', { swap: true }));
+  assert.deepEqual([byId(u, m2.id).a, byId(u, m2.id).b, byId(u, m2.id).bye, byId(u, m2.id).winner], ['p6', null, true, 'p6']);
+  assert.deepEqual([m(u, 0, 3).a, m(u, 0, 3).b], ['p3', null]);
+  assert.deepEqual([m(u, 1, 0).b, m(u, 1, 1).b], ['p6', 'p3'], 'each bye now sends its new player on');
+});
+
+test('bracket.place swap: top and bottom of one match', () => {
+  const s = slotted();
+  const m1 = m(s, 0, 0);
+  const t = run(s, place(s, m1.id, 'a', 'p2', { swap: true }));
+  assert.deepEqual([byId(t, m1.id).a, byId(t, m1.id).b, byId(t, m1.id).status], ['p2', 'p1', 'pending']);
+  assert.equal(dayVersion(t), dayVersion(s) + 1);
+  // a bye keeps its player when it moves to the other side
+  const m2 = m(s, 0, 1);
+  const u = run(s, place(s, m2.id, 'b', 'p3', { swap: true }));
+  assert.deepEqual([byId(u, m2.id).a, byId(u, m2.id).b, byId(u, m2.id).bye, byId(u, m2.id).winner], [null, 'p3', true, 'p3']);
+  assert.equal(m(u, 1, 0).b, 'p3');
+});
+
+test('bracket.place swap: refused when either match is live or played, or when a started match downstream would move', () => {
+  const s = slotted();
+  const [m1, m3] = [m(s, 0, 0), m(s, 0, 2)];
+  const live = run(s, { type: 'match.start', base: dayVersion(s), matchId: m1.id, station: 1 });
+  rejects(() => run(live, place(live, m3.id, 'a', 'p1', { swap: true })), 'conflict', /M1 has already started — undo it first/); // the source is live
+  rejects(() => run(live, place(live, m1.id, 'a', 'p4', { swap: true })), 'conflict', /M1 has already started — undo it first/); // the target is live
+  const done = run(live, { type: 'match.finish', base: dayVersion(live), matchId: m1.id, winner: 'p1' });
+  rejects(() => run(done, place(done, m3.id, 'a', 'p1', { swap: true })), 'conflict', /M1 has already been played/);
+  rejects(() => run(done, place(done, m1.id, 'b', 'p4', { swap: true })), 'conflict', /M1 has already been played/);
+  // M5 (p1 v the bye’s p3) is being played: p3 can’t be swapped out of M2 for p4, as M5 would get a new opponent
+  const next = run(done, { type: 'match.start', base: dayVersion(done), matchId: m(done, 1, 0).id, station: 2 });
+  rejects(() => run(next, place(next, m3.id, 'a', 'p3', { swap: true })), 'conflict', /M5 \(Player 1 vs Player 3\) has already started — undo that first\./);
+  // the refused swap changed nothing, and a swap that leaves M5 alone still works
+  assert.deepEqual([m(next, 0, 1).a, m(next, 0, 2).a], ['p3', 'p4']);
+  const ok = run(next, place(next, m3.id, 'a', 'p5', { swap: true }));
+  assert.deepEqual([m(ok, 0, 2).a, m(ok, 0, 2).b], ['p5', 'p4']);
+  // a first-round slot only: later rounds can’t be the target
+  rejects(() => run(s, place(s, m(s, 1, 0).id, 'a', 'p4', { swap: true })), 'conflict', /M5 isn’t a first-round match/);
+});
+
+test('bracket.place swap: HQ only, and only from a device that has seen the latest bracket', () => {
+  const s = slotted();
+  const cmd = place(s, m(s, 0, 2).id, 'b', 'p1', { swap: true });
+  rejects(() => run(s, cmd, desk()), 'forbidden', /can’t bracket\.place/);
+  rejects(() => run(s, place(s, m(s, 0, 2).id, 'b', 'p1', { swap: true, base: dayVersion(s) - 1 })), 'conflict', /changed on another device/);
+  rejects(() => run(s, place(s, m(s, 0, 2).id, 'b', 'p1', { swap: true, base: dayVersion(s) + 1 })), 'conflict', /changed on another device/);
+});
+
 test('validateCommand: bracket.place shape', () => {
   assert.equal(validateCommand({ type: 'bracket.place', base: 3, matchId: 'x', side: 'b', playerId: null }).type, 'bracket.place');
   assert.equal(validateCommand({ type: 'bracket.place', base: 3, matchId: 'x', side: 'a', playerId: 'p1' }).type, 'bracket.place');
+  assert.equal(validateCommand({ type: 'bracket.place', base: 3, matchId: 'x', side: 'a', playerId: 'p1', swap: true }).type, 'bracket.place');
   for (const bad of [
     { type: 'bracket.place', base: 3, side: 'a', playerId: 'p1' },
     { type: 'bracket.place', base: 3, matchId: 'x', side: 'c', playerId: 'p1' },
@@ -642,6 +716,8 @@ test('validateCommand: bracket.place shape', () => {
     { type: 'bracket.place', base: 3, matchId: 'x', side: 'a', playerId: '' },
     { type: 'bracket.place', base: 3, matchId: 'x', side: 'a', playerId: 'p'.repeat(201) },
     { type: 'bracket.place', base: 3, matchId: 'x', side: 'a', playerId: 7 },
+    { type: 'bracket.place', base: 3, matchId: 'x', side: 'a', playerId: 'p1', swap: false },
+    { type: 'bracket.place', base: 3, matchId: 'x', side: 'a', playerId: 'p1', swap: 'yes' },
   ])
     assert.throws(() => validateCommand(bad), CommandError);
 });

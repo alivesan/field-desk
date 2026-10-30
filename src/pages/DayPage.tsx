@@ -29,6 +29,7 @@ import { cx, fmtTime, minutesSince, uid } from '../lib/util.ts';
 import { askConfirm, Chip, NotFound, notify, NumberField, PageHead, Shell, toast, useNow } from '../components/ui.tsx';
 import { useStoreName } from '../components/useStoreName.ts';
 import { MatchSheet, StateTag } from '../components/MatchSheet.tsx';
+import { SeedingView } from '../components/SeedingView.tsx';
 import { PlayerSheet } from '../components/PlayerSheet.tsx';
 import { CheckInQr } from '../components/CheckInQr.tsx';
 import { WinnersBanner } from '../components/WinnersBanner.tsx';
@@ -37,7 +38,7 @@ import '../styles/day.css';
 import { shareOrigin, useLan } from '../lib/origin.ts';
 import '../styles/checkin.css';
 
-type Tab = 'checkin' | 'queue' | 'bracket';
+type Tab = 'checkin' | 'queue' | 'seeding' | 'bracket';
 
 /*
  * Players, matches and stations change only through server commands (src/lib/tournament.ts):
@@ -96,6 +97,7 @@ export function DayPage({ storeId }: { storeId: string }) {
 
   const day = store.day;
   const hq = role === 'super';
+  const seeding = hq && day.players.length > 0 && day.matches.length > 0;
   const editDay = (fn: (d: MatchDay) => void) => updateStore(store.id, (s) => fn(s.day));
   const undoSelf = async (pid: string) => {
     const p = day.players.find((x) => x.id === pid);
@@ -192,11 +194,12 @@ export function DayPage({ storeId }: { storeId: string }) {
         </div>
       </PageHead>
 
-      <div className="tabs" role="tablist">
+      <div className={cx('tabs', seeding && 'four')} role="tablist">
         {(
           [
             ['checkin', 'Check-in'],
             ['queue', 'Queue'],
+            ...(seeding ? [['seeding', 'Seeding']] : []), // HQ: change first-round slots; Bracket stays last
             ['bracket', 'Bracket'],
           ] as [Tab, string][]
         ).map(([k, l]) => (
@@ -241,6 +244,8 @@ export function DayPage({ storeId }: { storeId: string }) {
         </section>
       ) : tab === 'queue' ? (
         <QueueView day={day} names={names} igns={igns} cmds={cmds} banner={banner} onCheckIn={checkInStaff} />
+      ) : tab === 'seeding' && seeding ? (
+        <SeedingView day={day} cmds={cmds} />
       ) : (
         <>
           {banner()}
@@ -276,7 +281,7 @@ function describe(cmd: Command, day: MatchDay) {
     case 'match.undo':
       return m?.status === 'live' ? `Cancel ${L}` : `Undo ${L}`;
     case 'bracket.place':
-      return `Change the players in ${L}`;
+      return cmd.swap ? `Swap players into ${L}` : `Change the players in ${L}`;
     case 'stations.set':
       return `Set stations to ${cmd.count}`;
     case 'bracket.load':

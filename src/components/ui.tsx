@@ -4,6 +4,7 @@ import { askName, login, setMyName, SIGNED_OUT_KEY, useSync } from '../lib/db.ts
 import { cx } from '../lib/util.ts';
 import { useRoute } from '../lib/router.ts';
 import { SyncStatus } from './SyncStatus.tsx';
+import { UpdateBar } from './UpdateBar.tsx';
 
 /**
  * What a signed-out visitor sees — and all they see. "/" is the field team's door (a
@@ -158,6 +159,7 @@ export function Shell({ crumbs = [], children, wide }: { crumbs?: { label: strin
           <SyncStatus />
         </div>
       </header>
+      <UpdateBar />
       <main className={cx('page', wide && 'wide')}>{children}</main>
       <footer className={cx('foot', wide && 'wide')}>
         <span>Field Desk</span>
