@@ -2,7 +2,7 @@
 
 For the e-mail automation (Astra's worker and its n8n workflows). Field Desk keeps the newest Steam Guard code of each Steam
 account, shows it to HQ and to the store teams that hold the account, and can be asked by a store team to look for a code
-(the request webhook). This page is the contract; the code is `server/steam-otp.ts` and the `/api/v1/steam/*` part of
+(the request webhook, which also says when a lookup is over). This page is the contract; the code is `server/steam-otp.ts` and the `/api/v1/steam/*` part of
 `server/api.ts`; `tests/server-steam-otp.test.ts` exercises every row of the tables below.
 
 ## Settings (environment, configured privately on the server)
@@ -10,11 +10,11 @@ account, shows it to HQ and to the store teams that hold the account, and can be
 | Variable | Meaning |
 |---|---|
 | `FD_STEAM_API_KEY` | Bearer token of the automation. Unset or blank: both API routes answer `503 not_configured`. Use a long random value (`openssl rand -base64 32`). |
-| `FD_STEAM_WEBHOOK_URL` | Where a store team's "Request code" is sent (`http` or `https`). |
+| `FD_STEAM_WEBHOOK_URL` | Where a store team's "Get code" (and the end of a lookup) is sent (`http` or `https`). |
 | `FD_STEAM_WEBHOOK_SECRET` | Secret that signs every webhook request. |
 
 The webhook is on only when **both** webhook settings are set (a half-configured pair is logged as a warning and treated as
-off). Then, and only then, store teams see the Request code button. With `deploy/docker-compose.yml` the three variables
+off). Then, and only then, store teams see the Get code button. With `deploy/docker-compose.yml` the three variables
 come from `deploy/.env` (see `deploy/.env.example`; empty values mean off). There is no UI for any of this.
 
 ## The key and its scopes
@@ -81,7 +81,8 @@ Headers: `Authorization: Bearer <key>`, `Content-Type: application/json`, and op
 (`^[\x21-\x7e]{1,128}$`, e.g. `steam-email-<sha256>`). Body limit **16 KB**.
 
 ```json
-{ "accountUsername": "store_alpha", "accountEmail": "login-alpha@example.invalid", "code": "AB3DE", "receivedAt": "2026-10-24T06:00:00.000Z" }
+{ "accountUsername": "store_alpha", "accountEmail": "login-alpha@example.invalid", "code": "AB3DE", "receivedAt": "2026-10-24T06:00:00.000Z",
+  "requestId": "6f1c3a0e-8a5b-4c5e-9d57-2b6f0f6a0c11" }
 ```
 
 | Field | Rule |
@@ -89,16 +90,27 @@ Headers: `Authorization: Bearer <key>`, `Content-Type: application/json`, and op
 | `accountUsername`, `accountEmail` | At least one, strings. Matched trimmed and case-insensitively. Both given must name the same account. An e-mail only matches accounts that have one. |
 | `code` | `^[A-Z0-9]{5}$` |
 | `receivedAt` | ISO 8601 with `Z` or an offset (`2026-10-24T06:00:00.000Z`), in the window **(now − 10 min, now + 30 s]** |
+| `requestId` | Optional: the `requestId` of the lookup this email answers (see the request webhook). A string matching `^[\x21-\x7e]{1,200}$`, else `400 invalid_request_id`. It is **not** part of the idempotency fingerprint and changes no accept / refuse / ordering rule: it only adds `request` to the answer. |
 
 Success, `200`:
 
 ```json
 { "ok": true, "accountUsername": "store_alpha", "accountEmail": "login-alpha@example.invalid", "assignedStoreId": "s1",
-  "receivedAt": "2026-10-24T06:00:00.000Z", "expiresAt": "2026-10-24T06:10:00.000Z" }
+  "receivedAt": "2026-10-24T06:00:00.000Z", "expiresAt": "2026-10-24T06:10:00.000Z",
+  "displayed": true, "request": { "id": "6f1c3a0e-8a5b-4c5e-9d57-2b6f0f6a0c11", "status": "open" } }
 ```
 
 The answer never contains the code. `expiresAt` is always `receivedAt` + 10 minutes, never counted from when the request
 arrives, and a repeat never extends it.
+
+Every `200` (duplicates too) also says:
+
+* `displayed` — whether the assigned store's card shows **exactly this code** now (same `receivedAt`; see "Lookups on the
+  store card"). `false` is normal: the code is stored for HQ all the same.
+* `request`, only when `requestId` was sent: `{ "id", "status" }`, where `status` is `open` (it is that store's current lookup and
+  its 10 minutes are not over), `closed` (the team dismissed it or started a newer one, or its 10 minutes are over) or `unknown`
+  (not a lookup of that store that Field Desk remembers). On a retry answered from an idempotency key, `displayed` and
+  `request` are worked out again, not replayed. Stop watching a request that is `closed` or `unknown`.
 
 ### Order the server decides things in
 
@@ -147,6 +159,7 @@ weekend, or the only holders' event days are past). The worker should treat this
 | POST otp | 400 | `unknown_account` | no account, or more than one, matches; username and e-mail disagree |
 | POST otp | 400 | `invalid_code` | `code` missing or not 5 characters of `A–Z` / `0–9` |
 | POST otp | 400 | `stale_or_future` | `receivedAt` not ISO with a zone, 10 minutes old or older, or more than 30 s ahead |
+| POST otp | 400 | `invalid_request_id` | `requestId` present but not a string of 1–200 visible ASCII characters |
 | POST otp | 400 | `invalid_idempotency_key` | `Idempotency-Key` present but not `^[\x21-\x7e]{1,128}$` |
 | POST otp | 409 | `not_assigned` | no store holds the account right now |
 | POST otp | 409 | `idempotency_key_reused` | same key, different username / code / `receivedAt` |
@@ -164,19 +177,31 @@ The newest code is stored on the Steam account (`accounts` document, HQ-only) as
 `otp: { code, receivedAt, expiresAt }`. It is written **only** by this endpoint: any batch from a client — HQ's included —
 that adds, changes or removes it is refused (`403 protected`), and a restored backup keeps the server's current code.
 
-* **HQ** sees it on the Steam accounts page with a countdown.
+* **HQ** sees it on the Steam accounts page with a countdown (always the newest code).
 * The **store team and the named field admin of every store that currently holds the account** (any purpose, event day not
   past) get it in their store's `steamLogin.otp`, **only while unexpired** when the page is read (and the card hides it by
-  its own clock). Other stores' teams and admins never receive it, nor does anyone get the account itself.
+  its own clock), and only if their card may show it (see "Lookups on the store card"). Other stores' teams and admins never receive it, nor does anyone get the account itself.
 * A new code reaches HQ and those stores live over the existing event stream.
 
-## Request webhook — `steam.otp.requested`
+## Request webhook — `steam.otp.requested` and `steam.otp.request.closed`
 
-When a store team (or its admin, or HQ) presses **Request code** on the Steam card, Field Desk sends a signed event to
-`FD_STEAM_WEBHOOK_URL`. It is a polling hint ("look for this account's e-mail now"), not a Steam login request.
+A team signing in to one Steam account on several PCs one after another makes Steam e-mail a new code each time. So a
+**lookup** is the team's "look for the next code": it is started by **Get code** or **Check for new code** on the Steam card
+(a store's team or admin, or HQ), it watches for 10 minutes, and each press is a new one with its own id. Field Desk sends a
+signed event to `FD_STEAM_WEBHOOK_URL` when a lookup starts and, if it ends early, when it ends. Both are polling hints, not
+Steam login requests.
 
-The browser calls `POST /api/steam/otp-request` with `{ "storeId": "s1" }` (a normal session; the store's team or admin, or
-HQ) and gets `{ "ok": true, "requestedAt": "<ISO>", "duplicate": false }`.
+The browser calls `POST /api/steam/otp-request` with `{ "storeId": "s1", "seen": "<ISO>" }` (a normal session; `seen`
+is optional: the `receivedAt` of the code on the phone's screen) and gets `{ "ok": true, "requestId": "<id>", "requestedAt": "<ISO>", "duplicate": false }`.
+`POST /api/steam/otp-dismiss` with `{ "storeId", "receivedAt" }` is **Logged in**: it answers `{ "ok": true }`.
+
+* There is **no per-minute limit**. A press within **5 s** of the store's last lookup is a double tap: the same lookup comes
+  back (`"duplicate": true`, same `requestId` and `requestedAt`) and nothing is sent.
+* A store may start **20 lookups in 10 minutes**; the 21st is `429 too-many` ("Too many code requests — wait a minute, or call HQ.") and sends nothing.
+* A new lookup while the previous one is still inside its 10 minutes **supersedes** it; Logged in **dismisses** it. Either way
+  its delivery retries stop and a `steam.otp.request.closed` is sent for it (not when its 10 minutes are already over).
+
+### `steam.otp.requested`
 
 Payload (JSON, UTF-8):
 
@@ -185,6 +210,10 @@ Payload (JSON, UTF-8):
   "id": "6f1c3a0e-8a5b-4c5e-9d57-2b6f0f6a0c11",
   "type": "steam.otp.requested",
   "at": "2026-10-24T06:00:00.000Z",
+  "requestId": "6f1c3a0e-8a5b-4c5e-9d57-2b6f0f6a0c11",
+  "requestedAt": "2026-10-24T06:00:00.000Z",
+  "acceptFrom": "2026-10-24T05:59:00.000Z",
+  "watchUntil": "2026-10-24T06:10:00.000Z",
   "storeId": "s1",
   "storeName": "Store Alpha",
   "accountUsername": "store_alpha",
@@ -192,8 +221,32 @@ Payload (JSON, UTF-8):
 }
 ```
 
-`accountEmail` is left out when the account has none; `accountUsername` is always there. Nothing else is sent: no password,
-no code.
+`requestId` is `id` and `requestedAt` is `at` (the older fields stay, so a worker that reads only those keeps working);
+`acceptFrom` is `requestedAt` − 60 s and `watchUntil` is `requestedAt` + 10 min. `accountEmail` is left out when the account
+has none; `accountUsername` is always there. Nothing else is sent: no password, no code.
+
+### `steam.otp.request.closed`
+
+Same URL, signature and timeout. The lookup ended before its `watchUntil`:
+
+```json
+{
+  "id": "0b7d1f0c-3a52-4d0e-8f43-6c1d7c4b2e90",
+  "type": "steam.otp.request.closed",
+  "at": "2026-10-24T06:03:00.000Z",
+  "requestId": "6f1c3a0e-8a5b-4c5e-9d57-2b6f0f6a0c11",
+  "storeId": "s1",
+  "accountUsername": "store_alpha",
+  "accountEmail": "login-alpha@example.invalid",
+  "reason": "dismissed"
+}
+```
+
+`reason` is `dismissed` (Logged in) or `superseded` (a newer lookup). `accountEmail` is left out when the account has none.
+It is delivered with the same retry policy but only until the original request's `watchUntil`, and not at all if that has
+passed. A `4xx` answer to it is final **and expected**: the current worker answers `400 unsupported_event` to every type but
+`steam.otp.requested`; Field Desk logs that at `info` (`steam-otp-close-refused`), never as a warning. The worker can learn the
+same from `request.status` in the answer to `POST /api/v1/steam/otp`.
 
 **Signature.** The body is serialised once; the exact UTF-8 bytes sent are signed:
 `X-FieldDesk-Signature: sha256=<lowercase hex HMAC-SHA256(FD_STEAM_WEBHOOK_SECRET, raw body)>`, with
@@ -204,17 +257,48 @@ no code.
 * One attempt has a **5 s** timeout.
 * `2xx` ends delivery (the worker answers `202` accepted, `200` duplicate).
 * A timeout, a network error or a `5xx` is retried after **5 s, 15 s, 45 s, then every 90 s**, with the **same `id` and the
-  same bytes (and signature)**, until **10 minutes after `at`**; then Field Desk gives up.
+  same bytes (and signature)**, until the request's `watchUntil`; then Field Desk gives up. A superseded or dismissed request
+  stops being retried at once.
 * Any other answer (`4xx`, a redirect) is final: no retry.
-* Pending requests are kept **in memory only**. A restart forgets them — acceptable for a polling hint; the team simply
-  presses the button again.
+* Delivery retries are kept **in memory only**; a restart forgets them. The lookup itself is on the store (below) and survives
+  restarts: the team's card keeps waiting, and an email that arrives still shows.
 
-**Rate limit.** One request per store per **60 s**. A press inside that window returns the existing request
-(`"duplicate": true`, same `requestedAt`) and sends nothing. A refused or failed request still counts for that minute.
+## Lookups on the store card
 
-**On the store card.** "Request code" → "Requested — waiting for the email… (m:ss)" (for up to 10 minutes) → the code in big
-type with "expires in m:ss" and Copy → after expiry back to the button. The "call HQ for the OTP" line stays as the fallback
+Each store keeps the state of its team's lookups (`store.otpState`: the current `lookup { id, requestedAt }`, `seenThrough`,
+`dismissedAt`). Only the server writes it: any client batch that changes it, HQ's included, is refused (`403 protected`), and
+teams and admins never receive it — their `steamLogin` carries the result (`otp`, `otpLookup`). Every phone of the team gets it live.
+
+The code the card may show is the account's unexpired code, and then:
+
+1. not one the team has moved past — `receivedAt` ≤ `seenThrough` (set by Logged in, and by Check for new code for the code on screen);
+2. if a lookup exists: only a code with `receivedAt` ≥ `requestedAt` − 60 s — even after the lookup's own 10 minutes, so a later
+   code for a later sign-in still shows;
+3. else, after Logged in: nothing until the next lookup;
+4. else (no state at all, as before the feature): the code.
+
+The account's code keeps its own expiry (`receivedAt` + 10 min), never extended and never shortened by a lookup or by Logged in;
+HQ's account always has the newest code. Logged in does not invalidate anything in Steam.
+
+The card: **Get code** → "Waiting for a new Steam email… (m:ss)" (up to 10 minutes, and never the previous code) → the code in big
+type with "expires in m:ss", Copy, **Logged in** and **Check for new code** ("Signing in on another PC?"). Logged in goes back to
+Get code at once; Check for new code starts a new lookup and waits again. The "call HQ for the OTP" line stays as the fallback
 whenever there is no code, and is the only thing shown when the webhook is not configured.
+
+## Freshness policy for the automation
+
+For each lookup (`steam.otp.requested`):
+
+* accept only emails of the **matching account** dated at or after `requestedAt` − 60 s (`acceptFrom`);
+* watch until `watchUntil` (10 minutes), and prefer the **newest** eligible email;
+* never fall back to an older email outside that window;
+* a new email with the **same code** is eligible — dedupe by email identity (its message id), not by the code;
+* send the lookup's `requestId` with each code it answers;
+* stop watching when the answer says `request.status` is `closed` or `unknown`, or a `steam.otp.request.closed` arrives for it.
+
+Compatibility: Field Desk applies the same window itself when it decides what a team's card shows, so codes from the current
+worker (no `requestId`, every Steam email it parses) are handled correctly: they are stored for HQ, and shown only when they
+are eligible.
 
 ## Privacy
 

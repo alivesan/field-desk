@@ -250,6 +250,8 @@ export interface Store {
   printDownloads?: Partial<Record<PrintKind, PrintDownload>>; // who on the store team saved each file (admin-writable)
   toornament?: ToornamentSource; // HQ-only
   steam?: SteamAssignment; // HQ-only: which Steam account this store was given, and for what
+  /** The team's Steam Guard lookups — written by the server only (POST /api/steam/otp-request, /otp-dismiss), never by a client. */
+  otpState?: StoreOtpState;
   finishedAt?: string; // ISO — HQ marked the event finished (event.finish / event.reopen). A store whose final is played with winner details saved counts as finished without it (src/lib/done.ts)
   finishedBy?: string; // who marked it
   steamLogin?: SteamLogin; // computed by the server for the store's own team / admin on every read — never stored, never written
@@ -367,6 +369,16 @@ export interface SteamOtp {
   expiresAt: string; // ISO
 }
 
+/** Where a store's team is with its Steam Guard codes (Store.otpState); see cardOtp in steam.ts and docs/steam-otp-api.md. */
+export interface StoreOtpState {
+  /** The lookup the team started last (id = its steam.otp.requested event id); gone once dismissed. */
+  lookup?: { id: string; requestedAt: string };
+  /** receivedAt of the newest code the team has dismissed or moved past: that code and older never show again. */
+  seenThrough?: string;
+  /** "Logged in" was pressed: no code shows until the next lookup. */
+  dismissedAt?: string;
+}
+
 export type SteamPurpose = 'play' | 'download';
 
 /**
@@ -387,9 +399,11 @@ export interface SteamLogin {
   email?: string;
   /** The current Steam Guard code, only while it hasn't expired (the server checks on every read). */
   otp?: SteamOtp;
-  /** The server can ask the automation to look for the code (FD_STEAM_WEBHOOK_URL is set) — shows the Request code button. */
+  /** The server can ask the automation to look for the code (FD_STEAM_WEBHOOK_URL is set) — shows the Get code button. */
   otpRequest?: boolean;
-  /** When this store's last request was made, while it may still be answered (10 minutes). */
+  /** The lookup the team started last, until it is dismissed (the card waits for it while it is under 10 minutes old). */
+  otpLookup?: { id: string; requestedAt: string };
+  /** When that lookup was made, while it may still be answered (10 minutes) — what cards cached before otpLookup read. */
   otpRequestedAt?: string;
 }
 

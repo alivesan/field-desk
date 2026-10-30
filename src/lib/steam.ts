@@ -9,7 +9,7 @@
  * A "weekend" is the Saturday of the Monday–Sunday week the store's date falls in (weekends.ts) — an
  * event on a weekday is bucketed with the rest of its own week.
  */
-import type { AppState, SteamAccount, SteamLogin, SteamOtp, SteamPurpose, Store } from './types.ts';
+import type { AppState, SteamAccount, SteamLogin, SteamOtp, SteamPurpose, Store, StoreOtpState } from './types.ts';
 import { storeDate } from './recce.ts';
 import { weekendOf, weekendLabel } from './weekends.ts';
 import { addDaysLocal } from './util.ts';
@@ -143,17 +143,35 @@ export function liveOtp(account: Pick<SteamAccount, 'otp'> | undefined, nowMs: n
   return o && Date.parse(o.expiresAt) > nowMs ? { code: o.code, receivedAt: o.receivedAt, expiresAt: o.expiresAt } : undefined;
 }
 
+export const LOOKUP_GRACE_MS = 60 * 1000; // a lookup also takes an email sent up to a minute before it
+export const LOOKUP_WINDOW_MS = 10 * 60 * 1000; // and watches for ten minutes
+
+/**
+ * The code a store's card may show now, given its lookup state — see docs/steam-otp-api.md. An unexpired code, unless the
+ * team has moved past it (`seenThrough`); after a lookup only a code sent no earlier than a minute before it (however
+ * late); after "Logged in" nothing until the next lookup; with no state at all, the code.
+ */
+export function cardOtp(account: Pick<SteamAccount, 'otp'> | undefined, state: StoreOtpState | undefined, nowMs: number): SteamOtp | undefined {
+  const otp = liveOtp(account, nowMs);
+  if (!otp) return undefined;
+  const at = Date.parse(otp.receivedAt);
+  if (state?.seenThrough && at <= Date.parse(state.seenThrough)) return undefined;
+  if (state?.lookup) return at >= Date.parse(state.lookup.requestedAt) - LOOKUP_GRACE_MS ? otp : undefined;
+  return state?.dismissedAt ? undefined : otp;
+}
+
 /** Whatever else the server knows about a store's login at read time (see steamLoginFor). */
 export interface SteamLoginExtras {
   otp?: SteamOtp;
   otpRequest?: boolean;
+  otpLookup?: { id: string; requestedAt: string };
   otpRequestedAt?: string;
 }
 
 /**
  * What a store's team may see of its Steam account: the login, never the account's id or notes.
  * Computed by the server on every read (visibleDocs) — never stored. `extras` is what the server worked out
- * for this moment: the unexpired Steam Guard code, whether the Request code button works, and the last request.
+ * for this moment: the Steam Guard code the card may show, whether the Get code button works, and the team's last lookup.
  */
 export function steamLoginFor(store: Pick<Store, 'steam'>, accounts: Record<string, SteamAccount> | undefined, extras: SteamLoginExtras = {}): SteamLogin | undefined {
   const a = store.steam && accounts?.[store.steam.accountId];
@@ -165,6 +183,7 @@ export function steamLoginFor(store: Pick<Store, 'steam'>, accounts: Record<stri
     purpose: store.steam.purpose,
     ...(extras.otp ? { otp: extras.otp } : {}),
     ...(extras.otpRequest ? { otpRequest: true } : {}),
+    ...(extras.otpLookup ? { otpLookup: extras.otpLookup } : {}),
     ...(extras.otpRequestedAt ? { otpRequestedAt: extras.otpRequestedAt } : {}),
   };
 }

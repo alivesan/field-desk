@@ -1,8 +1,9 @@
 /*
  * The Steam Guard (OTP) automation over the real API (server/steam-otp.ts, docs/steam-otp-api.md): the bearer key and
  * nothing else on /api/v1/steam/*, the account list and who holds each account now, a code posted with idempotency and
- * ordering, the code reaching HQ and the holding stores (live, and only while unexpired), no client forging one, and
- * the signed "Request code" webhook. Synthetic accounts and codes, a temp data dir, a fake clock, a local receiver.
+ * ordering, the code reaching HQ and the holding stores (live, and only while unexpired), no client forging one, the
+ * signed lookup webhook (steam.otp.requested / steam.otp.request.closed), and what a store's card may show after a
+ * lookup or "Logged in". Synthetic accounts and codes, a temp data dir, a fake clock, a local receiver.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -28,15 +29,15 @@ interface Hit {
   headers: IncomingHttpHeaders;
 }
 
-/** A local webhook receiver. `script(n)` (n counts from 1) says how request n is answered: a status, or 'hang'. */
-async function startReceiver(script: (n: number) => number | 'hang' = () => 202) {
+/** A local webhook receiver. `script(n, event)` (n counts from 1; event is the parsed body) says how request n is answered: a status, or 'hang'. */
+async function startReceiver(script: (n: number, event: any) => number | 'hang' = () => 202) {
   const hits: Hit[] = [];
   const server = http.createServer((req, res) => {
     const chunks: Buffer[] = [];
     req.on('data', (c: Buffer) => chunks.push(c));
     req.on('end', () => {
       hits.push({ raw: Buffer.concat(chunks), headers: req.headers });
-      const mode = script(hits.length);
+      const mode = script(hits.length, JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'));
       if (mode === 'hang') return;
       res.writeHead(mode, { 'Content-Type': 'application/json' });
       res.end('{}');
@@ -281,7 +282,7 @@ test('POST otp: success shape, matching by username / email (trimmed, any case),
     const at = iso(clock.t - 30_000);
     const r = await post({ receivedAt: at });
     assert.equal(r.status, 200, r.text);
-    assert.deepEqual(r.body, { ok: true, accountUsername: 'test_rog_x', accountEmail: 'Rog.X@example.test', assignedStoreId: 's1', receivedAt: at, expiresAt: iso(clock.t - 30_000 + 10 * MIN) });
+    assert.deepEqual(r.body, { ok: true, accountUsername: 'test_rog_x', accountEmail: 'Rog.X@example.test', assignedStoreId: 's1', receivedAt: at, expiresAt: iso(clock.t - 30_000 + 10 * MIN), displayed: true });
     assert.ok(!r.text.includes('AB3DE'), 'the answer never echoes the code');
     assert.deepEqual((await state(hq)).accounts.x.otp, { code: 'AB3DE', receivedAt: at, expiresAt: iso(clock.t - 30_000 + 10 * MIN) });
 
@@ -550,7 +551,13 @@ test('a posted code reaches HQ and the holding stores live (SSE) — and no othe
   }
 });
 
-test('request webhook: signed over the exact bytes, the payload the worker verifies, who may press, and the 60 s limit', async () => {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** Every event the receiver got, parsed (in the order it arrived). */
+const sent = (rx: { hits: Hit[] }) => rx.hits.map((h) => JSON.parse(h.raw.toString('utf8')));
+const press = (t: TestServer, cookie: string, body: Record<string, unknown> = { storeId: 's1' }) => t.json('/api/steam/otp-request', { method: 'POST', cookie, body });
+const dismiss = (t: TestServer, cookie: string, body: Record<string, unknown>) => t.json('/api/steam/otp-dismiss', { method: 'POST', cookie, body });
+
+test('request webhook: signed over the exact bytes, the payload the worker verifies, who may press, and the 5 s double tap', async () => {
   const rx = await startReceiver(() => 202);
   const { t, hq, clock, state } = await setup({ steam: { webhookUrl: rx.url, webhookSecret: HOOK_SECRET } });
   try {
@@ -558,63 +565,91 @@ test('request webhook: signed over the exact bytes, the payload the worker verif
     const team2 = await t.login(TEAM2);
     const admin1 = await t.login('AAA2');
     const admin2 = await t.login('BBB3');
-    const press = (cookie: string, storeId = 's1') => t.json('/api/steam/otp-request', { method: 'POST', cookie, body: { storeId } });
+    const pressAs = (cookie: string, storeId = 's1') => press(t, cookie, { storeId });
 
     assert.equal((await state(team1)).stores.s1.steamLogin.otpRequest, true, 'the card is told the button works');
     assert.equal((await state(team1)).stores.s1.steamLogin.otpRequestedAt, undefined);
+    assert.equal((await state(team1)).stores.s1.steamLogin.otpLookup, undefined);
 
-    const first = await press(team1);
+    const first = await pressAs(team1);
     assert.equal(first.status, 200, JSON.stringify(first.body));
     assert.deepEqual([first.body.ok, first.body.duplicate, first.body.requestedAt], [true, false, iso(clock.t)]);
+    assert.match(first.body.requestId, UUID);
     await until(() => rx.hits.length === 1, 'the webhook');
 
     const hit = rx.hits[0];
     assert.equal(hit.headers['content-type'], 'application/json');
     assert.equal(hit.headers['x-fielddesk-signature'], signatureOf(hit.raw), 'HMAC-SHA256 over the raw bytes received');
     const payload = JSON.parse(hit.raw.toString('utf8'));
-    assert.deepEqual(Object.keys(payload).sort(), ['accountEmail', 'accountUsername', 'at', 'id', 'storeId', 'storeName', 'type']);
-    assert.match(payload.id, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    assert.deepEqual(Object.keys(payload).sort(), ['acceptFrom', 'accountEmail', 'accountUsername', 'at', 'id', 'requestId', 'requestedAt', 'storeId', 'storeName', 'type', 'watchUntil']);
+    assert.match(payload.id, UUID);
+    assert.equal(payload.id, first.body.requestId, 'the lookup id is the event id');
     assert.deepEqual(
-      { ...payload, id: 'ID' },
-      { id: 'ID', type: 'steam.otp.requested', at: iso(clock.t), storeId: 's1', storeName: 'Store s1', accountUsername: 'test_rog_x', accountEmail: 'Rog.X@example.test' },
+      { ...payload, id: 'ID', requestId: 'ID' },
+      {
+        id: 'ID',
+        type: 'steam.otp.requested',
+        at: iso(clock.t),
+        requestId: 'ID',
+        requestedAt: iso(clock.t),
+        acceptFrom: iso(clock.t - MIN),
+        watchUntil: iso(clock.t + 10 * MIN),
+        storeId: 's1',
+        storeName: 'Store s1',
+        accountUsername: 'test_rog_x',
+        accountEmail: 'Rog.X@example.test',
+      },
     );
+    assert.equal(payload.requestId, payload.id);
     assert.notEqual(hit.headers['x-fielddesk-signature'], signatureOf(Buffer.from(hit.raw.toString('utf8').replace('s1', 's2')), HOOK_SECRET), 'a changed body wouldn’t verify');
     assert.notEqual(hit.headers['x-fielddesk-signature'], signatureOf(hit.raw, 'another-secret'));
 
-    // the team can see it was asked (every device on the store, after a reload)
-    assert.equal((await state(team1)).stores.s1.steamLogin.otpRequestedAt, iso(clock.t));
-    assert.equal((await state(admin1)).stores.s1.steamLogin.otpRequestedAt, iso(clock.t));
+    // every device of the team sees the lookup (after a reload)
+    for (const cookie of [team1, admin1]) {
+      const login = (await state(cookie)).stores.s1.steamLogin;
+      assert.deepEqual(login.otpLookup, { id: payload.id, requestedAt: iso(clock.t) });
+      assert.equal(login.otpRequestedAt, iso(clock.t), 'what cards cached before otpLookup read');
+    }
 
-    // inside the minute: the existing request comes back, nothing is sent
-    clock.t += 59_000;
-    const second = await press(admin1);
-    assert.deepEqual([second.status, second.body.duplicate, second.body.requestedAt], [200, true, first.body.requestedAt]);
+    // a double tap (inside 5 s): the lookup already made comes back, nothing is sent
+    clock.t += 4000;
+    const second = await pressAs(admin1);
+    assert.deepEqual([second.status, second.body.duplicate, second.body.requestId, second.body.requestedAt], [200, true, first.body.requestId, first.body.requestedAt]);
     await pause(150);
     assert.equal(rx.hits.length, 1);
-    // after it: a new request with a new id
-    clock.t += 2000;
-    const third = await press(team1);
+    // 5 s after the first: a new lookup with a new id — and the first is told it is closed
+    clock.t += 1000;
+    const third = await pressAs(team1);
     assert.deepEqual([third.status, third.body.duplicate], [200, false]);
-    await until(() => rx.hits.length === 2, 'the second webhook');
-    assert.notEqual(JSON.parse(rx.hits[1].raw.toString('utf8')).id, payload.id);
-    assert.equal(rx.hits[1].headers['x-fielddesk-signature'], signatureOf(rx.hits[1].raw));
+    assert.notEqual(third.body.requestId, first.body.requestId);
+    await until(() => rx.hits.length === 3, 'the second lookup and the first one’s close');
+    const newest = sent(rx).find((e) => e.id === third.body.requestId);
+    assert.equal(newest.type, 'steam.otp.requested');
+    assert.equal(sent(rx).filter((e) => e.type === 'steam.otp.request.closed' && e.requestId === payload.id).length, 1);
+    for (const h of rx.hits) assert.equal(h.headers['x-fielddesk-signature'], signatureOf(h.raw));
 
     // who may press: the store’s team or admin, and HQ — not another store’s people, nobody signed out, no account to ask for
-    assert.equal((await press(team2)).status, 404, 'another store’s team');
-    assert.equal((await press(admin2)).status, 404, 'another store’s admin');
+    assert.equal((await pressAs(team2)).status, 404, 'another store’s team');
+    assert.equal((await pressAs(admin2)).status, 404, 'another store’s admin');
     assert.equal((await t.json('/api/steam/otp-request', { method: 'POST', body: { storeId: 's1' } })).status, 401);
-    assert.equal((await press(team1, 'nope')).status, 404);
-    assert.equal((await t.json('/api/steam/otp-request', { method: 'POST', cookie: team1, body: { storeId: 'bad id!' } })).status, 400);
-    const viaHq = await press(hq, 's2');
+    assert.equal((await pressAs(team1, 'nope')).status, 404);
+    assert.equal((await press(t, team1, { storeId: 'bad id!' })).status, 400);
+    for (const seen of ['yesterday', 12345, '2026-10-24', true]) {
+      assert.deepEqual((await press(t, team1, { storeId: 's1', seen })).status, 400, `seen ${JSON.stringify(seen)}`);
+    }
+    assert.equal((await press(t, team1, { storeId: 's1', seen: null })).status, 200, 'null seen is the same as none');
+    const viaHq = await pressAs(hq, 's2');
     assert.equal(viaHq.status, 200, 'HQ, for a store holding y');
-    await until(() => rx.hits.length === 3, 'HQ’s webhook');
-    assert.equal(JSON.parse(rx.hits[2].raw.toString('utf8')).accountEmail, undefined, 'no email on y: the field is left out');
-    assert.equal(JSON.parse(rx.hits[2].raw.toString('utf8')).accountUsername, 'test_rog_y');
-    assert.equal((await press(hq, 's5')).status, 200);
+    await until(() => sent(rx).some((e) => e.storeId === 's2'), 'HQ’s webhook');
+    const ofS2 = sent(rx).find((e) => e.storeId === 's2');
+    assert.equal(ofS2.accountEmail, undefined, 'no email on y: the field is left out');
+    assert.equal(ofS2.accountUsername, 'test_rog_y');
+    assert.equal((await pressAs(hq, 's5')).status, 200);
     await t.json('/api/batch', { method: 'POST', cookie: hq, body: { id: 'steam-otp-unassign-1', ops: [{ k: 'stores', id: 's4', p: ['steam'], d: 1 }] } });
-    assert.equal((await press(hq, 's4')).status, 409, 'a store with no Steam account');
+    assert.equal((await pressAs(hq, 's4')).status, 409, 'a store with no Steam account');
     clock.t = Date.parse('2026-10-26T06:00:00.000Z');
-    assert.equal((await press(hq, 's1')).status, 409, 'its event day has passed');
+    assert.equal((await pressAs(hq, 's1')).status, 409, 'its event day has passed');
+    assert.equal((await dismiss(t, hq, { storeId: 's1', receivedAt: iso(clock.t) })).status, 409, 'so is dismissing');
   } finally {
     await t.close();
     await rx.close();
@@ -629,6 +664,8 @@ test('request webhook: off without both settings — no button, and pressing it 
       assert.equal((await t.json('/api/state', { cookie: team1 })).body.stores.s1.steamLogin.otpRequest, undefined, JSON.stringify(steam));
       const r = await t.json('/api/steam/otp-request', { method: 'POST', cookie: team1, body: { storeId: 's1' } });
       assert.deepEqual([r.status, r.body.code], [404, 'not-configured']);
+      const d = await t.json('/api/steam/otp-dismiss', { method: 'POST', cookie: team1, body: { storeId: 's1', receivedAt: new Date(T0).toISOString() } });
+      assert.deepEqual([d.status, d.body.code], [404, 'not-configured']);
     } finally {
       await t.close();
     }
@@ -657,7 +694,7 @@ test('request webhook delivery: 5xx, a timeout and a dropped connection are retr
   }
 });
 
-test('request webhook delivery: a 4xx is final (no retry); a refusal doesn’t block the next press after a minute; retries stop 10 minutes after `at`', async () => {
+test('request webhook delivery: a 4xx is final (no retry); a refused lookup doesn’t block the next press; retries stop 10 minutes after `at`', async () => {
   const rx4 = await startReceiver(() => 400);
   const a = await setup({ steam: { webhookUrl: rx4.url, webhookSecret: HOOK_SECRET, retryDelaysMs: [20] } });
   try {
@@ -716,24 +753,522 @@ test('privacy: nothing logged holds a code, the key, an Authorization header or 
   }
 });
 
-test('the code and the request state survive what they should: a restart keeps the code, loses the pending request', async () => {
+test('the code and the team’s lookup survive a restart (the lookup lives on the store); only the delivery retries are forgotten', async () => {
   const rx = await startReceiver(() => 202);
   const first = await setup({ steam: { webhookUrl: rx.url, webhookSecret: HOOK_SECRET } });
   let second: TestServer | undefined;
   try {
     assert.equal((await first.post({ receivedAt: iso(first.clock.t - 1000), code: 'KEEP1' })).status, 200);
     const team1 = await first.t.login(TEAM1);
-    await first.t.json('/api/steam/otp-request', { method: 'POST', cookie: team1, body: { storeId: 's1' } });
+    const look = await first.t.json('/api/steam/otp-request', { method: 'POST', cookie: team1, body: { storeId: 's1' } });
     const dataDir = first.t.dataDir;
     await first.t.close();
     second = await startTestServer({ dataDir, now: () => first.clock.t, steam: { apiKey: KEY, webhookUrl: rx.url, webhookSecret: HOOK_SECRET } } as Parameters<typeof startTestServer>[0]);
     const cookie = await second.login(TEAM1);
     const login = (await second.json('/api/state', { cookie })).body.stores.s1.steamLogin;
     assert.equal(login.otp.code, 'KEEP1');
-    assert.equal(login.otpRequestedAt, undefined, 'a request is a polling hint, kept in memory only');
+    assert.deepEqual(login.otpLookup, { id: look.body.requestId, requestedAt: look.body.requestedAt });
+    assert.equal(login.otpRequestedAt, look.body.requestedAt);
     void SUPER;
   } finally {
     await (second ?? first.t).close().catch(() => {});
     await rx.close();
   }
 });
+
+/* ---------- lookups: what the team’s card shows, and what the automation is told ---------- */
+
+/** The webhook on, with a receiver (`script` answers it) and a log that keeps every line. */
+async function lookupSetup(o: { script?: (n: number, event: any) => number | 'hang'; steam?: Record<string, unknown> } = {}) {
+  const lines: Record<string, unknown>[] = [];
+  const log: Logger = (level, event, fields) => lines.push({ level, event, ...fields });
+  const rx = await startReceiver(o.script ?? (() => 202));
+  const s = await setup({ log, steam: { webhookUrl: rx.url, webhookSecret: HOOK_SECRET, retryDelaysMs: [20], ...o.steam } });
+  const team1 = await s.t.login(TEAM1);
+  const admin1 = await s.t.login('AAA2');
+  const login = async (cookie = team1, storeId = 's1') => (await s.state(cookie)).stores[storeId]?.steamLogin;
+  return {
+    ...s,
+    rx,
+    lines,
+    team1,
+    admin1,
+    login,
+    /** The code the team’s card gets. */
+    otpOf: async (cookie = team1) => (await login(cookie))?.otp,
+    press: (body: Record<string, unknown> = { storeId: 's1' }, cookie = team1) => press(s.t, cookie, body),
+    dismiss: (receivedAt: string, cookie = team1, storeId = 's1') => dismiss(s.t, cookie, { storeId, receivedAt }),
+    /** A code that arrived a moment ago. */
+    email: (code: string, extra: Record<string, unknown> = {}, headers?: Record<string, string>) => s.post({ code, receivedAt: iso(s.clock.t - 500), ...extra }, { headers }),
+    finish: async () => {
+      await s.t.close();
+      await rx.close();
+    },
+  };
+}
+
+test('lookups: every press is a new lookup with its own id and event — after Logged in, and after Check for new code inside a minute', async () => {
+  const e = await lookupSetup();
+  try {
+    const first = await e.press();
+    e.clock.t += 6000;
+    const r1 = iso(e.clock.t - 1000);
+    assert.equal((await e.post({ receivedAt: r1, code: 'CODE1' })).status, 200);
+    assert.equal((await e.otpOf())?.code, 'CODE1', 'an email after the lookup shows');
+
+    // Logged in, then Get code again — all inside one minute
+    e.clock.t += 6000;
+    assert.deepEqual((await e.dismiss(r1)).body, { ok: true });
+    e.clock.t += 6000;
+    const second = await e.press();
+    assert.deepEqual([second.status, second.body.duplicate], [200, false]);
+    assert.notEqual(second.body.requestId, first.body.requestId);
+
+    // a fresh email, then Check for new code (the phone says what it had on screen), still inside the minute
+    e.clock.t += 6000;
+    const r2 = iso(e.clock.t - 1000);
+    assert.equal((await e.post({ receivedAt: r2, code: 'CODE2' })).status, 200);
+    assert.equal((await e.otpOf())?.code, 'CODE2');
+    e.clock.t += 6000;
+    const third = await e.press({ storeId: 's1', seen: r2 });
+    assert.deepEqual([third.status, third.body.duplicate], [200, false]);
+    assert.equal(new Set([first, second, third].map((r) => r.body.requestId)).size, 3, 'three different ids');
+
+    await until(() => e.rx.hits.length === 5, 'three lookups and two closes');
+    const events = sent(e.rx);
+    const requested = events.filter((ev) => ev.type === 'steam.otp.requested');
+    assert.deepEqual(requested.map((ev) => ev.id).sort(), [first, second, third].map((r) => r.body.requestId).sort());
+    for (const answer of [first, second, third]) {
+      const ev = requested.find((x) => x.id === answer.body.requestId);
+      assert.deepEqual(
+        [ev.requestId, ev.requestedAt, ev.at, ev.acceptFrom, ev.watchUntil],
+        [answer.body.requestId, answer.body.requestedAt, answer.body.requestedAt, iso(Date.parse(answer.body.requestedAt) - MIN), iso(Date.parse(answer.body.requestedAt) + 10 * MIN)],
+      );
+    }
+    const closes = events.filter((ev) => ev.type === 'steam.otp.request.closed').map((ev) => [ev.requestId, ev.reason]);
+    assert.deepEqual(closes.sort(), [[first.body.requestId, 'dismissed'], [second.body.requestId, 'superseded']].sort());
+    for (const h of e.rx.hits) assert.equal(h.headers['x-fielddesk-signature'], signatureOf(h.raw));
+  } finally {
+    await e.finish();
+  }
+});
+
+test('lookups: a double tap inside 5 s is the same lookup (one event), and still tells the server what the phone had seen', async () => {
+  const e = await lookupSetup();
+  try {
+    const first = await e.press();
+    e.clock.t += 2000;
+    const code = iso(e.clock.t - 500);
+    assert.equal((await e.post({ receivedAt: code, code: 'DUP11' })).status, 200);
+    assert.equal((await e.otpOf())?.code, 'DUP11');
+    // 4 s after the first press, Check for new code: still that lookup — but the code on screen is now done with
+    e.clock.t += 2000;
+    const again = await e.press({ storeId: 's1', seen: code });
+    assert.deepEqual([again.status, again.body.duplicate, again.body.requestId, again.body.requestedAt], [200, true, first.body.requestId, first.body.requestedAt]);
+    assert.equal(await e.otpOf(), undefined, 'the seen code is hidden');
+    assert.deepEqual((await e.state(e.hq)).stores.s1.otpState, { lookup: { id: first.body.requestId, requestedAt: first.body.requestedAt }, seenThrough: code });
+    await pause(150);
+    assert.equal(e.rx.hits.length, 1, 'one event');
+    // 5 s after the first press it is a new one
+    e.clock.t += 1000;
+    const next = await e.press();
+    assert.deepEqual([next.body.duplicate, next.body.requestId === first.body.requestId], [false, false]);
+    await until(() => e.rx.hits.length === 3, 'the new lookup and the old one’s close');
+  } finally {
+    await e.finish();
+  }
+});
+
+test('Check for new code with a code on screen: the team’s card drops it and waits; HQ keeps it with its own expiry; only newer emails show', async () => {
+  const e = await lookupSetup();
+  try {
+    const T = e.clock.t;
+    const old = iso(T - 5 * MIN);
+    assert.equal((await e.post({ receivedAt: old, code: 'OLD11' })).status, 200);
+    assert.equal((await e.otpOf())?.code, 'OLD11');
+
+    const look = await e.press({ storeId: 's1', seen: old });
+    const login = await e.login();
+    assert.equal(login.otp, undefined, 'the old code is gone from the card');
+    assert.deepEqual(login.otpLookup, { id: look.body.requestId, requestedAt: iso(T) });
+    assert.equal(login.otpRequest, true);
+    assert.deepEqual((await e.state(e.hq)).accounts.x.otp, { code: 'OLD11', receivedAt: old, expiresAt: iso(T - 5 * MIN + 10 * MIN) }, 'HQ’s account is as it was');
+
+    // an email newer than the old code but sent over a minute before the lookup: kept for HQ, not shown
+    const stale = await e.post({ receivedAt: iso(T - 3 * MIN), code: 'MID33' });
+    assert.deepEqual([stale.status, stale.body.displayed], [200, false]);
+    assert.equal((await e.state(e.hq)).accounts.x.otp.code, 'MID33');
+    assert.equal(await e.otpOf(), undefined);
+
+    // a fresh email after the lookup shows
+    e.clock.t += 2000;
+    const fresh = await e.email('NEW22');
+    assert.deepEqual([fresh.status, fresh.body.displayed], [200, true]);
+    assert.equal((await e.otpOf())?.code, 'NEW22');
+    assert.equal((await e.otpOf(e.admin1))?.code, 'NEW22', 'and for the store’s admin');
+  } finally {
+    await e.finish();
+  }
+});
+
+test('Logged in: the code goes from every device, HQ’s account keeps it and its expiry, a later email doesn’t reopen the card, a new lookup does', async () => {
+  const e = await lookupSetup();
+  try {
+    const look = await e.press();
+    e.clock.t += 6000;
+    const r1 = iso(e.clock.t - 1000);
+    assert.equal((await e.post({ receivedAt: r1, code: 'CODE1', requestId: look.body.requestId })).status, 200);
+    assert.equal((await e.otpOf())?.code, 'CODE1');
+    const before = (await e.state(e.hq)).accounts.x.otp;
+
+    e.clock.t += 3000;
+    assert.deepEqual((await e.dismiss(r1)).body, { ok: true });
+    for (const cookie of [e.team1, e.admin1]) {
+      const login = await e.login(cookie);
+      assert.deepEqual([login.otp, login.otpLookup, login.otpRequest, login.otpRequestedAt], [undefined, undefined, true, undefined]);
+    }
+    assert.deepEqual((await e.state(e.hq)).stores.s1.otpState, { seenThrough: r1, dismissedAt: iso(e.clock.t) });
+    assert.deepEqual((await e.state(e.hq)).accounts.x.otp, before, 'the account’s code and its expiry are untouched');
+    assert.equal((await e.dismiss(r1)).status, 200, 'dismissing twice is fine');
+
+    // an email afterwards — with the dismissed lookup’s id, or none — is stored but doesn’t reopen the card
+    e.clock.t += 2000;
+    assert.equal((await e.email('CODE2')).body.displayed, false);
+    e.clock.t += 1000;
+    const withId = await e.post({ receivedAt: iso(e.clock.t - 500), code: 'CODE3', requestId: look.body.requestId });
+    assert.deepEqual([withId.status, withId.body.displayed, withId.body.request], [200, false, { id: look.body.requestId, status: 'closed' }]);
+    e.clock.t += 2000;
+    const without = await e.email('CODE4');
+    assert.deepEqual([without.status, without.body.displayed, 'request' in without.body], [200, false, false]);
+    assert.equal(await e.otpOf(), undefined);
+    assert.equal((await e.state(e.hq)).accounts.x.otp.code, 'CODE4', 'HQ still gets every code');
+
+    // Get code again (two minutes on, so CODE4 is older than the grace): nothing yet, then a fresh email shows
+    e.clock.t += 2 * MIN;
+    const next = await e.press();
+    assert.equal(await e.otpOf(), undefined);
+    assert.deepEqual((await e.login()).otpLookup, { id: next.body.requestId, requestedAt: iso(e.clock.t) });
+    assert.equal((await e.state(e.hq)).stores.s1.otpState.dismissedAt, undefined, 'a lookup clears the dismissal');
+    e.clock.t += 3000;
+    const shown = await e.email('CODE5', { requestId: next.body.requestId });
+    assert.deepEqual([shown.body.displayed, shown.body.request], [true, { id: next.body.requestId, status: 'open' }]);
+    assert.equal((await e.otpOf())?.code, 'CODE5');
+  } finally {
+    await e.finish();
+  }
+});
+
+test('seen and receivedAt are clamped to the account’s newest code: a code the phone never saw is not hidden; bad times are 400', async () => {
+  const e = await lookupSetup();
+  try {
+    // no code on the account: seen is ignored
+    await e.press({ storeId: 's1', seen: iso(e.clock.t) });
+    assert.equal((await e.state(e.hq)).stores.s1.otpState.seenThrough, undefined);
+
+    e.clock.t += 6000;
+    const c1 = iso(e.clock.t - 3000);
+    await e.post({ receivedAt: c1, code: 'CODE1' });
+    e.clock.t += 6000;
+    const c2 = iso(e.clock.t - 1000);
+    await e.post({ receivedAt: c2, code: 'CODE2' });
+    // the phone had CODE1 on screen when CODE2 arrived: only CODE1 is moved past
+    await e.press({ storeId: 's1', seen: c1 });
+    assert.equal((await e.state(e.hq)).stores.s1.otpState.seenThrough, c1);
+    assert.equal((await e.otpOf())?.code, 'CODE2');
+    // a claim of having seen a later time can't hide what is newer than the account's newest code
+    e.clock.t += 6000;
+    await e.press({ storeId: 's1', seen: iso(e.clock.t + 5 * MIN) });
+    assert.equal((await e.state(e.hq)).stores.s1.otpState.seenThrough, c2, 'clamped to CODE2’s time');
+    // and an older claim never lowers it
+    e.clock.t += 6000;
+    await e.press({ storeId: 's1', seen: c1 });
+    assert.equal((await e.state(e.hq)).stores.s1.otpState.seenThrough, c2);
+
+    for (const receivedAt of [undefined, null, 5, 'soon', '2026-10-24']) {
+      assert.deepEqual((await e.dismiss(receivedAt as string)).status, 400, `receivedAt ${JSON.stringify(receivedAt)}`);
+    }
+    // dismissing with no code on the account takes the time as given
+    const { t, clock } = e;
+    const viaHq = await dismiss(t, e.hq, { storeId: 's2', receivedAt: iso(clock.t - MIN) });
+    assert.equal(viaHq.status, 200, JSON.stringify(viaHq.body));
+    assert.equal((await e.state(e.hq)).stores.s2.otpState.seenThrough, iso(clock.t - MIN));
+  } finally {
+    await e.finish();
+  }
+});
+
+test('close events: signed, shaped as documented, for Logged in (dismissed) and a newer lookup (superseded); none once the watch has run out', async () => {
+  const e = await lookupSetup();
+  try {
+    const l1 = await e.press();
+    e.clock.t += 6000;
+    await e.dismiss(iso(e.clock.t - 1000));
+    await until(() => sent(e.rx).some((ev) => ev.type === 'steam.otp.request.closed'), 'the dismissed close');
+    const dismissed = sent(e.rx).find((ev) => ev.type === 'steam.otp.request.closed');
+    const hit = e.rx.hits.find((h) => JSON.parse(h.raw.toString('utf8')).type === 'steam.otp.request.closed')!;
+    assert.equal(hit.headers['x-fielddesk-signature'], signatureOf(hit.raw));
+    assert.equal(hit.headers['content-type'], 'application/json');
+    assert.match(dismissed.id, UUID);
+    assert.notEqual(dismissed.id, l1.body.requestId, 'its own id');
+    assert.deepEqual({ ...dismissed, id: 'ID' }, {
+      id: 'ID',
+      type: 'steam.otp.request.closed',
+      at: iso(e.clock.t),
+      requestId: l1.body.requestId,
+      storeId: 's1',
+      accountUsername: 'test_rog_x',
+      accountEmail: 'Rog.X@example.test',
+      reason: 'dismissed',
+    });
+
+    // superseded; and for an account with no email the field is left out
+    e.clock.t += 6000;
+    const l2 = await e.press();
+    e.clock.t += 6000;
+    const l3 = await e.press();
+    await until(() => sent(e.rx).some((ev) => ev.requestId === l2.body.requestId && ev.type === 'steam.otp.request.closed'), 'the superseded close');
+    const superseded = sent(e.rx).find((ev) => ev.requestId === l2.body.requestId && ev.type === 'steam.otp.request.closed');
+    assert.deepEqual([superseded.reason, superseded.at, superseded.storeId], ['superseded', iso(e.clock.t), 's1']);
+    assert.equal(sent(e.rx).filter((ev) => ev.type === 'steam.otp.request.closed' && ev.requestId === l3.body.requestId).length, 0, 'the newest lookup is still open');
+    const l4 = await press(e.t, e.hq, { storeId: 's2' });
+    e.clock.t += 6000;
+    await dismiss(e.t, e.hq, { storeId: 's2', receivedAt: iso(e.clock.t) });
+    await until(() => sent(e.rx).some((ev) => ev.requestId === l4.body.requestId && ev.type === 'steam.otp.request.closed'), 'the close for y');
+    const forY = sent(e.rx).find((ev) => ev.requestId === l4.body.requestId && ev.type === 'steam.otp.request.closed');
+    assert.deepEqual([forY.accountUsername, 'accountEmail' in forY], ['test_rog_y', false]);
+
+    // a lookup whose ten minutes are over is not closed: nothing is sent for dismissing it or for starting another
+    await until(() => e.rx.hits.length === 7, 'everything so far');
+    const settled = e.rx.hits.length;
+    e.clock.t += 11 * MIN;
+    await e.dismiss(iso(e.clock.t));
+    await e.press();
+    e.clock.t += 11 * MIN;
+    await e.press();
+    await until(() => e.rx.hits.length === settled + 2, 'the two new lookups');
+    await pause(200);
+    assert.equal(e.rx.hits.length, settled + 2, 'only the two lookups, no close for either');
+    assert.equal(sent(e.rx).slice(settled).every((ev) => ev.type === 'steam.otp.requested'), true);
+  } finally {
+    await e.finish();
+  }
+});
+
+test('close events: a 4xx is final and expected (info, never a warning); a 5xx is retried with the same bytes', async () => {
+  // the current worker answers 400 unsupported_event to anything but steam.otp.requested
+  const refused = await lookupSetup({ script: (_n, ev) => (ev.type === 'steam.otp.request.closed' ? 400 : 202) });
+  try {
+    const l1 = await refused.press();
+    refused.clock.t += 6000;
+    await refused.press(); // supersedes l1
+    await until(() => sent(refused.rx).some((ev) => ev.type === 'steam.otp.request.closed'), 'the close');
+    await pause(300);
+    const closes = sent(refused.rx).filter((ev) => ev.type === 'steam.otp.request.closed');
+    assert.equal(closes.length, 1, 'a 400 is not retried');
+    const line = refused.lines.filter((l) => l.event === 'steam-otp-close-refused');
+    assert.deepEqual(line, [{ level: 'info', event: 'steam-otp-close-refused', id: closes[0].id, request: l1.body.requestId, store: 's1' }]);
+    assert.deepEqual(refused.lines.filter((l) => l.level === 'warn'), [], 'no warning anywhere');
+  } finally {
+    await refused.finish();
+  }
+
+  let closesSeen = 0;
+  const flaky = await lookupSetup({ script: (_n, ev) => (ev.type === 'steam.otp.request.closed' && ++closesSeen === 1 ? 503 : 202) });
+  try {
+    await flaky.press();
+    flaky.clock.t += 6000;
+    await flaky.press();
+    await until(() => sent(flaky.rx).filter((ev) => ev.type === 'steam.otp.request.closed').length === 2, 'the close and its retry');
+    const [a, b] = flaky.rx.hits.filter((h) => JSON.parse(h.raw.toString('utf8')).type === 'steam.otp.request.closed');
+    assert.ok(a.raw.equals(b.raw), 'the very same bytes');
+    assert.equal(a.headers['x-fielddesk-signature'], b.headers['x-fielddesk-signature']);
+    await pause(200);
+    assert.equal(sent(flaky.rx).filter((ev) => ev.type === 'steam.otp.request.closed').length, 2, 'the 202 ended it');
+  } finally {
+    await flaky.finish();
+  }
+});
+
+test('close events: a superseded lookup’s delivery retries stop', async () => {
+  let firstId = '';
+  const e = await lookupSetup({
+    script: (_n, ev) => {
+      if (ev.type !== 'steam.otp.requested') return 202;
+      firstId ||= ev.id;
+      return ev.id === firstId ? 503 : 202; // the first lookup is never accepted
+    },
+  });
+  try {
+    const l1 = await e.press();
+    await until(() => sent(e.rx).filter((ev) => ev.id === l1.body.requestId).length >= 3, 'retries of the first lookup');
+    e.clock.t += 6000;
+    const l2 = await e.press();
+    await until(() => sent(e.rx).some((ev) => ev.type === 'steam.otp.request.closed' && ev.requestId === l1.body.requestId), 'its close');
+    await pause(100);
+    const count = () => sent(e.rx).filter((ev) => ev.id === l1.body.requestId).length;
+    const settled = count();
+    await pause(300);
+    assert.equal(count(), settled, 'no more attempts for the superseded lookup');
+    assert.equal(sent(e.rx).filter((ev) => ev.id === l2.body.requestId).length, 1, 'the new one was accepted at once');
+  } finally {
+    await e.finish();
+  }
+});
+
+test('POST otp requestId: checked, never changes what is accepted; answers displayed and the lookup’s status (open / closed / unknown)', async () => {
+  const e = await lookupSetup();
+  try {
+    const stored = async () => (await e.state(e.hq)).accounts.x.otp;
+    for (const bad of ['', 'has space', 'x'.repeat(201), 5, null, 'é', 'tab' + String.fromCharCode(9) + 'here', ['a']]) {
+      const r = await e.post({ requestId: bad });
+      assert.deepEqual([r.status, r.body.error], [400, 'invalid_request_id'], JSON.stringify(bad));
+    }
+    assert.equal(await stored(), undefined, 'nothing was stored by those');
+
+    // without a requestId: as before, plus displayed
+    e.clock.t += 1000;
+    const plain = await e.email('CODE1');
+    assert.equal(plain.status, 200);
+    assert.deepEqual(Object.keys(plain.body), ['ok', 'accountUsername', 'accountEmail', 'assignedStoreId', 'receivedAt', 'expiresAt', 'displayed']);
+    assert.equal(plain.body.displayed, true, 'no lookup state: the card shows the code, as it always did');
+
+    // a request id nobody knows: unknown (the code is accepted all the same); 200 characters is fine
+    e.clock.t += 1000;
+    const unknown = await e.email('CODE2', { requestId: 'y'.repeat(200) });
+    assert.deepEqual([unknown.status, unknown.body.request, unknown.body.displayed], [200, { id: 'y'.repeat(200), status: 'unknown' }, true]);
+
+    // the store’s current lookup, inside its window: open
+    e.clock.t += 6000;
+    const l1 = await e.press();
+    e.clock.t += 1000;
+    const open = await e.email('CODE3', { requestId: l1.body.requestId });
+    assert.deepEqual([open.body.request, open.body.displayed], [{ id: l1.body.requestId, status: 'open' }, true]);
+
+    // another lookup replaces it: the first is closed (known in memory), the second is open
+    e.clock.t += 6000;
+    const l2 = await e.press();
+    e.clock.t += 1000;
+    const closed = await e.email('CODE4', { requestId: l1.body.requestId });
+    assert.deepEqual([closed.status, closed.body.request], [200, { id: l1.body.requestId, status: 'closed' }], 'the code is still stored');
+    e.clock.t += 1000;
+    const second = await e.email('CODE5', { requestId: l2.body.requestId });
+    assert.deepEqual([second.body.request, second.body.displayed], [{ id: l2.body.requestId, status: 'open' }, true]);
+
+    // Logged in closes it, and nothing more is displayed
+    e.clock.t += 1000;
+    await e.dismiss(iso(e.clock.t - 1000));
+    e.clock.t += 1000;
+    const after = await e.email('CODE6', { requestId: l2.body.requestId });
+    assert.deepEqual([after.status, after.body.request, after.body.displayed], [200, { id: l2.body.requestId, status: 'closed' }, false]);
+
+    // a retry of something stored: answered again with the lookup’s status now — closed once its ten minutes are over
+    e.clock.t += 6000;
+    const l3 = await e.press();
+    e.clock.t += 1000;
+    const body = { receivedAt: iso(e.clock.t - 500), code: 'CODE7', requestId: l3.body.requestId };
+    const headers = { 'Idempotency-Key': 'steam-email-request-1' };
+    const firstTry = await e.post(body, { headers });
+    assert.deepEqual([firstTry.body.request.status, firstTry.body.displayed], ['open', true]);
+    e.clock.t += 10 * MIN;
+    const replay = await e.post(body, { headers });
+    assert.deepEqual([replay.status, replay.body.duplicate, replay.body.request, replay.body.displayed], [200, true, { id: l3.body.requestId, status: 'closed' }, false]);
+    assert.ok(!JSON.stringify(replay.body).includes('CODE7'), 'never the code');
+  } finally {
+    await e.finish();
+  }
+});
+
+test('a lookup reaches every device of the team live, and no other store’s; the lookup record itself is never streamed to a team', async () => {
+  const e = await lookupSetup();
+  const streams: { close(): void }[] = [];
+  try {
+    const team2 = await e.t.login(TEAM2);
+    const open = async (cookie: string) => {
+      const s = openStream(e.t, cookie);
+      streams.push(s);
+      await s.connected;
+      return s;
+    };
+    const [sHq, sTeam, sAdmin, sOther] = [await open(e.hq), await open(e.team1), await open(e.admin1), await open(team2)];
+    const look = await e.press();
+    const id = look.body.requestId;
+    for (const s of [sTeam, sAdmin]) {
+      const m = await s.until((x) => x.ops?.some((o: any) => o.k === 'stores' && o.id === 's1' && o.v.steamLogin?.otpLookup?.id === id));
+      assert.equal(m.ops.find((o: any) => o.id === 's1').v.steamLogin.otpLookup.requestedAt, look.body.requestedAt);
+    }
+    await sHq.until((x) => x.ops?.some((o: any) => o.k === 'stores' && o.id === 's1' && JSON.stringify(o).includes(id)));
+    e.clock.t += 6000;
+    await e.dismiss(iso(e.clock.t));
+    await sTeam.until((x) => x.ops?.some((o: any) => o.k === 'stores' && o.id === 's1' && o.v.steamLogin && !o.v.steamLogin.otpLookup));
+    await pause(150);
+    assert.ok(!JSON.stringify([sTeam.msgs, sAdmin.msgs, sOther.msgs]).includes('otpState'), 'teams and admins never get the record');
+    assert.ok(!JSON.stringify(sOther.msgs).includes(id), 'another store’s team hears nothing');
+  } finally {
+    for (const s of streams) s.close();
+    await e.finish();
+  }
+});
+
+test('nobody can write a store’s lookup state but the server: HQ and teams are refused; teams never receive it; deleting the store is fine', async () => {
+  const e = await lookupSetup();
+  try {
+    const look = await e.press();
+    const stateOf = async () => (await e.state(e.hq)).stores.s1;
+    const T = iso(e.clock.t);
+    const forged = { lookup: { id: 'forged-id', requestedAt: T }, seenThrough: T, dismissedAt: T };
+    const refused = async (ops: unknown[], who = e.hq) => {
+      const r = await e.batch(who, ops);
+      assert.equal(r.status, 403, JSON.stringify(ops));
+      return r.body;
+    };
+    assert.deepEqual((await refused([{ k: 'stores', id: 's1', p: ['otpState'], v: forged }])).paths, ['stores/s1.otpState']);
+    assert.equal((await refused([{ k: 'stores', id: 's1', p: ['otpState'], v: forged }])).code, 'protected');
+    await refused([{ k: 'stores', id: 's1', p: ['otpState', 'dismissedAt'], v: T }]);
+    await refused([{ k: 'stores', id: 's1', p: ['otpState', 'lookup', 'id'], v: 'forged-id' }]);
+    await refused([{ k: 'stores', id: 's1', p: ['otpState', 'lookup'], d: 1 }]);
+    await refused([{ k: 'stores', id: 's1', p: ['otpState'], d: 1 }]);
+    const { otpState: _kept, ...without } = await stateOf();
+    await refused([{ k: 'stores', id: 's1', p: [], v: without }]); // a whole store that drops it
+    await refused([{ k: 'stores', id: 's9', p: [], v: fixtureStore('s9', 'e1', 'a2', { otpState: forged }) }]); // a new store that brings one
+    assert.equal((await stateOf()).otpState.lookup.id, look.body.requestId, 'nothing changed');
+    assert.equal((await e.state(e.hq)).stores.s9, undefined);
+
+    // teams and admins: refused too, and they never see the record — only the lookup inside their login
+    for (const cookie of [e.team1, e.admin1]) {
+      assert.equal((await e.batch(cookie, [{ k: 'stores', id: 's1', p: ['otpState'], v: forged }])).status, 403);
+      const snapshot = JSON.stringify(await e.state(cookie));
+      assert.ok(!snapshot.includes('otpState') && !snapshot.includes('seenThrough'), 'no record in the snapshot');
+      assert.equal((await e.state(cookie)).stores.s1.steamLogin.otpLookup.id, look.body.requestId);
+    }
+
+    // HQ’s ordinary edits go through, and so does a whole store that keeps its state as it is
+    assert.equal((await e.batch(e.hq, [{ k: 'stores', id: 's1', p: ['name'], v: 'Store s1 renamed' }])).status, 200);
+    assert.equal((await e.batch(e.hq, [{ k: 'stores', id: 's1', p: [], v: { ...(await stateOf()), city: 'Elsewhere' } }])).status, 200);
+    assert.equal((await stateOf()).otpState.lookup.id, look.body.requestId);
+    // deleting the whole store is HQ’s call and takes the record with it
+    assert.equal((await e.batch(e.hq, [{ k: 'stores', id: 's1', p: [], d: 1 }])).status, 200);
+  } finally {
+    await e.finish();
+  }
+});
+
+test('too many lookups: 20 in 10 minutes for one store, then 429 until the old ones are out; other stores are unaffected', async () => {
+  const e = await lookupSetup();
+  try {
+    for (let i = 0; i < 20; i++) {
+      e.clock.t += 6000; // past the 5 s double-tap guard
+      const r = await e.press();
+      assert.deepEqual([r.status, r.body.duplicate], [200, false], `lookup ${i + 1}`);
+    }
+    e.clock.t += 6000;
+    const over = await e.press();
+    assert.deepEqual([over.status, over.body.code, over.body.error], [429, 'too-many', 'Too many code requests — wait a minute, or call HQ.']);
+    assert.equal(sent(e.rx).filter((ev) => ev.type === 'steam.otp.requested').length, 20, 'the 21st sent nothing');
+    assert.equal((await press(e.t, e.hq, { storeId: 's2' })).status, 200, 'another store has its own count');
+    e.clock.t += 10 * MIN;
+    assert.equal((await e.press()).status, 200, 'the old lookups are out of the window');
+  } finally {
+    await e.finish();
+  }
+});
+

@@ -371,14 +371,30 @@ button.sc-text:hover {
   font-family: var(--mono);
 }
 
-/* The Steam Guard code: the Request code button, the wait, and the code itself (store card and HQ's table). */
+/* The Steam Guard code: the Get code button, the wait, and the code itself (store card and HQ's table). */
 .sc-ask {
+  min-height: 44px;
   margin-top: 14px;
 }
 .sc-wait {
   margin: 14px 0 0;
   font-size: 14px;
   color: var(--ink-2);
+}
+.sc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.sc-actions .btn {
+  min-height: 44px;
+}
+.sc-hint {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
 }
 .sc-otp-live {
   display: flex;

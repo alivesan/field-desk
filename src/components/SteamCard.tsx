@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { SteamLogin, Store } from '../lib/types.ts';
+import { LOOKUP_WINDOW_MS } from '../lib/steam.ts';
 import { notify, toast, useNow } from './ui.tsx';
 import '../styles/steam.css';
 
@@ -66,27 +67,37 @@ export function OtpCode({ code, expiresAt, now }: { code: string; expiresAt: str
   );
 }
 
-const WAIT_MS = 10 * 60 * 1000;
-
 /**
- * The Steam Guard code on a store's card: the code while it lasts; "Requested — waiting for the email…" after the team
- * asked for one; the Request code button when the server can ask; and the plain "call HQ" line whenever there is no code.
+ * The Steam Guard code on a store's card. The server only sends a code the card may show (see cardOtp): the code while it
+ * lasts, with Logged in and Check for new code when a team signs in on several PCs; "Waiting for a new Steam email…"
+ * after a lookup was started; the Get code button when the server can ask; and the plain "call HQ" line whenever there
+ * is no code. A code the team has moved past is hidden here at once, without waiting for the server's word.
  */
 function OtpBlock({ storeId, login, hqPhone }: { storeId: string; login: SteamLogin; hqPhone?: string }) {
   const now = useNow(1000);
-  const [asked, setAsked] = useState<string | undefined>();
+  const [asked, setAsked] = useState<SteamLogin['otpLookup']>();
+  const [hiddenThrough, setHiddenThrough] = useState<string | undefined>(); // receivedAt of the newest code hidden here
+  const [doneThrough, setDoneThrough] = useState<string | undefined>(); // requestedAt of the newest lookup ended here
   const [busy, setBusy] = useState(false);
-  const requestedAt = [asked, login.otpRequestedAt].filter((x): x is string => !!x).sort().pop();
-  const live = login.otp && Date.parse(login.otp.expiresAt) > now ? login.otp : undefined;
-  const waiting = !live && login.otpRequest && requestedAt && now - Date.parse(requestedAt) < WAIT_MS ? requestedAt : undefined;
+  const lookup = [asked, login.otpLookup]
+    .filter((x): x is NonNullable<typeof x> => !!x && !(doneThrough && Date.parse(x.requestedAt) <= Date.parse(doneThrough)))
+    .sort((p, q) => Date.parse(p.requestedAt) - Date.parse(q.requestedAt))
+    .pop();
+  const otp = login.otp;
+  const live = otp && Date.parse(otp.expiresAt) > now && !(hiddenThrough && Date.parse(otp.receivedAt) <= Date.parse(hiddenThrough)) ? otp : undefined;
+  const waiting = !live && login.otpRequest && lookup && now - Date.parse(lookup.requestedAt) < LOOKUP_WINDOW_MS ? lookup.requestedAt : undefined;
 
-  const request = async () => {
+  /** Starts a lookup — Get code, or Check for new code (`seen`: the code on screen, which then stays hidden). */
+  const request = async (seen?: string) => {
     setBusy(true);
     try {
-      const res = await fetch('/api/steam/otp-request', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ storeId }) });
-      const body = (await res.json().catch(() => ({}))) as { requestedAt?: string; error?: string };
-      if (!res.ok || !body.requestedAt) void notify(body.error ? `Couldn’t ask for the code: ${body.error}` : 'Couldn’t ask for the code. Call HQ.');
-      else setAsked(body.requestedAt);
+      const res = await fetch('/api/steam/otp-request', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ storeId, seen }) });
+      const body = (await res.json().catch(() => ({}))) as { requestId?: string; requestedAt?: string; error?: string };
+      if (!res.ok || !body.requestId || !body.requestedAt) void notify(body.error ? `Couldn’t ask for the code: ${body.error}` : 'Couldn’t ask for the code. Call HQ.');
+      else {
+        if (seen) setHiddenThrough(seen);
+        setAsked({ id: body.requestId, requestedAt: body.requestedAt });
+      }
     } catch {
       void notify('Couldn’t reach the server. Check the connection, or call HQ.');
     } finally {
@@ -94,27 +105,63 @@ function OtpBlock({ storeId, login, hqPhone }: { storeId: string; login: SteamLo
     }
   };
 
-  if (live) return <OtpCode code={live.code} expiresAt={live.expiresAt} now={now} />;
+  /** "Logged in": this code is done with — hidden at once, and the server told so it stays gone on every phone. */
+  const dismiss = async (receivedAt: string) => {
+    setHiddenThrough(receivedAt);
+    if (lookup) setDoneThrough(lookup.requestedAt);
+    setBusy(true);
+    try {
+      const res = await fetch('/api/steam/otp-dismiss', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ storeId, receivedAt }) });
+      if (!res.ok) throw new Error('refused');
+    } catch {
+      void notify('Couldn’t reach the server. Check the connection.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
+      {live && <OtpCode code={live.code} expiresAt={live.expiresAt} now={now} />}
+      {live && login.otpRequest && (
+        <>
+          <div className="sc-actions">
+            <button type="button" className="btn" disabled={busy} onClick={() => void dismiss(live.receivedAt)}>
+              Logged in
+            </button>
+            <button type="button" className="btn ghost" disabled={busy} onClick={() => void request(live.receivedAt)}>
+              Check for new code
+            </button>
+          </div>
+          <p className="sc-hint">Signing in on another PC? Press Check for new code, then sign in — Steam emails a new code each time.</p>
+        </>
+      )}
       {waiting && (
-        <p className="sc-wait" role="status">
-          Requested — waiting for the email… ({clock(now - Date.parse(waiting))})
+        <>
+          <p className="sc-wait" role="status">
+            Waiting for a new Steam email… ({clock(now - Date.parse(waiting))})
+          </p>
+          <p className="sc-hint">Start the Steam sign-in on the PC — Steam only emails a code when a PC signs in.</p>
+        </>
+      )}
+      {!live && !waiting && login.otpRequest && (
+        <>
+          <button type="button" className="btn sc-ask" disabled={busy} onClick={() => void request()}>
+            {busy ? 'Asking…' : 'Get code'}
+          </button>
+          <p className="sc-hint">Press Get code, then sign in to Steam on the PC — Steam emails the code only then.</p>
+        </>
+      )}
+      {!live && (
+        <p className="sc-otp">
+          {waiting ? 'No code yet? ' : ''}For the Steam Guard code (OTP), call HQ{hqPhone ? ': ' : '.'}
+          {hqPhone && (
+            <a href={`tel:${hqPhone.replace(/[^\d+]/g, '')}`} className="sc-call">
+              {hqPhone}
+            </a>
+          )}
         </p>
       )}
-      {!waiting && login.otpRequest && (
-        <button type="button" className="btn sc-ask" disabled={busy} onClick={() => void request()}>
-          {busy ? 'Asking…' : 'Request code'}
-        </button>
-      )}
-      <p className="sc-otp">
-        {waiting ? 'No code yet? ' : ''}For the Steam Guard code (OTP), call HQ{hqPhone ? ': ' : '.'}
-        {hqPhone && (
-          <a href={`tel:${hqPhone.replace(/[^\d+]/g, '')}`} className="sc-call">
-            {hqPhone}
-          </a>
-        )}
-      </p>
     </>
   );
 }

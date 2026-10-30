@@ -29,3 +29,17 @@ test('schema: the campaign’s store sheet is a link and a time', () => {
   has(validateDocument('events', e({ url: 5, fetchedAt: '2026-10-20T10:00:00.000Z' }), ctx()), /^storeSheet\.url: must be text/);
   has(validateDocument('events', e({ url: 'https://x.y/z', fetchedAt: 'yesterday' }), ctx()), /^storeSheet\.fetchedAt: must be a date-time/);
 });
+
+test('schema: a store’s Steam Guard lookup state is optional, and its lookup, ids and times are checked', () => {
+  const T = '2026-10-24T06:00:00.000Z';
+  assert.deepEqual(validateDocument('stores', store({ otpState: {} }), ctx()), []);
+  assert.deepEqual(validateDocument('stores', store({ otpState: { lookup: { id: 'a1b2-c3', requestedAt: T }, seenThrough: T, dismissedAt: T } }), ctx()), []);
+  has(validateDocument('stores', store({ otpState: 'x' }), ctx()), /^otpState: must be an object/);
+  has(validateDocument('stores', store({ otpState: { lookup: 'x' } }), ctx()), /^otpState\.lookup: must be an object/);
+  for (const id of ['', 'has space', 'x'.repeat(201), 5, undefined]) {
+    has(validateDocument('stores', store({ otpState: { lookup: { id, requestedAt: T } } }), ctx()), /^otpState\.lookup\.id: must be 1–200 visible ASCII/);
+  }
+  has(validateDocument('stores', store({ otpState: { lookup: { id: 'L', requestedAt: 'soon' } } }), ctx()), /^otpState\.lookup\.requestedAt: must be a date-time/);
+  has(validateDocument('stores', store({ otpState: { seenThrough: 'soon' } }), ctx()), /^otpState\.seenThrough: must be a date-time/);
+  has(validateDocument('stores', store({ otpState: { dismissedAt: 5 } }), ctx()), /^otpState\.dismissedAt: must be a date-time/);
+});
