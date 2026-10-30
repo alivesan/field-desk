@@ -780,6 +780,33 @@
   }
 }
 
+/* a newer build is live (src/components/UpdateBar.tsx): slim, under the header, in the page flow so it never covers a button */
+.update-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 14px;
+  padding: 8px 16px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 14px;
+}
+.update-bar button {
+  appearance: none;
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid currentColor;
+  background: none;
+  color: inherit;
+  font: 500 13px/1 var(--sans);
+  cursor: pointer;
+}
+.update-bar button:hover {
+  background: var(--paper);
+  color: var(--ink);
+}
+
 .tabs {
   display: flex;
   gap: 28px;
@@ -804,6 +831,15 @@
 .tabs button.on {
   color: var(--ink);
   border-color: var(--accent);
+}
+/* HQ's fourth tab (Seeding) has to fit a 375px phone */
+@media (max-width: 480px) {
+  .tabs.four {
+    gap: 18px;
+  }
+  .tabs.four button {
+    font-size: 20px;
+  }
 }
 
 .feed {

@@ -6,6 +6,7 @@
  * How `base` is used:
  *   bracket.load / bracket.reset / bracket.place — destructive: `base` must equal the current day version,
  *     so a device that hasn't seen the latest bracket can't replace, wipe or re-slot it.
+ *     bracket.place with `swap` moves a player who already has a first-round slot: the two slots trade occupants.
  *   stations.set / match.start / match.finish / match.undo / players.onspot / onspot.mark / onspot.remove / winners.set / winners.clear —
  *     `base` is informational only.
  *     These are checked against the *current* state (station free, players checked in and
@@ -30,7 +31,7 @@ export const TOURNAMENT_COMMANDS: Record<string, Role[]> = {
   'players.set': ['super'],
   'players.seed': ['super'],
   'bracket.build': ['super'],
-  'bracket.place': ['super'], // a first-round slot, before that match is played — e.g. a late walk-in HQ has put on Toornament
+  'bracket.place': ['super'], // a first-round slot, before that match is played — e.g. a late walk-in HQ has put on Toornament; `swap` trades two slots
   'stations.set': ['super', 'admin'],
   'match.start': ['super', 'admin'],
   'match.finish': ['super', 'admin'],
@@ -137,8 +138,12 @@ function find(day: MatchDay, id: string) {
 }
 
 /** Replace one match, re-resolve downstream, and refuse anything that would re-point a started match. */
-function withMatch(day: MatchDay, changed: Match): MatchDay {
-  const { matches, disturbed } = resolve(day.matches.map((x) => (x.id === changed.id ? changed : x)));
+const withMatch = (day: MatchDay, changed: Match) => withMatches(day, [changed]);
+
+/** The same for several matches at once — downstream is re-resolved once, after all of them have changed. */
+function withMatches(day: MatchDay, changed: Match[]): MatchDay {
+  const by = new Map(changed.map((c) => [c.id, c]));
+  const { matches, disturbed } = resolve(day.matches.map((x) => by.get(x.id) ?? x));
   if (disturbed.length) {
     const d = disturbed[0];
     throw conflict(`${label(day, d)} (${pairing(day, d)}) has already ${d.status === 'live' ? 'started' : 'been played'} — undo that first.`);
@@ -411,14 +416,14 @@ function clearWinners(day: MatchDay): MatchDay {
  * been played (pending, or a bye). The match is rebuilt as "not played" so resolve re-derives the bye
  * and what it feeds; withMatch refuses if that would re-point a match that has started. The player
  * who leaves the slot stays on the list, and check-ins are untouched.
+ * With `swap`, a player who already has a first-round slot moves here and whoever was here (or nobody)
+ * takes their old slot; both matches must be changeable and neither may be left empty.
  */
 function place(day: MatchDay, cmd: Extract<Command, { type: 'bracket.place' }>): MatchDay {
   const m = find(day, cmd.matchId);
-  const L = label(day, m);
   if (cmd.side !== 'a' && cmd.side !== 'b') throw invalid('Pick a side of the match.');
   if (cmd.playerId !== null && typeof cmd.playerId !== 'string') throw invalid('Pick a player, or leave the slot empty.');
-  if (m.round !== 0) throw conflict(`${L} isn’t a first-round match — only first-round slots can be changed.`);
-  if (m.status !== 'pending' && !m.bye) throw conflict(`${L} has already ${m.status === 'live' ? 'started' : 'been played'} — undo it first, or change a match that hasn’t been played.`);
+  changeable(day, m);
   if (cmd.playerId === m[cmd.side]) return day; // already how it is
   if (cmd.playerId === null) {
     if (!(cmd.side === 'a' ? m.b : m.a)) throw invalid('A match needs at least one player.');
@@ -426,9 +431,30 @@ function place(day: MatchDay, cmd: Extract<Command, { type: 'bracket.place' }>):
     const id = cmd.playerId;
     if (!day.players.some((p) => p.id === id)) throw conflict('That player isn’t on the list any more — the list changed on another device.');
     const into = day.matches.find((x) => x.a === id || x.b === id);
+    if (into && cmd.swap) return swapSlots(day, m, cmd.side, into, id);
     if (into) throw conflict(`${who(day, id)} is already in ${label(day, into)}. Empty that slot first.`);
   }
   return withMatch(day, { ...reopened(m), [cmd.side]: cmd.playerId });
+}
+
+/** A first-round match whose players can still change: not played yet (or a bye). */
+function changeable(day: MatchDay, m: Match) {
+  const L = label(day, m);
+  if (m.round !== 0) throw conflict(`${L} isn’t a first-round match — only first-round slots can be changed.`);
+  if (m.status !== 'pending' && !m.bye) throw conflict(`${L} has already ${m.status === 'live' ? 'started' : 'been played'} — undo it first, or change a match that hasn’t been played.`);
+}
+
+/** bracket.place with `swap`: player `id`, now in a slot of `from`, trades places with whoever (or nobody) is in `m[side]`. */
+function swapSlots(day: MatchDay, m: Match, side: 'a' | 'b', from: Match, id: string): MatchDay {
+  changeable(day, from);
+  const fromSide = from.a === id ? 'a' : 'b';
+  if (from.id === m.id) return withMatch(day, { ...reopened(m), a: m.b, b: m.a }); // top and bottom of one match
+  const other = m[side];
+  if (!other && !(fromSide === 'a' ? from.b : from.a)) throw invalid('A match needs at least one player.');
+  return withMatches(day, [
+    { ...reopened(m), [side]: id },
+    { ...reopened(from), [fromSide]: other },
+  ]);
 }
 
 /* ---------- stations.set ---------- */

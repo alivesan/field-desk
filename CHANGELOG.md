@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Seeding tab for HQ** on match day (after Queue; Bracket stays last): every first-round slot in bracket order with its player, seed, *(on-spot)* tag and check-in, a pencil to change it, **+ Free slot** on an empty one, and a lock on slots whose match is live or played. The picker offers players not in the bracket, players moved from another slot (the two swap places) and *Empty this slot*; players without a slot are listed below with **Place…**. Field Desk doesn’t change Toornament, so do it there too.
+- `bracket.place` gains `swap`: a player who already has a first-round slot trades places with whoever (or nobody) is in the target slot. Both matches must be unplayed, neither may be left empty, and a started match downstream still refuses it.
+- **“A new version of Field Desk is ready”:** a bar under the header with **Reload** appears when a newer version has been deployed (checked every 2 minutes and when you come back to the tab), so a phone that hasn’t reloaded stops running last night’s page.
 - **On-spot closes for the desk once the bracket is out:** admins and store teams see "The bracket is out — on-spot registration is closed. Ask HQ if a player must be added." in place of the form, and the server refuses it too. HQ can still register a walk-in.
 - **HQ can change a first-round slot** (`bracket.place`): tap a match on the Bracket tab (byes too) → **Change players** puts a player into an empty or unplayed first-round slot, swaps one, or empties it, before that match starts. A match left with one player becomes a bye and the player advances. Refused if the match, or the one it feeds, has started — undo that first. Field Desk doesn’t change Toornament, so do it there too.
 
