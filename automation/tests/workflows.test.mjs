@@ -142,7 +142,12 @@ test('Gmail header preflight is manual, read-only, limited, and excludes mail co
   const params = request => Object.fromEntries(request.parameters.queryParameters.parameters.map(p => [p.name, p.value]));
   assert.deepEqual(params(requests[0]), { q: 'newer_than:1d -in:trash from:noreply@steampowered.com', maxResults: '5', includeSpamTrash: 'true', fields: 'messages/id' });
   assert.equal(requests[0].parameters.options.pagination, undefined);
-  assert.deepEqual(params(requests[1]), { format: 'metadata', metadataHeaders: 'Authentication-Results', fields: 'labelIds,payload/headers' });
+  assert.deepEqual(params(requests[1]), { format: 'metadata', fields: 'labelIds,payload/headers' });
+  const metadataUrl = new URL(Function('$json', `return (${requests[1].parameters.url.slice(3, -2)});`)({ id: 'synthetic/id' }));
+  assert.equal(metadataUrl.hostname, 'gmail.googleapis.com');
+  assert.deepEqual([...metadataUrl.searchParams.keys()], Array(7).fill('metadataHeaders'));
+  assert.deepEqual(metadataUrl.searchParams.getAll('metadataHeaders'), ['Authentication-Results', 'ARC-Seal', 'ARC-Authentication-Results', 'ARC-Message-Signature', 'To', 'Date', 'From']);
+  assert.doesNotMatch(JSON.stringify(requests[1].parameters), /Subject|snippet|format.*full|payload\/body/i);
   const safe = byName(workflow, 'Safe forwarding header flags');
   assert.equal(safe.parameters.includeOtherFields, false);
   const fields = safe.parameters.assignments.assignments;

@@ -134,8 +134,8 @@ function gmailHeaderCheckWorkflow() {
     node('Any messages?', 'if', 440, 0, condition('={{ Array.isArray($json.messages) && $json.messages.length > 0 }}')),
     node('One header check per message', 'splitOut', 660, 0, { fieldToSplitOut: 'messages', include: 'noOtherFields', options: {} }),
     http('Get authentication metadata only', 880, 0, {
-      method: 'GET', url: '={{ "https://gmail.googleapis.com/gmail/v1/users/me/messages/" + encodeURIComponent($json.id) }}', ...gmailAuth,
-      ...query([['format', 'metadata'], ['metadataHeaders', 'Authentication-Results'], ['fields', 'labelIds,payload/headers']]),
+      method: 'GET', url: '={{ "https://gmail.googleapis.com/gmail/v1/users/me/messages/" + encodeURIComponent($json.id) + "?metadataHeaders=Authentication-Results&metadataHeaders=ARC-Seal&metadataHeaders=ARC-Authentication-Results&metadataHeaders=ARC-Message-Signature&metadataHeaders=To&metadataHeaders=Date&metadataHeaders=From" }}', ...gmailAuth,
+      ...query([['format', 'metadata'], ['fields', 'labelIds,payload/headers']]),
     }, gmailAuth),
     node('Safe forwarding header flags', 'set', 1100, 0, { assignments: { assignments }, includeOtherFields: false, options: {} }),
   ];

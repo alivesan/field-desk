@@ -118,7 +118,7 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{ \"https://gmail.googleapis.com/gmail/v1/users/me/messages/\" + encodeURIComponent($json.id) }}",
+        "url": "={{ \"https://gmail.googleapis.com/gmail/v1/users/me/messages/\" + encodeURIComponent($json.id) + \"?metadataHeaders=Authentication-Results&metadataHeaders=ARC-Seal&metadataHeaders=ARC-Authentication-Results&metadataHeaders=ARC-Message-Signature&metadataHeaders=To&metadataHeaders=Date&metadataHeaders=From\" }}",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "gmailOAuth2",
         "sendQuery": true,
@@ -127,10 +127,6 @@
             {
               "name": "format",
               "value": "metadata"
-            },
-            {
-              "name": "metadataHeaders",
-              "value": "Authentication-Results"
             },
             {
               "name": "fields",

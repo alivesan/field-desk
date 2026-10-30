@@ -60,6 +60,21 @@ test('forwarder allowlist and authoritative top-level authentication are mandato
   assert.throws(() => parse(message({ originalFrom: 'Attacker <attacker@example.com>' })));
 });
 
+test('validated redirect chain without Steam authentication does not authorize delivery', () => {
+  const redirected = message({
+    from: 'Steam <noreply@steampowered.com>',
+    auth: 'mx.google.com; dkim=pass header.d=hotmail.com; arc=pass; spf=pass; dmarc=fail header.from=steampowered.com',
+    extraHeaders: [
+      head('ARC-Authentication-Results', 'i=1; mx.microsoft.com; spf=none; dmarc=none; dkim=none; arc=none'),
+      head('ARC-Seal', 'i=1; d=microsoft.com; cv=none'),
+      head('ARC-Message-Signature', 'i=1; d=microsoft.com; h=from:date:subject'),
+      head('ARC-Authentication-Results', 'i=2; mx.google.com; arc=pass; dmarc=fail header.from=steampowered.com'),
+      head('ARC-Seal', 'i=2; d=google.com; cv=pass'),
+    ],
+  });
+  assert.throws(() => parse(redirected), /sender_auth_unverified/);
+});
+
 test('old or future original and provider dates cannot refresh a forwarded code', () => {
   assert.throws(() => parse(message({ originalDate: now - TTL })));
   assert.throws(() => parse(message({ date: now - TTL })));
