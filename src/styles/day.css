@@ -962,6 +962,24 @@ fieldset.sheet-actions[disabled] {
 .station.free.idle .free-dot::before {
   background: var(--muted);
 }
+/* a free station with nothing to call: one row — "Station 2 · Free — nothing ready" — not an empty card */
+.station.free.idle {
+  min-height: 0;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 12px 16px;
+}
+.station.free.idle .station-top {
+  justify-content: flex-start;
+  gap: 12px;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.station.free.idle .empty::before {
+  content: '— ';
+}
 .station .btn.block:active,
 .qside .btn:active {
   transform: scale(0.98);

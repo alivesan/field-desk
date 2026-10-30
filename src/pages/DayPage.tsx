@@ -194,6 +194,8 @@ export function DayPage({ storeId }: { storeId: string }) {
         </div>
       </PageHead>
 
+      <SteamCard store={store} compact />
+
       <div className={cx('tabs', seeding && 'four')} role="tablist">
         {(
           [
@@ -210,7 +212,6 @@ export function DayPage({ storeId }: { storeId: string }) {
       </div>
 
       <WorkNotices day={day} work={work} local={local} offline={cmds.offline} onDismissLocal={(id) => setLocal((l) => l.filter((x) => x.id !== id))} />
-      <SteamCard store={store} />
 
       {!day.players.length && hq ? (
         <section className="feed-wait">
@@ -989,7 +990,9 @@ function QueueView({
                     </button>
                   </>
                 ) : (
-                  <p className="empty">Nothing ready — waiting on check-ins or results.</p>
+                  <p className="empty" title="Waiting on check-ins or results">
+                    Nothing ready
+                  </p>
                 )}
               </div>
             );
