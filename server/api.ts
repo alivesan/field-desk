@@ -8,7 +8,7 @@ import { applyCommand, COMMAND_ROLES, CommandError, validateCommand, type Comman
 import type { PrintKind, SteamAccount, SteamOtp, Store, StoreOtpState, ToornamentSource, TournamentEvent } from '../src/lib/types.ts';
 import { AUTO_ACTOR, EVENT_TZ, inZone } from '../src/lib/toornament-auto.ts';
 import { cleanPersonName, shortStoreName, teamActorName } from '../src/lib/teams.ts';
-import { cardOtp, currentSteamStore, liveOtp, LOOKUP_WINDOW_MS, OTP_TTL_MS, steamHolders, steamLoginFor } from '../src/lib/steam.ts';
+import { cardOtp, currentSteamStore, liveOtp, LOOKUP_WINDOW_MS, OTP_TTL_MS, steamHolders, steamLoginFor, steamUses } from '../src/lib/steam.ts';
 import { isPrintKind, PRINT_KINDS, printSpecOf, thisWeekKits } from '../src/lib/print.ts';
 import { campaignStoreNames, storeShortName } from '../src/lib/names.ts';
 import { storeDate } from '../src/lib/recce.ts';
@@ -347,8 +347,15 @@ export function createApi(opts: ApiOptions) {
     return { ...day, players, ...(onSpot ? { onSpot } : {}) };
   }
 
-  /** The code a store's card may show now (cardOtp): the lookup state counts only while the feature is on, so turning it off leaves the plain code. */
-  const cardOtpOf = (s: Store, account: SteamAccount | undefined) => cardOtp(account, otpRequests.enabled ? s.otpState : undefined, now());
+  /**
+   * The code a store's card may show now (cardOtp): the lookup state counts only while the feature is on, so turning it off leaves the plain code.
+   * An account several stores hold is shared: its code shows only inside a store's own lookup (nobody can start one with the feature off).
+   */
+  const cardOtpOf = (s: Store, account: SteamAccount | undefined) =>
+    cardOtp(account, otpRequests.enabled ? s.otpState : undefined, now(), otpRequests.enabled && !!account && steamHolders({ events: docs.events, stores: docs.stores }, account.id, eventToday()).length > 1);
+
+  /** The store a lookup was made for: the one whose current lookup it is, else the one the recent lookups remember. */
+  const lookupStoreOf = (id: string) => Object.values(docs.stores).find((s) => s.otpState?.lookup?.id === id)?.id ?? otpRequests.status(id)?.storeId;
 
   /** Whether a lookup is still watched for the store: open (its current one, inside its window), closed (ended, or its window has passed), or not known. */
   function lookupStatus(store: Store | undefined, id: string): 'open' | 'closed' | 'unknown' {
@@ -884,7 +891,7 @@ export function createApi(opts: ApiOptions) {
         return send(res, 200, { ok: true, requestId: lookup.id, requestedAt: lookup.requestedAt, duplicate: true });
       }
       if (otpRequests.recentCount(storeId) >= (opts.steam?.maxLookupsPer10Min ?? 20)) throw new HttpError(429, 'too-many', 'Too many code requests — wait a minute, or call HQ.');
-      const r = otpRequests.request(asked);
+      const r = otpRequests.request(asked, steamHolders({ events: docs.events, stores: docs.stores }, account.id, eventToday()).map((s) => s.id).sort());
       recordOtpState(storeId, { lookup: { id: r.id, requestedAt: r.at }, ...(seenThrough ? { seenThrough } : {}) });
       if (live) otpRequests.closeRequest(live.id, 'superseded', { ...asked, requestedAt: live.requestedAt });
       log('info', 'steam-otp-requested', { principal: who.principal, store: storeId, request: r.id, duplicate: false });
@@ -1075,6 +1082,9 @@ export function createApi(opts: ApiOptions) {
       .sort((a, b) => a.username.localeCompare(b.username) || a.id.localeCompare(b.id))
       .map((a) => {
         const store = currentSteamStore(world, a.id, today);
+        const holders = steamUses(world, a.id)
+          .filter((u) => u.date && u.date >= today)
+          .sort((x, y) => x.store.id.localeCompare(y.store.id));
         const live = liveOtp(a, now());
         const email = a.email?.trim() || null;
         return {
@@ -1085,6 +1095,9 @@ export function createApi(opts: ApiOptions) {
           email,
           assignedStoreId: store?.id ?? null,
           assignedStoreName: store?.name ?? null,
+          // Every store holding it (any purpose, event day not past): the account is deliverable when there is one.
+          eligibleStoreIds: holders.map((u) => u.store.id),
+          holders: holders.map((u) => ({ storeId: u.store.id, storeName: u.store.name, purpose: u.purpose, date: u.date })),
           active: !!live,
           receivedAt: live?.receivedAt ?? null,
           expiresAt: live?.expiresAt ?? null,
@@ -1117,7 +1130,7 @@ export function createApi(opts: ApiOptions) {
     const receivedMs = ISO_TIME.test(receivedAt) ? Date.parse(receivedAt) : NaN;
     if (!Number.isFinite(receivedMs)) return steamFail(res, 400, 'stale_or_future', 'receivedAt must be an ISO time within the last 10 minutes.');
 
-    const result = (a: SteamAccount, storeId: string, o: SteamOtp) => ({
+    const result = (a: SteamAccount, storeId: string | null, o: SteamOtp) => ({
       ok: true,
       accountUsername: a.username,
       accountEmail: a.email?.trim() || null,
@@ -1126,13 +1139,26 @@ export function createApi(opts: ApiOptions) {
       expiresAt: o.expiresAt,
     });
 
-    /** Beside the stored result, never inside it: whether the team's card shows this very code now, and the state of the lookup it answers. */
-    const alongside = (storeId: string, at: string) => {
-      const store = docs.stores[storeId];
-      const shown = store?.steam?.accountId === account.id ? cardOtpOf(store, docs.accounts[account.id]) : undefined;
+    /** The stores holding the account now (any purpose, event day not past), by id. */
+    const holdersNow = () => steamHolders({ events: docs.events, stores: docs.stores }, account.id, eventToday()).sort((x, y) => x.id.localeCompare(y.id));
+
+    /**
+     * Beside the stored result, never inside it, worked out fresh each time: who holds the account, whose card shows this very
+     * code now, and the state of the lookup it answers. `displayed` is for the store of the lookup named by requestId when
+     * that is a holder, else for any holder.
+     */
+    const alongside = (at: string) => {
+      const eligible = holdersNow();
+      const shown = eligible.filter((s) => {
+        const o = cardOtpOf(s, docs.accounts[account.id]);
+        return !!o && Date.parse(o.receivedAt) === Date.parse(at);
+      });
+      const asked = typeof requestId === 'string' ? eligible.find((s) => s.id === lookupStoreOf(requestId)) : undefined;
       return {
-        displayed: !!shown && Date.parse(shown.receivedAt) === Date.parse(at),
-        ...(typeof requestId === 'string' ? { request: { id: requestId, status: lookupStatus(store, requestId) } } : {}),
+        eligibleStoreIds: eligible.map((s) => s.id),
+        displayed: asked ? shown.includes(asked) : shown.length > 0,
+        displayedStoreIds: shown.map((s) => s.id),
+        ...(typeof requestId === 'string' ? { request: { id: requestId, status: lookupStatus(asked, requestId) } } : {}),
       };
     };
 
@@ -1142,7 +1168,7 @@ export function createApi(opts: ApiOptions) {
     const seenKey = typeof key === 'string' ? otpKeys.get(key) : undefined;
     if (seenKey) {
       if (seenKey.fingerprint !== fingerprint) return steamFail(res, 409, 'idempotency_key_reused', 'That Idempotency-Key was used for a different request.');
-      return send(res, 200, { ...seenKey.result, duplicate: true, ...alongside(String(seenKey.result.assignedStoreId), String(seenKey.result.receivedAt)) });
+      return send(res, 200, { ...seenKey.result, duplicate: true, ...alongside(String(seenKey.result.receivedAt)) });
     }
 
     const t = now();
@@ -1150,8 +1176,8 @@ export function createApi(opts: ApiOptions) {
 
     const world = { events: docs.events, stores: docs.stores };
     const today = eventToday();
-    const store = currentSteamStore(world, account.id, today);
-    if (!store || !steamHolders(world, account.id, today).length) return steamFail(res, 409, 'not_assigned', 'No store holds that account right now.');
+    const store = currentSteamStore(world, account.id, today); // null when several stores hold it: the code goes to whoever asked
+    if (!steamHolders(world, account.id, today).length) return steamFail(res, 409, 'not_assigned', 'No store holds that account right now.');
 
     const keep = (r: Record<string, unknown>) => {
       if (typeof key === 'string') otpKeys.put(key, fingerprint, r);
@@ -1163,14 +1189,14 @@ export function createApi(opts: ApiOptions) {
       if (receivedMs < currentMs) return steamFail(res, 409, 'older_than_current', 'A newer code is already stored for that account.');
       if (receivedMs === currentMs) {
         if (current.code !== code) return steamFail(res, 409, 'conflicting_code', 'A different code is already stored with that receivedAt.');
-        return send(res, 200, { ...keep(result(account, store.id, current)), duplicate: true, ...alongside(store.id, current.receivedAt) }); // expiry stays where it was
+        return send(res, 200, { ...keep(result(account, store?.id ?? null, current)), duplicate: true, ...alongside(current.receivedAt) }); // expiry stays where it was
       }
     }
     const next: SteamOtp = { code, receivedAt: new Date(receivedMs).toISOString(), expiresAt: new Date(receivedMs + OTP_TTL_MS).toISOString() };
     recordOtp(account.id, next);
-    const along = alongside(store.id, next.receivedAt);
-    log('info', 'steam-otp-stored', { account: account.id, store: store.id, request: typeof requestId === 'string' ? requestId : undefined, displayed: along.displayed });
-    return send(res, 200, { ...keep(result(account, store.id, next)), ...along });
+    const along = alongside(next.receivedAt);
+    log('info', 'steam-otp-stored', { account: account.id, store: store?.id ?? null, holders: along.eligibleStoreIds.length, request: typeof requestId === 'string' ? requestId : undefined, displayed: along.displayed });
+    return send(res, 200, { ...keep(result(account, store?.id ?? null, next)), ...along });
   }
 
   /* ---------- print files ---------- */

@@ -149,15 +149,17 @@ export const LOOKUP_WINDOW_MS = 10 * 60 * 1000; // and watches for ten minutes
 /**
  * The code a store's card may show now, given its lookup state — see docs/steam-otp-api.md. An unexpired code, unless the
  * team has moved past it (`seenThrough`); after a lookup only a code sent no earlier than a minute before it (however
- * late); after "Logged in" nothing until the next lookup; with no state at all, the code.
+ * late); after "Logged in" nothing until the next lookup; with no state at all, the code. `shared` is for an account more
+ * than one store may see the codes of (the email can't say which store's PC asked): then a card shows a code only inside
+ * its own lookup, and with no lookup nothing.
  */
-export function cardOtp(account: Pick<SteamAccount, 'otp'> | undefined, state: StoreOtpState | undefined, nowMs: number): SteamOtp | undefined {
+export function cardOtp(account: Pick<SteamAccount, 'otp'> | undefined, state: StoreOtpState | undefined, nowMs: number, shared = false): SteamOtp | undefined {
   const otp = liveOtp(account, nowMs);
   if (!otp) return undefined;
   const at = Date.parse(otp.receivedAt);
   if (state?.seenThrough && at <= Date.parse(state.seenThrough)) return undefined;
   if (state?.lookup) return at >= Date.parse(state.lookup.requestedAt) - LOOKUP_GRACE_MS ? otp : undefined;
-  return state?.dismissedAt ? undefined : otp;
+  return shared || state?.dismissedAt ? undefined : otp;
 }
 
 /** Whatever else the server knows about a store's login at read time (see steamLoginFor). */

@@ -218,7 +218,7 @@ test('not configured: both routes answer 503 not_configured, whatever is sent', 
   }
 });
 
-test('GET accounts: a bare array in the contract’s shape; assignedStoreId from the weekend’s play, a single holder, else null', async () => {
+test('GET accounts: a bare array in the contract’s shape; assignedStoreId from the weekend’s play, a single holder, else null (eligibleStoreIds lists every holder)', async () => {
   const { t, clock, call, accounts, post } = await setup();
   try {
     const r = await accounts();
@@ -235,15 +235,20 @@ test('GET accounts: a bare array in the contract’s shape; assignedStoreId from
       email: 'Rog.X@example.test',
       assignedStoreId: 's1',
       assignedStoreName: 'Store s1',
+      eligibleStoreIds: ['s1'], // s3's event day is over: not a holder
+      holders: [{ storeId: 's1', storeName: 'Store s1', purpose: 'play', date: '2026-10-24' }],
       active: false,
       receivedAt: null,
       expiresAt: null,
     });
     assert.equal(by.test_rog_y.assignedStoreId, 's2', 'the only store holding it, for downloads');
+    assert.deepEqual(by.test_rog_y.eligibleStoreIds, ['s2']);
     assert.equal(by.test_rog_y.accountEmail, null);
     assert.equal(by.test_rog_z.assignedStoreId, null, 'two stores download with it: ambiguous');
     assert.equal(by.test_rog_z.assignedStoreName, null);
+    assert.deepEqual(by.test_rog_z.eligibleStoreIds, ['s4', 's5'], 'but both can be served');
     assert.equal(by.test_rog_w.assignedStoreId, null, 'nobody has it');
+    assert.deepEqual([by.test_rog_w.eligibleStoreIds, by.test_rog_w.holders], [[], []]);
 
     // an active code shows as times only — never the code
     assert.equal((await post({ receivedAt: iso(clock.t - 2 * MIN) })).status, 200);
@@ -282,7 +287,7 @@ test('POST otp: success shape, matching by username / email (trimmed, any case),
     const at = iso(clock.t - 30_000);
     const r = await post({ receivedAt: at });
     assert.equal(r.status, 200, r.text);
-    assert.deepEqual(r.body, { ok: true, accountUsername: 'test_rog_x', accountEmail: 'Rog.X@example.test', assignedStoreId: 's1', receivedAt: at, expiresAt: iso(clock.t - 30_000 + 10 * MIN), displayed: true });
+    assert.deepEqual(r.body, { ok: true, accountUsername: 'test_rog_x', accountEmail: 'Rog.X@example.test', assignedStoreId: 's1', receivedAt: at, expiresAt: iso(clock.t - 30_000 + 10 * MIN), eligibleStoreIds: ['s1'], displayed: true, displayedStoreIds: ['s1'] });
     assert.ok(!r.text.includes('AB3DE'), 'the answer never echoes the code');
     assert.deepEqual((await state(hq)).accounts.x.otp, { code: 'AB3DE', receivedAt: at, expiresAt: iso(clock.t - 30_000 + 10 * MIN) });
 
@@ -357,17 +362,20 @@ test('POST otp: receivedAt must be ISO and within (now − 10 min, now + 30 s]',
   }
 });
 
-test('POST otp: an account no store holds (nobody, ambiguous, event past) is 409 not_assigned', async () => {
-  const { t, clock, post } = await setup();
+test('POST otp: an account no store holds (nobody, event past) is 409 not_assigned; several holders is not', async () => {
+  const { t, clock, post, accounts } = await setup();
   try {
-    for (const username of ['test_rog_w', 'test_rog_z']) {
-      const r = await post({ accountUsername: username });
-      assert.deepEqual([r.status, r.body.error], [409, 'not_assigned'], username);
-    }
+    const none = await post({ accountUsername: 'test_rog_w' });
+    assert.deepEqual([none.status, none.body.error], [409, 'not_assigned'], 'nobody has it');
     assert.equal((await post({ accountUsername: 'test_rog_y' })).body.assignedStoreId, 's2', 'a single download holder is enough');
+    const shared = await post({ accountUsername: 'test_rog_z' });
+    assert.deepEqual([shared.status, shared.body.assignedStoreId, shared.body.eligibleStoreIds], [200, null, ['s4', 's5']], 'two download holders: accepted, no single store');
     clock.t = Date.parse('2026-10-26T06:00:00.000Z'); // Monday: the weekend and every event day are over
-    const late = await post({ accountUsername: 'test_rog_y', receivedAt: iso(clock.t - 1000), code: 'QQ1QQ' });
-    assert.deepEqual([late.status, late.body.error], [409, 'not_assigned']);
+    for (const username of ['test_rog_y', 'test_rog_z']) {
+      const late = await post({ accountUsername: username, receivedAt: iso(clock.t - 1000), code: 'QQ1QQ' });
+      assert.deepEqual([late.status, late.body.error], [409, 'not_assigned'], username);
+    }
+    assert.ok((await accounts()).body.every((a: any) => a.eligibleStoreIds.length === 0 && a.holders.length === 0), 'nobody holds anything');
   } finally {
     await t.close();
   }
@@ -581,7 +589,7 @@ test('request webhook: signed over the exact bytes, the payload the worker verif
     assert.equal(hit.headers['content-type'], 'application/json');
     assert.equal(hit.headers['x-fielddesk-signature'], signatureOf(hit.raw), 'HMAC-SHA256 over the raw bytes received');
     const payload = JSON.parse(hit.raw.toString('utf8'));
-    assert.deepEqual(Object.keys(payload).sort(), ['acceptFrom', 'accountEmail', 'accountUsername', 'at', 'id', 'requestId', 'requestedAt', 'storeId', 'storeName', 'type', 'watchUntil']);
+    assert.deepEqual(Object.keys(payload).sort(), ['acceptFrom', 'accountEmail', 'accountUsername', 'at', 'eligibleStoreIds', 'id', 'requestId', 'requestedAt', 'storeId', 'storeName', 'type', 'watchUntil']);
     assert.match(payload.id, UUID);
     assert.equal(payload.id, first.body.requestId, 'the lookup id is the event id');
     assert.deepEqual(
@@ -598,6 +606,7 @@ test('request webhook: signed over the exact bytes, the payload the worker verif
         storeName: 'Store s1',
         accountUsername: 'test_rog_x',
         accountEmail: 'Rog.X@example.test',
+        eligibleStoreIds: ['s1'],
       },
     );
     assert.equal(payload.requestId, payload.id);
@@ -1129,7 +1138,7 @@ test('POST otp requestId: checked, never changes what is accepted; answers displ
     e.clock.t += 1000;
     const plain = await e.email('CODE1');
     assert.equal(plain.status, 200);
-    assert.deepEqual(Object.keys(plain.body), ['ok', 'accountUsername', 'accountEmail', 'assignedStoreId', 'receivedAt', 'expiresAt', 'displayed']);
+    assert.deepEqual(Object.keys(plain.body), ['ok', 'accountUsername', 'accountEmail', 'assignedStoreId', 'receivedAt', 'expiresAt', 'eligibleStoreIds', 'displayed', 'displayedStoreIds']);
     assert.equal(plain.body.displayed, true, 'no lookup state: the card shows the code, as it always did');
 
     // a request id nobody knows: unknown (the code is accepted all the same); 200 characters is fine
@@ -1272,3 +1281,198 @@ test('too many lookups: 20 in 10 minutes for one store, then 429 until the old o
   }
 });
 
+
+/* ---------- accounts several stores hold (shared downloads, play + download) ---------- */
+
+const hqBatch = (e: Awaited<ReturnType<typeof lookupSetup>>, ops: unknown[]) => e.batch(e.hq, ops);
+
+test('single download holder: it is the assigned store, and its card shows the code with no lookup (as it always did)', async () => {
+  const e = await lookupSetup();
+  try {
+    const team2 = await e.t.login(TEAM2);
+    const y = (await e.accounts()).body.find((a: any) => a.accountUsername === 'test_rog_y');
+    assert.deepEqual([y.assignedStoreId, y.eligibleStoreIds, y.holders], ['s2', ['s2'], [{ storeId: 's2', storeName: 'Store s2', purpose: 'download', date: '2026-10-24' }]]);
+    const r = await e.post({ accountUsername: 'test_rog_y', code: 'YY1YY', receivedAt: iso(e.clock.t - 500) });
+    assert.equal(r.status, 200, r.text);
+    assert.deepEqual([r.body.assignedStoreId, r.body.eligibleStoreIds, r.body.displayed, r.body.displayedStoreIds], ['s2', ['s2'], true, ['s2']]);
+    assert.equal((await e.login(team2, 's2')).otp.code, 'YY1YY');
+  } finally {
+    await e.finish();
+  }
+});
+
+test('shared download account: accepted without choosing a store; each store sees a code only inside its own lookup; lookups are tracked per request', async () => {
+  const e = await lookupSetup();
+  try {
+    const admin2 = await e.t.login('BBB3'); // owns s2, s4, s5
+    const z = async () => (await e.accounts()).body.find((a: any) => a.accountUsername === 'test_rog_z');
+    const postZ = (code: string, extra: Record<string, unknown> = {}, headers?: Record<string, string>) => e.post({ accountUsername: 'test_rog_z', code, receivedAt: iso(e.clock.t - 500), ...extra }, { headers });
+    const cardOf = async (storeId: string) => (await e.login(admin2, storeId)).otp?.code;
+    const look = (storeId: string) => e.press({ storeId }, e.hq);
+
+    const listed = await z();
+    assert.deepEqual([listed.assignedStoreId, listed.assignedStoreName, listed.eligibleStoreIds], [null, null, ['s4', 's5']]);
+    assert.deepEqual(listed.holders, [
+      { storeId: 's4', storeName: 'Store s4', purpose: 'download', date: '2026-10-24' },
+      { storeId: 's5', storeName: 'Store s5', purpose: 'download', date: '2026-10-24' },
+    ]);
+
+    // nobody has asked: the code is accepted, shown to no one
+    const first = await postZ('ZA1AA');
+    assert.equal(first.status, 200, first.text);
+    assert.deepEqual([first.body.assignedStoreId, first.body.eligibleStoreIds, first.body.displayed, first.body.displayedStoreIds], [null, ['s4', 's5'], false, []]);
+    assert.deepEqual([await cardOf('s4'), await cardOf('s5')], [undefined, undefined]);
+
+    // store A (s4) asks: a fresh code shows on A only
+    e.clock.t += 6000;
+    const a = await look('s4');
+    assert.equal(a.status, 200);
+    e.clock.t += 1000;
+    const second = await postZ('ZB2BB', { requestId: a.body.requestId });
+    assert.deepEqual([second.status, second.body.displayed, second.body.displayedStoreIds, second.body.request], [200, true, ['s4'], { id: a.body.requestId, status: 'open' }]);
+    assert.deepEqual([await cardOf('s4'), await cardOf('s5')], ['ZB2BB', undefined], 'B never sees another store’s code');
+
+    // B (s5) asks too: the next fresh code shows on both, and each request id answers for its own store
+    e.clock.t += 6000;
+    const b = await look('s5');
+    e.clock.t += 1000;
+    const third = await postZ('ZC3CC', { requestId: b.body.requestId });
+    assert.deepEqual([third.body.displayed, third.body.displayedStoreIds, third.body.request], [true, ['s4', 's5'], { id: b.body.requestId, status: 'open' }]);
+    e.clock.t += 1000;
+    const viaA = await postZ('ZD4DD', { requestId: a.body.requestId });
+    assert.deepEqual([viaA.body.displayedStoreIds, viaA.body.request], [['s4', 's5'], { id: a.body.requestId, status: 'open' }]);
+    assert.deepEqual([await cardOf('s4'), await cardOf('s5')], ['ZD4DD', 'ZD4DD']);
+    assert.deepEqual([(await e.login(admin2, 's4')).otpLookup.id, (await e.login(admin2, 's5')).otpLookup.id], [a.body.requestId, b.body.requestId]);
+
+    // each lookup sent its own event, with its own store and everyone who could be asked
+    await until(() => sent(e.rx).filter((ev) => ev.type === 'steam.otp.requested').length === 2, 'both lookups');
+    const events = sent(e.rx).filter((ev) => ev.type === 'steam.otp.requested');
+    assert.deepEqual(
+      events.map((ev) => [ev.requestId, ev.storeId, ev.accountUsername, ev.eligibleStoreIds]),
+      [
+        [a.body.requestId, 's4', 'test_rog_z', ['s4', 's5']],
+        [b.body.requestId, 's5', 'test_rog_z', ['s4', 's5']],
+      ],
+    );
+
+    // A's Logged in ends A's lookup and card only — B's lookup, window and card are as they were
+    e.clock.t += 1000;
+    assert.equal((await dismiss(e.t, e.team1, { storeId: 's4', receivedAt: iso(e.clock.t - 1500) })).status, 404, 'another store’s team can’t');
+    assert.equal((await dismiss(e.t, admin2, { storeId: 's4', receivedAt: iso(e.clock.t - 1500) })).status, 200);
+    assert.deepEqual([await cardOf('s4'), await cardOf('s5')], [undefined, 'ZD4DD']);
+    assert.equal((await e.login(admin2, 's5')).otpLookup.id, b.body.requestId);
+    await until(() => sent(e.rx).some((ev) => ev.type === 'steam.otp.request.closed'), 'A’s close');
+    await pause(100);
+    assert.deepEqual(
+      sent(e.rx).filter((ev) => ev.type === 'steam.otp.request.closed').map((ev) => [ev.requestId, ev.storeId, ev.reason]),
+      [[a.body.requestId, 's4', 'dismissed']],
+    );
+
+    // so a code now shows on B alone, and the request ids still answer for their own stores
+    e.clock.t += 1000;
+    const forA = await postZ('ZE5EE', { requestId: a.body.requestId });
+    assert.deepEqual([forA.body.request, forA.body.displayed, forA.body.displayedStoreIds], [{ id: a.body.requestId, status: 'closed' }, false, ['s5']], 'A’s lookup is closed: A shows nothing');
+    e.clock.t += 1000;
+    const forB = await postZ('ZF6FF', { requestId: b.body.requestId });
+    assert.deepEqual([forB.body.request, forB.body.displayed, forB.body.displayedStoreIds], [{ id: b.body.requestId, status: 'open' }, true, ['s5']]);
+    // another account’s lookup isn’t one of this account’s: unknown, and displayed as for no requestId
+    const other = await e.press({ storeId: 's2' }, e.hq);
+    e.clock.t += 1000;
+    const foreign = await postZ('ZG7GG', { requestId: other.body.requestId });
+    assert.deepEqual([foreign.body.request, foreign.body.displayed], [{ id: other.body.requestId, status: 'unknown' }, true]);
+
+    assert.equal((await e.state(e.hq)).accounts.z.otp.code, 'ZG7GG');
+    assert.ok(!JSON.stringify(await z()).includes('ZG7GG'), 'never the code in the list');
+  } finally {
+    await e.finish();
+  }
+});
+
+test('shared download account: a retry (same Idempotency-Key) is a 200 duplicate with the alongside fields worked out afresh; expiry stays', async () => {
+  const e = await lookupSetup();
+  try {
+    const admin2 = await e.t.login('BBB3');
+    const look = await e.press({ storeId: 's5' }, e.hq);
+    e.clock.t += 1000;
+    const body = { accountUsername: 'test_rog_z', code: 'ZH8HH', receivedAt: iso(e.clock.t - 500), requestId: look.body.requestId };
+    const headers = { 'Idempotency-Key': 'steam-email-shared-1' };
+    const firstTry = await e.post(body, { headers });
+    assert.deepEqual([firstTry.status, firstTry.body.assignedStoreId, firstTry.body.displayedStoreIds, firstTry.body.displayed], [200, null, ['s5'], true]);
+    assert.equal(firstTry.body.duplicate, undefined);
+
+    // the team moves on, then the automation retries (the answer was lost)
+    e.clock.t += 2000;
+    assert.equal((await dismiss(e.t, admin2, { storeId: 's5', receivedAt: iso(e.clock.t - 1000) })).status, 200);
+    const retry = await e.post(body, { headers });
+    assert.deepEqual([retry.status, retry.body.duplicate, retry.body.assignedStoreId, retry.body.eligibleStoreIds], [200, true, null, ['s4', 's5']]);
+    assert.deepEqual([retry.body.displayed, retry.body.displayedStoreIds, retry.body.request], [false, [], { id: look.body.requestId, status: 'closed' }], 'worked out now, not stored');
+    assert.equal(retry.body.expiresAt, firstTry.body.expiresAt, 'expiry stays where it was');
+
+    // the same email without a key lands on the stored code: also a duplicate, also fresh
+    const again = await e.post(body);
+    assert.deepEqual([again.status, again.body.duplicate, again.body.assignedStoreId, again.body.displayedStoreIds, again.body.expiresAt], [200, true, null, [], firstTry.body.expiresAt]);
+  } finally {
+    await e.finish();
+  }
+});
+
+test('shared download account on different days of the weekend: both are eligible; once the earlier day is over the later store is the only holder', async () => {
+  const e = await lookupSetup();
+  try {
+    assert.equal((await hqBatch(e, [{ k: 'stores', id: 's5', p: ['date'], v: '2026-10-25' }])).status, 200);
+    const z = async () => (await e.accounts()).body.find((a: any) => a.accountUsername === 'test_rog_z');
+    const listed = await z();
+    assert.deepEqual([listed.assignedStoreId, listed.eligibleStoreIds], [null, ['s4', 's5']], 'Sat and Sun, same weekend: still two holders');
+    assert.deepEqual(
+      listed.holders.map((h: any) => [h.storeId, h.purpose, h.date]),
+      [['s4', 'download', '2026-10-24'], ['s5', 'download', '2026-10-25']],
+    );
+    const r = await e.post({ accountUsername: 'test_rog_z', code: 'ZJ9JJ', receivedAt: iso(e.clock.t - 500) });
+    assert.deepEqual([r.status, r.body.assignedStoreId, r.body.displayed, r.body.displayedStoreIds], [200, null, false, []]);
+
+    e.clock.t = Date.parse('2026-10-25T06:00:00.000Z'); // Sunday: s4's day is over
+    const sunday = await z();
+    assert.deepEqual([sunday.assignedStoreId, sunday.eligibleStoreIds, sunday.holders.map((h: any) => h.storeId)], ['s5', ['s5'], ['s5']], 'a past-dated holder is out');
+    const late = await e.post({ accountUsername: 'test_rog_z', code: 'ZK1KK', receivedAt: iso(e.clock.t - 500) });
+    assert.deepEqual([late.status, late.body.assignedStoreId, late.body.eligibleStoreIds, late.body.displayedStoreIds], [200, 's5', ['s5'], ['s5']], 'one holder left: its card shows it as it always did');
+  } finally {
+    await e.finish();
+  }
+});
+
+test('play store plus a download store: assignedStoreId stays the play store, but the account is shared — the play store needs a lookup too', async () => {
+  const e = await lookupSetup();
+  try {
+    assert.equal((await hqBatch(e, [{ k: 'stores', id: 's2', p: ['steam'], v: assignment('x', 'download') }])).status, 200);
+    const team2 = await e.t.login(TEAM2);
+    const x = (await e.accounts()).body.find((a: any) => a.accountUsername === 'test_rog_x');
+    assert.deepEqual([x.assignedStoreId, x.eligibleStoreIds], ['s1', ['s1', 's2']], 's3 (event day over) is not a holder');
+    assert.deepEqual(x.holders.map((h: any) => [h.storeId, h.purpose]), [['s1', 'play'], ['s2', 'download']]);
+
+    const r = await e.post({ receivedAt: iso(e.clock.t - 500) });
+    assert.deepEqual([r.status, r.body.assignedStoreId, r.body.eligibleStoreIds, r.body.displayed, r.body.displayedStoreIds], [200, 's1', ['s1', 's2'], false, []]);
+    assert.equal(await e.otpOf(), undefined, 'the play store has not asked either');
+
+    e.clock.t += 6000;
+    const look = await e.press();
+    e.clock.t += 1000;
+    const next = await e.post({ code: 'XM2MM', receivedAt: iso(e.clock.t - 500), requestId: look.body.requestId });
+    assert.deepEqual([next.body.assignedStoreId, next.body.displayed, next.body.displayedStoreIds, next.body.request.status], ['s1', true, ['s1'], 'open']);
+    assert.equal((await e.otpOf())?.code, 'XM2MM');
+    assert.equal((await e.login(team2, 's2')).otp, undefined);
+  } finally {
+    await e.finish();
+  }
+});
+
+test('shared account with the lookup feature off: nobody can ask, so the plain rule applies and the code shows as before', async () => {
+  const { t, clock, post } = await setup();
+  try {
+    const admin2 = await t.login('BBB3');
+    const r = await post({ accountUsername: 'test_rog_z', code: 'ZL3LL', receivedAt: iso(clock.t - 500) });
+    assert.deepEqual([r.status, r.body.assignedStoreId, r.body.eligibleStoreIds, r.body.displayed, r.body.displayedStoreIds], [200, null, ['s4', 's5'], true, ['s4', 's5']]);
+    assert.equal((await t.json('/api/state', { cookie: admin2 })).body.stores.s4.steamLogin.otp.code, 'ZL3LL');
+  } finally {
+    await t.close();
+  }
+});

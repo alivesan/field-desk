@@ -69,3 +69,27 @@ test('comparisons are in milliseconds, not text: another zone spelling of the sa
   assert.equal(cardOtp(acct(Date.parse('2026-10-24T05:58:00.000Z')), state, NOW), undefined);
   assert.deepEqual(cardOtp(acct(Date.parse('2026-10-24T05:58:01.000Z')), state, NOW), otp(Date.parse('2026-10-24T05:58:01.000Z')));
 });
+
+test('shared account: a card shows a code only inside its own lookup — no state, a dismissal or no lookup shows nothing', () => {
+  const requestedAt = NOW - 10_000;
+  const lookup = { lookup: { id: 'L', requestedAt: iso(requestedAt) } };
+  assert.equal(cardOtp(acct(NOW - 5_000), undefined, NOW, true), undefined, 'no state: not this store’s code');
+  assert.equal(cardOtp(acct(NOW - 5_000), {}, NOW, true), undefined);
+  assert.equal(cardOtp(acct(NOW - 5_000), { seenThrough: iso(NOW - 120_000) }, NOW, true), undefined, 'moved past an older code, but still no lookup');
+  assert.deepEqual(cardOtp(acct(NOW - 5_000), lookup, NOW, true), otp(NOW - 5_000), 'a lookup, and a code after it');
+  assert.deepEqual(cardOtp(acct(requestedAt - 60_000), lookup, NOW, true), otp(requestedAt - 60_000), 'the minute of grace before it');
+  assert.equal(cardOtp(acct(requestedAt - 60_001), lookup, NOW, true), undefined, 'older than the grace');
+  assert.equal(cardOtp(acct(NOW - 5_000), { ...lookup, seenThrough: iso(NOW - 5_000) }, NOW, true), undefined, 'seenThrough still hides it');
+  assert.deepEqual(cardOtp(acct(NOW - 4_000), { ...lookup, seenThrough: iso(NOW - 5_000) }, NOW, true), otp(NOW - 4_000), 'a newer one shows');
+  assert.equal(cardOtp(acct(NOW - 5_000), { dismissedAt: iso(NOW - 1_000) }, NOW, true), undefined, 'dismissed');
+  assert.equal(cardOtp(acct(NOW - OTP_TTL_MS), lookup, NOW, true), undefined, 'expired');
+});
+
+test('not shared (the default): exactly as before', () => {
+  const lookup = { lookup: { id: 'L', requestedAt: iso(NOW - 10_000) } };
+  for (const shared of [undefined, false]) {
+    assert.deepEqual(cardOtp(acct(NOW - 5_000), undefined, NOW, shared), otp(NOW - 5_000));
+    assert.deepEqual(cardOtp(acct(NOW - 5_000), lookup, NOW, shared), otp(NOW - 5_000));
+    assert.equal(cardOtp(acct(NOW - 5_000), { dismissedAt: iso(NOW - 1_000) }, NOW, shared), undefined);
+  }
+});

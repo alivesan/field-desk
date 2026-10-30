@@ -52,24 +52,33 @@ sorted by username. There is never a code in it.
     "email": "login-alpha@example.invalid",
     "assignedStoreId": "s1",
     "assignedStoreName": "Store Alpha",
+    "eligibleStoreIds": ["s1"],
+    "holders": [{ "storeId": "s1", "storeName": "Store Alpha", "purpose": "play", "date": "2026-10-24" }],
     "active": true,
     "receivedAt": "2026-10-24T06:00:00.000Z",
     "expiresAt": "2026-10-24T06:10:00.000Z"
   },
   {
     "accountUsername": "store_gamma", "accountEmail": null, "username": "store_gamma", "email": null,
-    "assignedStoreId": null, "assignedStoreName": null, "active": false, "receivedAt": null, "expiresAt": null
+    "assignedStoreId": null, "assignedStoreName": null, "eligibleStoreIds": [], "holders": [],
+    "active": false, "receivedAt": null, "expiresAt": null
   }
 ]
 ```
 
 * `username` / `email` repeat `accountUsername` / `accountEmail`: the mock server and the worker read those two names.
 * `accountEmail` is the account's e-mail, `null` if HQ has not entered one.
-* `assignedStoreId` / `assignedStoreName` — the store the account is working for **now**:
+* `assignedStoreId` / `assignedStoreName` — the one store the account is working for **now** (kept as they always were, for
+  compatibility — `null` no longer means "nobody"; use `eligibleStoreIds`):
   1. the store that holds the account **for playing** in this weekend (the Saturday of today's Monday–Sunday week, in
      `EVENT_TZ`, default Asia/Kolkata); if two stores somehow play with it, `null` (ambiguous);
   2. else, if **exactly one** store holds it at all (any purpose) and that store's event day is not past, that store;
   3. else `null` (nobody, or more than one).
+* `eligibleStoreIds` — the ids of **every** store holding the account, for any purpose, whose event day is not past, sorted. An
+  account is **deliverable** when this is not empty. A Steam account can be held by several stores: one store per weekend
+  for playing (exclusive) and any number for downloads (shared).
+* `holders` — the same stores, in the same order: `{ "storeId", "storeName", "purpose": "play" | "download", "date" }`
+  (`date` is the store's event day, `yyyy-mm-dd`).
 * `active`, `receivedAt`, `expiresAt` describe the current **unexpired** code: `active: true` with its two times, or
   `false` with both `null`. `receivedAt` is when Steam sent the e-mail; `expiresAt` is `receivedAt` + 10 minutes.
 
@@ -97,7 +106,7 @@ Success, `200`:
 ```json
 { "ok": true, "accountUsername": "store_alpha", "accountEmail": "login-alpha@example.invalid", "assignedStoreId": "s1",
   "receivedAt": "2026-10-24T06:00:00.000Z", "expiresAt": "2026-10-24T06:10:00.000Z",
-  "displayed": true, "request": { "id": "6f1c3a0e-8a5b-4c5e-9d57-2b6f0f6a0c11", "status": "open" } }
+  "eligibleStoreIds": ["s1"], "displayed": true, "displayedStoreIds": ["s1"], "request": { "id": "6f1c3a0e-8a5b-4c5e-9d57-2b6f0f6a0c11", "status": "open" } }
 ```
 
 The answer never contains the code. `expiresAt` is always `receivedAt` + 10 minutes, never counted from when the request
@@ -105,12 +114,17 @@ arrives, and a repeat never extends it.
 
 Every `200` (duplicates too) also says:
 
-* `displayed` — whether the assigned store's card shows **exactly this code** now (same `receivedAt`; see "Lookups on the
-  store card"). `false` is normal: the code is stored for HQ all the same.
+* `assignedStoreId` — as in `GET`: the one current store, or `null` when several stores hold the account (the code is
+  accepted all the same).
+* `eligibleStoreIds` — every store holding the account now, as in `GET`.
+* `displayedStoreIds` — the holders whose card shows **exactly this code** now (same `receivedAt`; see "Who sees the code in
+  Field Desk" and "Lookups on the store card"), sorted. Empty is normal: the code is stored for HQ all the same.
+* `displayed` — when `requestId` named a lookup of one of the holders, whether **that** store's card shows this code; else whether
+  any card does (`displayedStoreIds` is not empty).
 * `request`, only when `requestId` was sent: `{ "id", "status" }`, where `status` is `open` (it is that store's current lookup and
   its 10 minutes are not over), `closed` (the team dismissed it or started a newer one, or its 10 minutes are over) or `unknown`
-  (not a lookup of that store that Field Desk remembers). On a retry answered from an idempotency key, `displayed` and
-  `request` are worked out again, not replayed. Stop watching a request that is `closed` or `unknown`.
+  (not a lookup of a store holding this account that Field Desk remembers). Any holder's lookup can be asked about, not only the assigned store's. On a retry answered from an idempotency key, `displayed` and
+  `request`, `eligibleStoreIds` and `displayedStoreIds` are worked out again, not replayed. Stop watching a request that is `closed` or `unknown`.
 
 ### Order the server decides things in
 
@@ -141,8 +155,9 @@ Every `200` (duplicates too) also says:
 
 ### A store must hold the account
 
-`409 not_assigned` when there is no current assignment by the rule under `GET` (nobody, several stores and none plays this
-weekend, or the only holders' event days are past). The worker should treat this as "not yet", not as a fault of the email.
+The code is accepted when the account has **at least one** eligible holder (`eligibleStoreIds` not empty), however many.
+`409 not_assigned` only when it has none: nobody holds it, or every holder's event day is past. The worker should treat this as
+"not yet", not as a fault of the email.
 
 ### Status and error codes
 
@@ -161,7 +176,7 @@ weekend, or the only holders' event days are past). The worker should treat this
 | POST otp | 400 | `stale_or_future` | `receivedAt` not ISO with a zone, 10 minutes old or older, or more than 30 s ahead |
 | POST otp | 400 | `invalid_request_id` | `requestId` present but not a string of 1–200 visible ASCII characters |
 | POST otp | 400 | `invalid_idempotency_key` | `Idempotency-Key` present but not `^[\x21-\x7e]{1,128}$` |
-| POST otp | 409 | `not_assigned` | no store holds the account right now |
+| POST otp | 409 | `not_assigned` | no store holds the account right now (`eligibleStoreIds` would be empty) |
 | POST otp | 409 | `idempotency_key_reused` | same key, different username / code / `receivedAt` |
 | POST otp | 409 | `older_than_current` | an older `receivedAt` than the stored code's |
 | POST otp | 409 | `conflicting_code` | same `receivedAt` as the stored code, a different code |
@@ -182,6 +197,11 @@ that adds, changes or removes it is refused (`403 protected`), and a restored ba
   past) get it in their store's `steamLogin.otp`, **only while unexpired** when the page is read (and the card hides it by
   its own clock), and only if their card may show it (see "Lookups on the store card"). Other stores' teams and admins never receive it, nor does anyone get the account itself.
 * A new code reaches HQ and those stores live over the existing event stream.
+* **A shared account** — held by more than one store now (several downloads, or a play store and a download store) — shows its
+  code to a store **only inside that store's own lookup**: the e-mail cannot say which store's PC asked, so a store that did not
+  ask never sees another store's code, and every store whose open lookup fits the code (`receivedAt` ≥ `requestedAt` − 60 s)
+  sees the newest one. With no lookup there is nothing on the card. An account with a single holder behaves as before (the
+  code shows with no lookup). Without the request webhook nobody can start a lookup, so the plain rule applies there.
 
 ## Request webhook — `steam.otp.requested` and `steam.otp.request.closed`
 
@@ -217,13 +237,15 @@ Payload (JSON, UTF-8):
   "storeId": "s1",
   "storeName": "Store Alpha",
   "accountUsername": "store_alpha",
-  "accountEmail": "login-alpha@example.invalid"
+  "accountEmail": "login-alpha@example.invalid",
+  "eligibleStoreIds": ["s1", "s2"]
 }
 ```
 
 `requestId` is `id` and `requestedAt` is `at` (the older fields stay, so a worker that reads only those keeps working);
 `acceptFrom` is `requestedAt` − 60 s and `watchUntil` is `requestedAt` + 10 min. `accountEmail` is left out when the account
-has none; `accountUsername` is always there. Nothing else is sent: no password, no code.
+has none; `accountUsername` is always there. `eligibleStoreIds` lists every store holding the account (as in `GET`, sorted;
+`storeId` is one of them), so the worker can check the store without a `GET`. Nothing else is sent: no password, no code.
 
 ### `steam.otp.request.closed`
 
@@ -275,7 +297,8 @@ The code the card may show is the account's unexpired code, and then:
 2. if a lookup exists: only a code with `receivedAt` ≥ `requestedAt` − 60 s — even after the lookup's own 10 minutes, so a later
    code for a later sign-in still shows;
 3. else, after Logged in: nothing until the next lookup;
-4. else (no state at all, as before the feature): the code.
+4. else (no state at all, as before the feature): the code — unless the account is **shared** (see "Who sees the code in Field
+   Desk"), when a card shows a code only inside its own lookup, so with no lookup: nothing.
 
 The account's code keeps its own expiry (`receivedAt` + 10 min), never extended and never shortened by a lookup or by Logged in;
 HQ's account always has the newest code. Logged in does not invalidate anything in Steam.
@@ -295,6 +318,16 @@ For each lookup (`steam.otp.requested`):
 * a new email with the **same code** is eligible — dedupe by email identity (its message id), not by the code;
 * send the lookup's `requestId` with each code it answers;
 * stop watching when the answer says `request.status` is `closed` or `unknown`, or a `steam.otp.request.closed` arrives for it.
+
+## For the automation (shared accounts)
+
+* **Deliver when `eligibleStoreIds` is not empty** (in `GET /accounts`), instead of requiring `assignedStoreId`, which is `null`
+  whenever several stores hold the account.
+* **Accept a request event when its `storeId` is in `eligibleStoreIds`** (the event carries the list).
+* **Track lookups per `requestId`.** One account may have open lookups from several stores at once; a
+  `steam.otp.request.closed` ends that request only.
+* When an email arrives, send the `requestId` of a lookup it fits (any open one for that account). Field Desk shows the newest
+  fitting code to every store whose lookup it fits, so one `POST` serves them all; `displayedStoreIds` says which cards got it.
 
 Compatibility: Field Desk applies the same window itself when it decides what a team's card shows, so codes from the current
 worker (no `requestId`, every Steam email it parses) are handled correctly: they are stored for HQ, and shown only when they
