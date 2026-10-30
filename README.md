@@ -247,6 +247,15 @@ node server/backup.ts --restore <backupDir> <emptyDir>   # verify, then restore 
 
 Restore = stop the server, restore into an empty directory, point `DATA_DIR` at it, start. This round trip is covered by `tests/server-ops.test.ts`. A backup contains admin codes, session hashes and the Steam accounts' passwords: store it like the data itself. The JSON "Export backup" on the home page is a portable copy for moving data between installs, not a disaster-recovery backup.
 
+**On the server:** `deploy/backup.sh` makes and verifies a backup from the running container into `/home/ubuntu/field-desk-backups/<UTC stamp>` (root-only) and keeps the newest 8. A systemd timer runs it every Friday and Sunday at 23:30 IST; run it by hand with `sudo ~/field-desk/deploy/backup.sh`. Install the timer once:
+
+```bash
+sudo cp ~/field-desk/deploy/field-desk-backup.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now field-desk-backup.timer
+```
+
+Copy one off the server now and then: `ssh ubuntu@<host> 'sudo tar -C /home/ubuntu/field-desk-backups -c <stamp>' | tar -x -C <local dir>`, then `node server/backup.ts --verify <local dir>/<stamp>`.
+
 ## Upgrading
 
 - Stop **every** process using the data directory first.

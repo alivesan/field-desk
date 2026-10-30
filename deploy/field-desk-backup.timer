@@ -1,0 +1,10 @@
+[Unit]
+Description=Field Desk backup — Friday night before the event weekend, Sunday night after it
+
+[Timer]
+# 23:30 IST (UTC+5:30); the server runs on UTC.
+OnCalendar=Fri,Sun 18:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

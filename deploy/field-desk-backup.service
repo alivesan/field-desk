@@ -1,0 +1,8 @@
+[Unit]
+Description=Field Desk data backup (deploy/backup.sh)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /home/ubuntu/field-desk/deploy/backup.sh
