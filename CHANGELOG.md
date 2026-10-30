@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **On-spot closes for the desk once the bracket is out:** admins and store teams see "The bracket is out — on-spot registration is closed. Ask HQ if a player must be added." in place of the form, and the server refuses it too. HQ can still register a walk-in.
+- **HQ can change a first-round slot** (`bracket.place`): tap a match on the Bracket tab (byes too) → **Change players** puts a player into an empty or unplayed first-round slot, swaps one, or empties it, before that match starts. A match left with one player becomes a bye and the player advances. Refused if the match, or the one it feeds, has started — undo that first. Field Desk doesn’t change Toornament, so do it there too.
+
 - **Steam Guard, several PCs one after another:** an old code no longer blocks asking again. The card's button is now **Get code**; with a code on screen it also has **Logged in** (the code goes from every phone of the team) and **Check for new code** (a new look-up for the next email; the old code stays hidden).
 - Each press is its own look-up and tells the e-mail automation (a double tap within 5 seconds is one; 20 in ten minutes is the limit). The automation hears when a look-up ends (`steam.otp.request.closed`), can send the `requestId` it answers, and is told in the answer whether the code is on the card.
 - A code's own ten minutes are unchanged, and HQ's Steam page still shows every new code. Details in `docs/steam-otp-api.md`.

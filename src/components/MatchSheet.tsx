@@ -1,6 +1,7 @@
 import { Fragment, useState } from 'react';
 import { canUndo, matchNo, roundCount, roundName } from '../lib/bracket.ts';
 import type { Command } from '../lib/commands.ts';
+import { onSpotByPlayer } from '../lib/onspot.ts';
 import { feederOf, KIND_INFO, matchState, playedFor, stationSlots, telFor, undoBlockedBy, type MatchKind } from '../lib/day-ui.ts';
 import type { PendingWork } from '../lib/db.ts';
 import type { Match, MatchDay } from '../lib/types.ts';
@@ -109,6 +110,34 @@ function MatchBody({ m, day, names, igns, hq, cmds, pendingText, onCheckIn, onCl
         <strong>{m.bye ? 'Bye' : f ? `Winner of ${no(f)}` : 'To be decided'}</strong>
         <span className="label">{f && f.status === 'live' ? `${no(f)} is live` : f ? `${no(f)} not finished` : ' '}</span>
       </div>
+    );
+  };
+
+  // HQ, a first-round match that hasn't been played (pending, or a bye): who sits in each slot.
+  const canPlace = hq && m.round === 0 && (m.status === 'pending' || !!m.bye);
+  const place = (side: 'a' | 'b', playerId: string | null) => {
+    const refused = cmds.attempt({ type: 'bracket.place', base: cmds.base, matchId: m.id, side, playerId });
+    setError(refused ?? '');
+    if (!refused) tap();
+  };
+  const walkIns = onSpotByPlayer(day);
+  const inBracket = new Set(all.flatMap((x) => [x.a, x.b]));
+  const placeSide = (side: 'a' | 'b', label: string) => {
+    const here = m[side];
+    const options = day.players.filter((x) => x.id === here || !inBracket.has(x.id)).sort((x, y) => x.name.localeCompare(y.name));
+    return (
+      <label className="sheet-place-side">
+        <span className="label">{label}</span>
+        <select value={here ?? ''} onChange={(e) => place(side, e.target.value || null)}>
+          <option value="">Empty slot</option>
+          {options.map((x) => (
+            <option key={x.id} value={x.id}>
+              {x.name}
+              {walkIns.has(x.id) ? ' (on-spot)' : ''}
+            </option>
+          ))}
+        </select>
+      </label>
     );
   };
 
@@ -312,7 +341,18 @@ function MatchBody({ m, day, names, igns, hq, cmds, pendingText, onCheckIn, onCl
           </>
         )}
 
-        {st.kind === 'bye' && <p className="sheet-why">{(m.a ?? m.b) ? `${names[(m.a ?? m.b)!]} has no opponent in this round and goes straight through.` : 'Nobody is in this slot.'} Nothing to do here.</p>}
+        {st.kind === 'bye' && <p className="sheet-why">{(m.a ?? m.b) ? `${names[(m.a ?? m.b)!]} has no opponent in this round and goes straight through.` : 'Nobody is in this slot.'}{hq ? '' : ' Nothing to do here.'}</p>}
+
+        {canPlace && (
+          <div className="sheet-place">
+            <div className="label">Change players</div>
+            <div className="sheet-place-sides">
+              {placeSide('a', 'Top')}
+              {placeSide('b', 'Bottom')}
+            </div>
+            <p className="hint">Only first-round matches that haven’t been played can be changed. Change it on Toornament too.</p>
+          </div>
+        )}
       </fieldset>
 
       <button className="btn ghost block sheet-close" onClick={onClose}>

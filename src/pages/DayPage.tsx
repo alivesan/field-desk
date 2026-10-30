@@ -275,6 +275,8 @@ function describe(cmd: Command, day: MatchDay) {
       return cmd.walkover ? `Walkover in ${L}` : `Result for ${L}`;
     case 'match.undo':
       return m?.status === 'live' ? `Cancel ${L}` : `Undo ${L}`;
+    case 'bracket.place':
+      return `Change the players in ${L}`;
     case 'stations.set':
       return `Set stations to ${cmd.count}`;
     case 'bracket.load':
@@ -614,6 +616,14 @@ function OnSpotDesk({ day, cmds, hq, startOpen, onCheckIn }: { day: MatchDay; cm
     reset();
   };
 
+  // Once the bracket is out only HQ registers walk-ins (it places them); the server refuses the desk too.
+  if (!hq && day.matches.length > 0)
+    return (
+      <div className="onspot-bar">
+        <span className="hint">The bracket is out — on-spot registration is closed. Ask HQ if a player must be added.</span>
+      </div>
+    );
+
   if (!open)
     return (
       <div className="onspot-bar">
@@ -671,9 +681,7 @@ function OnSpotDesk({ day, cmds, hq, startOpen, onCheckIn }: { day: MatchDay; cm
       <button className="btn accent onspot-go" type="submit" disabled={asking}>
         Register and check in
       </button>
-      {day.matches.length > 0 && (
-        <p className="hint warn">{hq ? 'The bracket is already made — add on-spot players on Toornament and rebuild it.' : 'The bracket is already made — HQ will add on-spot players on Toornament and rebuild.'}</p>
-      )}
+      {day.matches.length > 0 && <p className="hint warn">The bracket is already made — add them on Toornament too, then put them in a first-round slot from the bracket (tap the match).</p>}
       {pending.length > 0 && (
         <ul className="onspot-pending">
           {pending.map((w) => (
@@ -1394,8 +1402,8 @@ function BracketView({ store, names, igns, cmds, canReset, hq, onCheckIn }: { st
                   const p = cmds.pendingFor(m.id);
                   return (
                     <div key={m.id} data-mid={m.id} className={cx('bmatch', st.kind, open === m.id && 'open', onPath.has(m.id) && 'onpath', popped.has(m.id) && 'fd-pop', called.has(m.id) && 'just-live')}>
-                      {/* A bye has nothing to act on; every other card opens its sheet. The button covers the card; the follow buttons sit above it. */}
-                      {st.kind !== 'bye' && <button type="button" className="bmatch-hit" aria-haspopup="dialog" aria-label={summary(m, st.kind)} onClick={() => setOpen(m.id)} />}
+                      {/* A bye has nothing to act on for the desk (HQ can fill its empty slot); every other card opens its sheet. The button covers the card; the follow buttons sit above it. */}
+                      {(st.kind !== 'bye' || hq) && <button type="button" className="bmatch-hit" aria-haspopup="dialog" aria-label={summary(m, st.kind)} onClick={() => setOpen(m.id)} />}
                       <span className="bmatch-top" aria-hidden>
                         <span className="bno">{no(m)}</span>
                         {m.score && <span className="bscore">{m.score}</span>}

@@ -22,10 +22,10 @@ async function setup() {
   return { t, admin, hq, cmd, day };
 }
 
-test('an admin registers a walk-in: checked in, recorded, bracket untouched — also once matches are under way', async () => {
+test('an admin registers a walk-in: checked in, recorded, bracket untouched — until the bracket is out, then only HQ can', async () => {
   const { t, admin, hq, cmd, day } = await setup();
   try {
-    assert.equal((await cmd(hq, 'hq-load-onspot1', { type: 'bracket.load', base: 0, players })).status, 200);
+    assert.equal((await cmd(hq, 'hq-set-onspot1', { type: 'players.set', base: 0, players })).status, 200);
     const before = await day();
 
     const r = await cmd(admin, 'desk-reg-00001', { type: 'players.onspot', base: before.version, name: 'Ravi K.', phone: '+91 98200 55555', ign: 'RaviOP' });
@@ -39,12 +39,18 @@ test('an admin registers a walk-in: checked in, recorded, bracket untouched — 
     assert.deepEqual({ id: d.onSpot[0].id, playerId: d.onSpot[0].playerId, by: d.onSpot[0].by, toornament: d.onSpot[0].toornament }, { id: 'os-desk-reg-00001', playerId: ravi.id, by: 'Synthetic a1', toornament: undefined });
     assert.deepEqual(d.matches, before.matches, 'bracket untouched');
 
-    // a stale base is fine (several desks register at once) — and it works with a live match too
+    // the bracket goes out with the walk-in left off it (they're not on Toornament yet)
+    assert.equal((await cmd(hq, 'hq-build-onspot1', { type: 'bracket.build', base: (await day()).version, pairs: [['p1', 'p2']] })).status, 200);
     await t.json('/api/batch', { method: 'POST', cookie: admin, body: { id: 'ci-onspot-0001', ops: [{ k: 'stores', id: 's1', p: ['day', 'checkIn', 'p1'], v: '2026-10-24T09:00:00.000Z' }, { k: 'stores', id: 's1', p: ['day', 'checkIn', 'p2'], v: '2026-10-24T09:00:00.000Z' }] } });
     d = await day();
     assert.equal((await cmd(admin, 'desk-start-0001', { type: 'match.start', base: d.version, matchId: d.matches[0].id, station: 1 })).status, 200);
     const live = (await day()).matches;
-    const late = await cmd(admin, 'desk-reg-00002', { type: 'players.onspot', base: 0, name: 'Late Comer' });
+    // the desk is shut out now — a stale base changes nothing; HQ can still register one
+    const shut = await cmd(admin, 'desk-reg-00002', { type: 'players.onspot', base: 0, name: 'Late Comer' });
+    assert.equal(shut.status, 409, JSON.stringify(shut.body));
+    assert.match(shut.body.error, /on-spot registration is closed here/);
+    assert.equal((await day()).players.length, 3);
+    const late = await cmd(hq, 'hq-reg-00000002', { type: 'players.onspot', base: 0, name: 'Late Comer' });
     assert.equal(late.status, 200, JSON.stringify(late.body));
     d = await day();
     assert.deepEqual(d.matches, live);

@@ -63,7 +63,7 @@ test('a store code signs in as that store: sees only it (and its campaign), neve
 test('the team does admin things in its store — check-in, on-spot, results, winners — and the record names the person and the team', async () => {
   const { t, hq, cmd, batch, state } = await setup();
   try {
-    assert.equal((await cmd(hq, 'hq-load-team-01', { type: 'bracket.load', base: 0, players })).status, 200);
+    assert.equal((await cmd(hq, 'hq-set-team-01', { type: 'players.set', base: 0, players })).status, 200);
     const rhea = await t.login(CODE1, 'Rhea');
     const sam = await t.login(CODE1, 'Sam');
 
@@ -82,6 +82,11 @@ test('the team does admin things in its store — check-in, on-spot, results, wi
     assert.equal((await cmd(sam, 'team-walkin-0002', { type: 'players.onspot', base: 0, name: 'Late Comer' })).status, 200);
     const onSpot = (await state(hq)).stores.s1.day.onSpot;
     assert.deepEqual(onSpot.map((e: { by: string }) => e.by), ['Rhea (Store s1 team)', 'Sam (Store s1 team)']);
+
+    // the bracket goes out with the walk-ins left off it; from then on the team can't register more
+    assert.equal((await cmd(hq, 'hq-build-team-01', { type: 'bracket.build', base: (await state(hq)).stores.s1.day.version, pairs: [['p1', 'p2']] })).status, 200);
+    assert.equal((await cmd(sam, 'team-walkin-0003', { type: 'players.onspot', base: 0, name: 'Too Late' })).status, 409);
+    day = (await state(sam)).stores.s1.day;
 
     // play the final, then save winners
     const m = day.matches[0];

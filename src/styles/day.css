@@ -806,6 +806,38 @@ fieldset.sheet-actions[disabled] {
 .sheet-actions .hint {
   margin: 0;
 }
+.sheet-place {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+}
+.sheet-place-sides {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+.sheet-place-side {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.sheet-place-side select {
+  width: 100%;
+  font: 400 16px/1.45 var(--sans);
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  border-radius: 0;
+  padding: 6px 0 8px;
+  outline: none;
+}
+.sheet-place-side select:focus {
+  border-color: var(--ink);
+}
 .sheet-stations {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
