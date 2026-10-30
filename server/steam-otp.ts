@@ -123,6 +123,8 @@ export interface OtpRequestPayload {
   storeName: string;
   accountUsername: string;
   accountEmail?: string;
+  /** Every store holding the account (any purpose, event day not past), sorted — `storeId` is one of them. */
+  eligibleStoreIds?: string[];
 }
 
 export type OtpCloseReason = 'dismissed' | 'superseded';
@@ -256,7 +258,7 @@ export function createOtpRequests(cfg: SteamOtpConfig['webhook'], o: SteamOtpOpt
   return {
     enabled: !!cfg,
     /** Starts a new lookup for the store (always a new id) and delivers its event. */
-    request(who: OtpWho): OtpRequestState {
+    request(who: OtpWho, eligibleStoreIds?: string[]): OtpRequestState {
       prune();
       const atMs = now();
       const at = new Date(atMs).toISOString();
@@ -273,6 +275,7 @@ export function createOtpRequests(cfg: SteamOtpConfig['webhook'], o: SteamOtpOpt
         storeName: who.storeName,
         accountUsername: who.accountUsername,
         ...(who.accountEmail ? { accountEmail: who.accountEmail } : {}),
+        ...(eligibleStoreIds ? { eligibleStoreIds } : {}),
       };
       const job = send('request', payload, id, who.storeId, atMs + LOOKUP_WINDOW_MS);
       recent.set(id, { storeId: who.storeId, atMs, job });
