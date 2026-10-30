@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createHmac, randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
+import { eligibleStores } from '../worker/core.mjs';
 
 export async function checkProduction({ env = process.env, fetchImpl = fetch, log = console.log, allowPending = false, sendPollingHint = false } = {}) {
   assert.equal(env.FIELD_DESK_BASE_URL, 'https://fieldesk.runs-at.dev/api/v1');
@@ -23,7 +24,9 @@ export async function checkProduction({ env = process.env, fetchImpl = fetch, lo
   log(`Field Desk accounts authentication status: ${response.status}.`);
   if (response.ok) {
     const accounts = await response.json(); assert.ok(Array.isArray(accounts));
-    const account = accounts.find(item => item.assignedStoreId && /^[a-zA-Z0-9_]{1,64}$/.test(item.username || ''));
+    // An explicit test hint needs a single unambiguous target; shared holders
+    // should use the real store's UI request rather than an arbitrary probe store.
+    const account = accounts.find(item => eligibleStores(item).length === 1 && /^[a-zA-Z0-9_]{1,64}$/.test(item.username || ''));
     if (account && sendPollingHint) {
       const event = JSON.stringify({ id: `readiness-${randomUUID()}`, type: 'steam.otp.requested', at: new Date().toISOString(), accountUsername: account.username });
       const sig = `sha256=${createHmac('sha256', env.FD_WEBHOOK_SECRET).update(event).digest('hex')}`;

@@ -47,6 +47,12 @@ test('routine readiness does not trigger code lookup for an assigned account', a
   assert.equal(h.calls.length, 5);
   assert.ok(h.calls.filter(call => call.options.method === 'POST').every(call => !JSON.parse(call.options.body).accountUsername));
 });
+
+test('shared eligible accounts are ready without requiring a primary or picking an arbitrary probe store', async () => {
+  const h = harness(200, [{ username: 'shared', assignedStoreId: null, eligibleStoreIds: ['a','b'] }]);
+  assert.deepEqual(await checkProduction({ ...h.options, sendPollingHint: true }), { ready: true });
+  assert.equal(h.calls.length, 5);
+});
 test('unexpected API failures fail readiness', async () => {
   const h = harness(500);
   await assert.rejects(checkProduction(h.options), /Unexpected Field Desk API status/);

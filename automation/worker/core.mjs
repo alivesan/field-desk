@@ -87,11 +87,20 @@ export function parseEmail(email, now = Date.now(), { trustedForwarders = [], al
   if (!authenticated && !requestedUsernames.map(addr).includes([...usernames][0])) throw new Error('no_active_request');
   return { code: [...found][0], username: [...usernames][0] || null, receivedAt: new Date(received).toISOString(), recipients: email.recipients };
 }
+export function eligibleStores(account) {
+  if (account.eligibleStoreIds !== undefined) {
+    if (!Array.isArray(account.eligibleStoreIds) || account.eligibleStoreIds.some(id => typeof id !== 'string' || !id || id.length > 200)) throw new Error('invalid_accounts_response');
+    return [...new Set(account.eligibleStoreIds)];
+  }
+  // Pre-PR #23 directories have no holder list. Never use this fallback when an
+  // explicit list is empty: the current eligibility list is authoritative.
+  return typeof account.assignedStoreId === 'string' && account.assignedStoreId ? [account.assignedStoreId] : [];
+}
 export function matchAccount(parsed, accounts) {
   if (!Array.isArray(accounts)) throw new Error('invalid_accounts_response');
   if (!parsed.username) throw new Error('account_name_missing');
   const matches = accounts.filter(a => addr(a.username) === addr(parsed.username));
-  if (matches.length !== 1 || !matches[0].assignedStoreId) throw new Error('unmatched_or_ambiguous_account');
+  if (matches.length !== 1 || eligibleStores(matches[0]).length === 0) throw new Error('unmatched_or_ambiguous_account');
   return matches[0];
 }
 export function verifySignature(raw, signature, secret) {
