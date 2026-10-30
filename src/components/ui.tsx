@@ -147,6 +147,9 @@ export function Shell({ crumbs = [], children, wide }: { crumbs?: { label: strin
               <a href="#/steam" className="mast-link">
                 Steam
               </a>
+              <a href="#/marketing" className="mast-link">
+                Marketing
+              </a>
               <a href="#/team" className="mast-link">
                 Team
               </a>

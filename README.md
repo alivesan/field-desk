@@ -48,6 +48,16 @@ Each week HQ gets one Google Sheet of creatives, and replaces its tabs for the n
 - **Print desk (no sign-in).** HQ makes a link `https://<host>/p/<token>` (`event.printDesk.token`, 16+ random characters; a new token stops the old link; HQ-only, never sent to admins). `GET /api/public/print/:token` answers `{ campaign: { id, name }, stores: [{ id, name, city, date, files: [{ kind, label, size, qty, driveId }], downloaded: [kind] }] }` — this week's stores only, and nothing else about them (no players, phones, Steam logins, codes, addresses). `/file/:storeId/:kind`, `/zip/:storeId` and `/zip` (every store of the week, a folder each: `<short name>/<file name>`) download. Like the QR check-in it is rate limited per address (120 requests / 10 min; a wrong token costs 10; 429 + `Retry-After`), and the token never reaches the log.
 - **Drive sharing.** Every file must be shared **"Anyone with the link"**; otherwise Google asks for a sign-in and the download says to share it. A file that is really an HTML page can't be downloaded.
 
+## Marketing
+
+HQ posts each weekend's tournaments on Discord and sends every store's promo on WhatsApp with its poster. **Marketing** in the header (`#/marketing`, HQ only — a field admin gets "Nothing here") fills the owner's two templates from the campaigns and stores.
+
+- **What it lists.** Campaigns with stores playing **this weekend** and **next weekend** (the same weekend rules as HQ's home, `storeWhen`), by weekend then campaign. A store's day is its own date, else the campaign's.
+- **Per campaign**, typed once and saved on the campaign a moment after the last key (`event.marketing`, HQ-only, never sent to admins or store teams): prize pool (the templates add ₹), reporting time, first match time, the Discord intro and closing, the WhatsApp paragraph and the Discord invite. An empty text box shows and uses a default with the game name; a missing prize pool or time stays in the text as `[Prize pool missing]`.
+- **Discord post** (one per campaign per weekend): grouped by day, stores by city then name, with a character count (Discord refuses over 2000) and **Copy**.
+- **WhatsApp promo** (one per store): the caption, the poster from the store's print kit (`store.print`, kind `poster`; fetched through `GET /api/print/file/:storeId/poster`), **Share poster + caption** (Web Share API with a file: WhatsApp on Android receives the picture with its text; where the device can't share files the caption is copied instead), **Copy caption** and **Download poster**. A store with no poster says so and still gets its caption. A missing Toornament or Maps link is a warning chip and a `[Toornament link missing]` / `[Maps link missing]` marker in the text.
+- The text building is pure (`src/lib/marketing.ts`: `discordPost`, `whatsappPromo`, `marketingWeekends`); `pages/MarketingPage.tsx` is the screen.
+
 ## HQ screens on a big display
 
 - **Width.** HQ's pages (home, campaign, players & bracket, winners, team, match day) use up to 1240 px on a desktop screen; phones and anything narrower than ~880 px are laid out as before. A page asks for the wide column with a hidden `<i class="hq-wide">` marker (the shell's width is a CSS variable, `--page-max`, in `base.css`).
@@ -274,6 +284,7 @@ Built with a default; change the default if it's wrong:
 - `server/api.ts` — routes, scoping, validation-before-commit, batches & commands, SSE; `server/sessions.ts`, `ratelimit.ts`, `photos.ts`, `migrate.ts`, `backup.ts`, `lock.ts`, `log.ts`; `server/index.ts` — production server
 - `src/lib/schema.ts` — document validation (server + backup import)
 - `src/lib/steam.ts` — Steam accounts: the weekend rule (`steamConflicts`), availability, what a store's team may see (`steamLoginFor`); `pages/SteamPage.tsx` — HQ's list; `components/SteamAssign.tsx` — HQ's picker on a store row; `components/SteamCard.tsx` — the store team's login card
+- `src/lib/marketing.ts` — the Discord post and WhatsApp promo templates, default promo texts, the weekends the Marketing page lists; `pages/MarketingPage.tsx` — HQ's Marketing page
 - `src/lib/teams.ts` — store team helpers (short store name, "Rhea (San Infotech team)", codes in use); `components/StoreTeamLink.tsx` — HQ's team link controls; the name screen is `NamePrompt` in `components/ui.tsx`
 - `src/lib/ops.ts` — id-aware diff / apply shared by app and server
 - `src/lib/commands.ts`, `tournament.ts`, `submission.ts` — server-authoritative commands (bracket, matches, stations, winners, recce submit/review/unreview); `src/lib/done.ts` — finished / campaign complete and the `event.finish` / `event.reopen` commands; `src/lib/winnerInput.ts` — winner-details cleaning and state; `components/WinnersBanner.tsx` + `WinnersForm.tsx` — the match-day winners card and form

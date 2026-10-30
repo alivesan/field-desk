@@ -39,6 +39,15 @@ export async function shareText(text: string): Promise<boolean> {
   return true;
 }
 
+/** Fetches a print file's bytes through the server's file route and makes a File of it, named as the server names it (`fallback` + .jpg / .pdf when it sends no name). */
+export async function fetchPrintFile(href: string, fallback: string): Promise<File> {
+  const res = await fetch(href, { credentials: 'same-origin' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const blob = await res.blob();
+  const name = dispositionName(res.headers.get('content-disposition')) || `${fallback}.${/pdf/i.test(blob.type) ? 'pdf' : 'jpg'}`;
+  return new File([blob], name, { type: blob.type || 'application/octet-stream' });
+}
+
 /** The Drive thumbnail, kept in its own shape (a standee is not a cheque) and never cropped. */
 export function PrintThumb({ driveId, alt, href, width = 400 }: { driveId: string; alt: string; href?: string; width?: number }) {
   const [ratio, setRatio] = useState<number | null>(null);
@@ -115,11 +124,7 @@ export function PrintFileCard({
     try {
       let f = file.current;
       if (!f) {
-        const res = await fetch(saveHref, { credentials: 'same-origin' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const blob = await res.blob();
-        const name = dispositionName(res.headers.get('content-disposition')) || `${item.label}.${/pdf/i.test(blob.type) ? 'pdf' : 'jpg'}`;
-        f = new File([blob], name, { type: blob.type || 'application/octet-stream' });
+        f = await fetchPrintFile(saveHref, item.label);
         if (!navigator.canShare({ files: [f] })) return void (await link());
         file.current = f;
       }

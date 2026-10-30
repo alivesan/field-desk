@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Marketing** (HQ only, `#/marketing`, **Marketing** in the header): this weekend's and next weekend's campaigns, each with the **Discord post** (one message, a heading per day, with Copy) and a **WhatsApp promo per store** — caption, the store's poster, **Share poster + caption** (the phone's share sheet sends the picture with the text to WhatsApp), **Copy caption** and **Download poster**.
+- Prize pool, reporting time, first match, the three promo texts and the Discord invite are typed once per campaign (empty boxes use a default text with the game name); a missing Toornament or Maps link, or poster, is flagged on the card and stays readable in the text as `[Toornament link missing]`.
+- Stored as `event.marketing`, which admins and store teams never receive.
+
 ## 1.0.0-beta.6
 
 - **Steam Guard codes, automated:** the e-mail automation posts each Steam Guard code to Field Desk (`POST /api/v1/steam/otp`, its own private key); the store team holding that account sees it on its Steam card in big type with a countdown (10 minutes from the e-mail) and a Copy button, and HQ sees it on the Steam page.
