@@ -227,6 +227,10 @@ test('auto-check: waits while there is no bracket or nobody is placed, then load
     const st = await s.store();
     assert.equal(st.day.version, before + 1, 'one bracket.load');
     assert.equal(st.day.matches.filter((m) => m.round === 0).length, 4, 'Toornament’s first round: four matches');
+    // Every Field Desk match is the Toornament match at its position (all seven of the stage's), by id and "stage.group.round.match" label.
+    assert.equal(st.day.matches.filter((m) => m.toornament).length, 7);
+    assert.match(st.day.matches.find((m) => m.round === 2 && m.index === 0)!.toornament!.label, /^1\.1\.3\.1$/);
+    assert.ok(st.day.matches.filter((m) => m.round === 0).every((m) => /^1\.1\.1\.[1-4]$/.test(m.toornament!.label)));
     assert.equal(st.toornament!.by, 'system:toornament');
     assert.equal(st.toornament!.appliedAt, ist('12:40').toISOString());
     assert.equal(st.toornament!.stageName, 'Playoffs');

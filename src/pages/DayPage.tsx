@@ -1347,7 +1347,7 @@ function BracketView({ store, names, igns, cmds, canReset, hq, onCheckIn }: { st
     const away = [m.a, m.b].filter((id): id is string => !!id && !checkIn[id]).map((id) => names[id]);
     const state =
       kind === 'one-missing' || kind === 'both-missing' ? `${KIND_INFO[kind].label}: ${away.join(' and ')} not here` : kind === 'live' ? `live on station ${m.station}` : kind === 'done' ? `done, ${names[m.winner ?? ''] ?? 'no winner'} won` : KIND_INFO[kind].label.toLowerCase();
-    return `${no(m)}, ${who(m.a)} versus ${who(m.b)} — ${state}. Open`;
+    return `${no(m)}${m.toornament ? `, Toornament match ${m.toornament.label}` : ''}, ${who(m.a)} versus ${who(m.b)} — ${state}. Open`;
   };
   const isOn = (w: Wire) => onPath.has(w.from) && onPath.has(w.to);
   const wireList = [...wires.list].sort((x, y) => Number(isOn(x)) - Number(isOn(y)) || WIRE_RANK[x.tone] - WIRE_RANK[y.tone]);
@@ -1425,7 +1425,10 @@ function BracketView({ store, names, igns, cmds, canReset, hq, onCheckIn }: { st
                       {/* A bye has nothing to act on for the desk (HQ can fill its empty slot); every other card opens its sheet. The button covers the card; the follow buttons sit above it. */}
                       {(st.kind !== 'bye' || hq) && <button type="button" className="bmatch-hit" aria-haspopup="dialog" aria-label={summary(m, st.kind)} onClick={() => setOpen(m.id)} />}
                       <span className="bmatch-top" aria-hidden>
-                        <span className="bno">{no(m)}</span>
+                        <span className="bno">
+                          {no(m)}
+                          {m.toornament && <small className="tno"> · #{m.toornament.label}</small>}
+                        </span>
                         {m.score && <span className="bscore">{m.score}</span>}
                         {m.walkover && <span className="bwo">W/O</span>}
                         <StateTag kind={st.kind} station={m.station} />

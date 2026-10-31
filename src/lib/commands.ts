@@ -74,6 +74,13 @@ export function validateCommand(input: unknown): Command {
     case 'bracket.load':
       if (!Array.isArray(c.players) || c.players.length < 2 || c.players.length > 256) throw new CommandError('invalid', 'players must be a list of 2–256');
       if (c.stations !== undefined) int('stations', 1, 64);
+      if (c.toornament !== undefined) {
+        const bad = (x: unknown) => {
+          const o = x as Record<string, unknown> | null;
+          return !o || typeof o !== 'object' || Array.isArray(o) || !Number.isInteger(o.round) || (o.round as number) < 0 || !Number.isInteger(o.index) || (o.index as number) < 0 || typeof o.id !== 'string' || !o.id.length || o.id.length > 64 || typeof o.label !== 'string' || !/^\d+(\.\d+){3}$/.test(o.label);
+        };
+        if (!Array.isArray(c.toornament) || c.toornament.length > 512 || c.toornament.some(bad)) throw new CommandError('invalid', 'toornament must be a list of up to 512 matches: round, index, id and a label like 1.1.2.1');
+      }
       break;
     case 'players.set':
       if (!Array.isArray(c.players) || c.players.length > 256) throw new CommandError('invalid', 'players must be a list of up to 256');

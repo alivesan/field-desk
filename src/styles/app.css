@@ -1213,6 +1213,13 @@ code {
   color: var(--muted);
   letter-spacing: 0.04em;
 }
+/* The Toornament match number next to Field Desk's M number: small and muted (MatchSheet, bracket cards, Seeding). */
+.tno {
+  font-size: 0.85em;
+  font-weight: 400;
+  color: var(--muted);
+  white-space: nowrap;
+}
 .bmatch-top .link {
   margin-left: auto;
   font-size: 11px;

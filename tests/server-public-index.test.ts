@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { SUPER } from './helpers/server.ts';
 
-/* The production server (server/index.ts) serves the app for the player QR route /c/<token>. */
+/* The production server (server/index.ts) serves the app for the player QR route /c/<token> and the live bracket /b/<token>. */
 
 const root = path.resolve(import.meta.dirname, '..');
 
@@ -22,7 +22,7 @@ const get = (port: number, pathname: string) =>
     r.end();
   });
 
-test('production: /c/<token> gets index.html; the public API under it answers JSON', async () => {
+test('production: /c/<token> and /b/<token> get index.html; the public API under them answers JSON', async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fd-prod-'));
   const dist = path.join(tmp, 'dist');
   fs.mkdirSync(dist, { recursive: true });
@@ -42,7 +42,7 @@ test('production: /c/<token> gets index.html; the public API under it answers JS
       });
       child.once('exit', (code) => reject(new Error(`server exited ${code}: ${out}`)));
     });
-    for (const p of ['/c/abcDEF123_-abcdef0', '/c/abcDEF123_-abcdef0?from=qr', `/c/${'Z'.repeat(64)}`]) {
+    for (const p of ['/c/abcDEF123_-abcdef0', '/c/abcDEF123_-abcdef0?from=qr', `/c/${'Z'.repeat(64)}`, '/b/abcDEF123_-abcdef0', '/b/abcDEF123_-abcdef0/', `/b/${'Z'.repeat(64)}`]) {
       const r = await get(port, p);
       assert.equal(r.status, 200, p);
       assert.match(r.type, /text\/html/, p);
@@ -52,6 +52,10 @@ test('production: /c/<token> gets index.html; the public API under it answers JS
     assert.equal(api.status, 404);
     assert.match(api.type, /application\/json/);
     assert.equal(JSON.parse(api.body).code, 'not-found');
+    const bracket = await get(port, '/api/public/bracket/abcDEF123_-abcdef0');
+    assert.equal(bracket.status, 404);
+    assert.match(bracket.type, /application\/json/);
+    assert.equal(JSON.parse(bracket.body).code, 'not-found');
   } finally {
     if (child.exitCode === null) {
       const gone = new Promise((r) => child.once('exit', r));

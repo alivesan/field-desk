@@ -314,6 +314,144 @@ test('order: se12 — an empty round-1 match is still refused; filled in, the 12
   assertSamePicture('se12', nodes, full.pairs!);
 });
 
+/* ---------- Toornament's "Match #stage.group.round.match" on every Field Desk match ---------- */
+
+/*
+ * bracketFromNodes also says which Toornament match sits at each Field Desk position
+ * (round 0 = first round, index in the round): `nodes` with its id and "stage.group.round.match"
+ * label. Synthetic nodes in the live API's shape: stage {number}, group {id, number}, round {number}, number.
+ */
+const tp = (id: string, name: string, position: number) => ({ position, participant: { id, name }, sourceType: 'none', sourceNode: null });
+const tw = (from: string, position: number) => ({ position, participant: null, sourceType: 'winner', sourceNode: { id: from } });
+const tnone = (position: number) => ({ position, participant: null, sourceType: 'none', sourceNode: null }); // "To be determined"
+const tnode = (id: string, round: number, number: number, a: unknown, b: unknown, extra: Record<string, unknown> = {}) => ({
+  id,
+  branch: 'wb',
+  stage: { id: 'st', number: 1, name: 'Playoffs' },
+  group: { id: 'g', number: 1, name: 'Main Bracket' },
+  round: { number: round },
+  number,
+  status: 'pending',
+  opponents: [a, b],
+  ...extra,
+});
+const refs = (b: { nodes: { round: number; index: number; id: string; label: string }[] }) => b.nodes.map((n) => `${n.round}:${n.index}=${n.id}@${n.label}`);
+
+test('match numbers: a full 8-player bracket — every match is the Toornament match at its position', () => {
+  const nodes = [
+    tnode('r3', 3, 1, tw('r2b', 1), tw('r2a', 2)), // the final lists its lower half first, as the live API does
+    tnode('r2a', 2, 1, tw('r1a', 1), tw('r1b', 2)),
+    tnode('r2b', 2, 2, tw('r1c', 1), tw('r1d', 2)),
+    tnode('r1a', 1, 1, tp('1', 'A', 1), tp('2', 'B', 2)),
+    tnode('r1b', 1, 2, tp('3', 'C', 1), tp('4', 'D', 2)),
+    tnode('r1c', 1, 3, tp('5', 'E', 1), tp('6', 'F', 2)),
+    tnode('r1d', 1, 4, tp('7', 'G', 1), tp('8', 'H', 2)),
+  ];
+  const b = bracketFromNodes(nodes, [], { number: 1, status: 'running' });
+  assert.equal(b.mode, 'pairs');
+  // The lower half (r2b) is drawn first, so Toornament's "round 2, match 2" is our upper semifinal feeder.
+  assert.deepEqual(b.pairs, [['E', 'F'], ['G', 'H'], ['A', 'B'], ['C', 'D']]);
+  assert.deepEqual(refs(b), [
+    '0:0=r1c@1.1.1.3', '0:1=r1d@1.1.1.4', '0:2=r1a@1.1.1.1', '0:3=r1b@1.1.1.2',
+    '1:0=r2b@1.1.2.2', '1:1=r2a@1.1.2.1',
+    '2:0=r3@1.1.3.1',
+  ]);
+  // The same positions buildBracket lays out: every one exists, once.
+  const players: Player[] = b.players.map((n, i) => ({ id: n, name: n, seed: i + 1 }));
+  const built = buildBracket(players, b.pairs, 'x');
+  assert.equal(built.length, b.nodes.length);
+  for (const n of b.nodes) assert.equal(built.filter((m) => m.round === n.round && m.index === n.index).length, 1);
+});
+
+test('match numbers: the real 8- and 7-player stages — each mapped node sits where its players are; a bye maps to nothing', () => {
+  type Raw = RawNode & { group: { number: number }; stage: { number: number } };
+  for (const name of ['se8', 'se7']) {
+    const { f, bracket } = first(name);
+    assert.equal(bracket!.mode, 'pairs');
+    const raw = new Map<string, Raw>(f.nodes.items.map((n: Raw) => [n.id, n]));
+    const wb = f.nodes.items.filter((n: RawNode) => n.branch !== 'lb');
+    assert.equal(bracket!.nodes.length, wb.length, `${name}: one entry per Toornament match`);
+    assert.equal(new Set(bracket!.nodes.map((n) => n.id)).size, wb.length);
+    for (const n of bracket!.nodes) {
+      const r = raw.get(n.id)!;
+      assert.equal(n.round, r.round.number - 1, `${name}: Toornament round ${r.round.number} is our round ${n.round}`);
+      assert.equal(n.label, `${r.stage.number}.${r.group.number}.${r.round.number}.${r.number}`);
+      if (n.round === 0) assert.deepEqual(bracket!.pairs![n.index], r.opponents.map((o) => o.participant?.name ?? null), `${name}: ${n.label}`);
+    }
+    if (name === 'se7') {
+      // The player placed in round 2 is "Rohan Mehta vs BYE" with no Toornament match of its own.
+      assert.deepEqual(bracket!.pairs![0], ['Rohan Mehta', null]);
+      assert.ok(!bracket!.nodes.some((n) => n.round === 0 && n.index === 0));
+      assert.equal(bracket!.nodes.length, 6);
+    }
+  }
+});
+
+test('match numbers: 12 players in a 16-slot stage — the four top seeds sit in round 2, their byes map to nothing', () => {
+  const r1 = [1, 2, 3, 4].map((k) => tnode(`a${k}`, 1, k, tp(`${k}1`, `Low ${k}A`, 1), tp(`${k}2`, `Low ${k}B`, 2)));
+  const r2 = [1, 2, 3, 4].map((k) => tnode(`b${k}`, 2, k, tp(`${k}0`, `Top ${k}`, 1), tw(`a${k}`, 2)));
+  const r3 = [1, 2].map((k) => tnode(`c${k}`, 3, k, tw(`b${2 * k - 1}`, 1), tw(`b${2 * k}`, 2)));
+  const nodes = [tnode('d1', 4, 1, tw('c1', 1), tw('c2', 2)), ...r3, ...r2, ...r1];
+  const b = bracketFromNodes(nodes, [], { number: 2, status: 'running' });
+  assert.equal(b.mode, 'pairs', b.problem);
+  assert.equal(b.pairs!.length, 8);
+  // Each round-2 node is "Top k vs BYE" (no match of its own) followed by the round-1 match that feeds it.
+  assert.deepEqual(b.pairs!.slice(0, 2), [['Top 1', null], ['Low 1A', 'Low 1B']]);
+  const expected = [
+    ...[1, 2, 3, 4].map((k) => `0:${2 * k - 1}=a${k}@2.1.1.${k}`), // odd first-round positions only
+    ...[1, 2, 3, 4].map((k) => `1:${k - 1}=b${k}@2.1.2.${k}`),
+    '2:0=c1@2.1.3.1', '2:1=c2@2.1.3.2',
+    '3:0=d1@2.1.4.1',
+  ];
+  assert.deepEqual(refs(b), expected);
+  assert.equal(b.nodes.length, 11); // of 15 Field Desk matches; the four byes have none
+  assert.ok([0, 2, 4, 6].every((i) => !b.nodes.some((n) => n.round === 0 && n.index === i)));
+});
+
+test('match numbers: a first-round match with one side "To be determined" (auto-completed) is mapped like any other', () => {
+  const nodes = [
+    tnode('f', 3, 1, tw('s2', 1), tw('s1', 2)),
+    tnode('s1', 2, 1, tw('q1', 1), tw('q2', 2)),
+    tnode('s2', 2, 2, tw('q3', 1), tw('q4', 2)),
+    tnode('q1', 1, 1, tp('1', 'Asha', 1), tnone(2), { status: 'completed' }),
+    tnode('q2', 1, 2, tp('2', 'Rohan', 1), tp('3', 'Kabir', 2)),
+    tnode('q3', 1, 3, tp('4', 'Meera', 1), tp('5', 'Diya', 2)),
+    tnode('q4', 1, 4, tp('6', 'Ishaan', 1), tp('7', 'Vikram', 2)),
+  ];
+  const b = bracketFromNodes(nodes, [], { number: 1, status: 'running' });
+  assert.equal(b.mode, 'pairs');
+  assert.deepEqual(b.pairs![2], ['Asha', null]); // s1 (position 2 of the final) is the lower half
+  assert.deepEqual(b.nodes.find((n) => n.round === 0 && n.index === 2), { round: 0, index: 2, id: 'q1', label: '1.1.1.1' });
+  assert.equal(b.nodes.length, 7);
+});
+
+test('match numbers: group number — taken from the node, else 1 for the stage’s one group; the stage from the stage, else from the nodes, else no labels', () => {
+  const one = (over: Record<string, unknown>) => [tnode('x', 1, 3, tp('1', 'A', 1), tp('2', 'B', 2), over)];
+  const stage = { number: 4, status: 'pending' };
+  // The group is just an id (no number): the stage has one group, so group 1.
+  assert.deepEqual(refs(bracketFromNodes(one({ group: { id: 'g' } }), [], stage)), ['0:0=x@4.1.1.3']);
+  assert.deepEqual(refs(bracketFromNodes(one({ group: '2200' }), [], stage)), ['0:0=x@4.1.1.3']);
+  assert.deepEqual(refs(bracketFromNodes(one({ group: undefined }), [], stage)), ['0:0=x@4.1.1.3']);
+  // A numbered group keeps its number.
+  assert.deepEqual(refs(bracketFromNodes(one({ group: { id: 'g', number: 2 } }), [], stage)), ['0:0=x@4.2.1.3']);
+  // No stage given: the one on the nodes. Neither: no labels (the pairs are still fine).
+  assert.deepEqual(refs(bracketFromNodes(one({ stage: { id: 's', number: 3 } }), [])), ['0:0=x@3.1.1.3']);
+  const none = bracketFromNodes(one({ stage: undefined }), []);
+  assert.equal(none.mode, 'pairs');
+  assert.deepEqual(none.nodes, []);
+  // A node without a match number can't be labelled and is left out.
+  assert.deepEqual(bracketFromNodes(one({ number: undefined }), [], stage).nodes, []);
+  // A seeded fallback has no nodes.
+  assert.deepEqual(bracketFromNodes([], [{ id: '1', name: 'A' }, { id: '2', name: 'B' }]).nodes, []);
+});
+
+test('match numbers: planImport carries the nodes with the pairs, and only with pairs', () => {
+  const b = bracketFromNodes([tnode('only', 1, 1, tp('1', 'Asha', 1), tp('2', 'Rohan', 2))], [], { number: 1, status: 'running' });
+  assert.deepEqual(planImport(b, []).nodes, [{ round: 0, index: 0, id: 'only', label: '1.1.1.1' }]);
+  assert.deepEqual(planImport({ players: ['A', 'B'], pairs: null, nodes: b.nodes }, []).nodes, []);
+  assert.deepEqual(planImport({ players: ['A', 'B'], pairs: null }, []).nodes, []);
+});
+
 /* ---------- onto the store ---------- */
 
 let seq = 0;

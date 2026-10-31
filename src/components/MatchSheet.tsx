@@ -149,7 +149,8 @@ function MatchBody({ m, day, names, igns, hq, cmds, pendingText, onCheckIn, onCl
   return (
     <>
       <div className="label">
-        {no(m)} · {roundName(m.round, total)}
+        {no(m)}
+        {m.toornament && <small className="tno"> · #{m.toornament.label}</small>} · {roundName(m.round, total)}
       </div>
       <div className="sheet-state">
         <StateTag kind={st.kind} station={m.station} />

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { sendCommand, updateStore, usePendingWork, useSync } from '../lib/db.ts';
-import { applyCommand, dayVersion, type Command, type CommandContext } from '../lib/commands.ts';
+import { applyCommand, type Command, type CommandContext } from '../lib/commands.ts';
 import { maskPhone } from '../lib/phone.ts';
 import { applyToornamentLink, toornamentBracketPage, toornamentLinkProblem, underWay, type ToornamentFetch } from '../lib/toornament.ts';
-import { AUTO_EVERY_MIN, autoFinished, autoLine, planFor } from '../lib/toornament-auto.ts';
+import { AUTO_EVERY_MIN, autoFinished, autoLine, loadCommand, planFor } from '../lib/toornament-auto.ts';
 import type { Store, TournamentEvent } from '../lib/types.ts';
 import { ago, cx } from '../lib/util.ts';
 import { useMarkOnSpot } from './OnSpotList.tsx';
@@ -144,7 +144,7 @@ export function ToornamentImport({ store, event }: { store: Store; event: Tourna
     if (!plan || !data) return;
     setConfirming(false);
     setProblem('');
-    const cmd: Command = { type: 'bracket.load', base: dayVersion(store), players: plan.players, pairs: plan.pairs };
+    const cmd: Command = loadCommand(store, plan);
     const ctx: CommandContext = { commandId: 'hq-precheck', now: new Date().toISOString(), actor: { principal: sync.principal ?? 'super', name: sync.name ?? 'HQ', role: 'super' }, event };
     try {
       applyCommand(store, cmd, ctx); // the same check the server makes, so a refusal shows here at once

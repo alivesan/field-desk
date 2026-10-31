@@ -562,7 +562,11 @@
 .bno {
   font-weight: 600;
   color: var(--ink-2);
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .bscore {
   min-width: 0;
