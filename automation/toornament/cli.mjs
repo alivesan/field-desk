@@ -1,0 +1,44 @@
+import { readFile, writeFile, realpath, mkdir, rename } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { resolve, dirname } from 'node:path';
+import { createInterface } from 'node:readline/promises';
+import { spawn } from 'node:child_process';
+import { config, privatePath, organizerUrl, snapshot, compare } from './lib.mjs';
+const root=resolve(dirname(fileURLToPath(import.meta.url)),'../data/toornament');
+async function load(name) {
+ const path=privatePath(root,name); const actual=await realpath(path); privatePath(await realpath(root),actual);
+ return JSON.parse(await readFile(actual,'utf8'));
+}
+async function save(name,value) { await writeFile(privatePath(root,name),JSON.stringify(value,null,2)+'\n',{flag:'wx',mode:0o600}); }
+async function main() {
+ const [action,...args]=process.argv.slice(2); const expected={login:0,record:0,snapshot:1,compare:3};
+ if (!(action in expected)||args.length!==expected[action]) throw Error('Usage error');
+ for(const a of args) if(!/^[a-zA-Z0-9_-]+\.json$/.test(a)) throw Error('Simple filenames required');
+ await mkdir(root, { recursive: true, mode: 0o700 });
+ const c=config(await load('approved.local.json'));
+ if(action==='snapshot') {await save(args[0],await snapshot(c)); console.log('Private identity-only snapshot saved; scores and results are not captured.'); return;}
+ if(action==='compare') {
+  const diff=compare(await load(args[0]),await load(args[1]),c); await save(args[2],diff);
+  console.log(JSON.stringify(Object.fromEntries(Object.entries(diff).map(([k,v])=>[k,Object.fromEntries(Object.entries(v).map(([x,y])=>[x,y.length]))])),null,2)); return;
+ }
+ if(action==='login') {
+  const {chromium}=await import('playwright'); const browser=await chromium.launch({headless:false});
+  try {
+   const context=await browser.newContext(); const page=await context.newPage();
+   await page.goto('https://organizer.toornament.com/en_US/login/',{timeout:30000});
+   const rl=createInterface({input:process.stdin,output:process.stdout});
+   try {await rl.question('Sign in manually in the browser. Never enter credentials here. Press Enter here when signed in: ');} finally {rl.close();}
+   const state = await context.storageState();
+   const temporary = privatePath(root, 'auth-state-' + Date.now() + '.tmp');
+   await writeFile(temporary, JSON.stringify(state), { flag: 'wx', mode: 0o600 });
+   await rename(temporary, privatePath(root, 'auth-state.json'));
+   console.log('Private authentication state saved.');
+  } finally {await browser.close();} return;
+ }
+ await load('auth-state.json');
+ console.log('Human-operated recorder: clicks and navigation are NOT constrained. Stay only in the approved throwaway tournament and stage. Stop if sign-in is requested and use login separately. No unattended mutations are implemented. Expired-session credential entry CAN be recorded; close codegen before signing in.');
+ const cli=resolve(dirname(fileURLToPath(import.meta.resolve('playwright/package.json'))),'cli.js');
+ const child=spawn(process.execPath,[cli,'codegen','--load-storage',privatePath(root,'auth-state.json'),'--output',privatePath(root,`recording-${Date.now()}.js`),organizerUrl(c)],{stdio:['inherit','ignore','ignore'],shell:false});
+ await new Promise((ok,fail)=>{child.on('error',fail);child.on('exit',code=>code===0?ok():fail(Error('Recorder failed')));});
+}
+main().catch(()=>{console.error('Operation stopped. Check private config, dependency/browser installation, scope, filenames, and public response bounds. Remote data and credentials are not printed.');process.exitCode=1;});

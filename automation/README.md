@@ -1,5 +1,7 @@
 # Field Desk automation — Steam OTP
 
+Phase 2 Toornament organizer-browser feasibility work is documented in [toornament/README.md](toornament/README.md). One owner-approved Kochi test match was saved as a 2–1 win and verified through the organizer and public bracket; participant creation, forfeit, reset, stored sessions and the production bot remain pending.
+
 The approved design reads **one central Gmail inbox**. Four original mailboxes (Gmail or Outlook) will forward their Steam messages into it after the owner confirms the exact forwarding addresses and enables forwarding. The worker reads only the central inbox; it does not need OAuth access to the four source accounts. The Oracle stack is running against the synthetic Field Desk mock.
 
 ## Current status, 29 October 2026
