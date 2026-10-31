@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { matchNo } from '../lib/bracket.ts';
+import { matchNo, matchTitle } from '../lib/bracket.ts';
 import type { Command } from '../lib/commands.ts';
 import { onSpotByPlayer } from '../lib/onspot.ts';
 import type { Match, MatchDay, Player } from '../lib/types.ts';
@@ -28,7 +28,7 @@ function slotsOf(day: MatchDay): Slot[] {
   return day.matches
     .filter((m) => m.round === 0)
     .sort((x, y) => x.index - y.index)
-    .flatMap((m) => (['a', 'b'] as const).map((side) => ({ m, side, id: m[side], where: `M${matchNo(m, day.matches)} · ${sideName(side)} slot`, open: m.status === 'pending' || !!m.bye })));
+    .flatMap((m) => (['a', 'b'] as const).map((side) => ({ m, side, id: m[side], where: `${matchTitle(m, day.matches)} · ${sideName(side)} slot`, open: m.status === 'pending' || !!m.bye })));
 }
 
 const Pencil = () => (

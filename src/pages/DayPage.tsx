@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { SteamCard } from '../components/SteamCard.tsx';
 import { discardWork, retryWork, sendCommand, updateStore, useApp, usePendingWork, useSync, type PendingWork } from '../lib/db.ts';
 import { storeCrumbs } from '../lib/admins.ts';
-import { computeQueue, matchNo, roundCount, roundName } from '../lib/bracket.ts';
+import { computeQueue, matchNo, matchTitle, roundCount, roundName } from '../lib/bracket.ts';
 import {
   checkInUrl,
   closeSelfCheckIn,
@@ -273,7 +273,7 @@ function precheck(store: Store, event: TournamentEvent, cmd: Command, role: 'sup
 
 function describe(cmd: Command, day: MatchDay) {
   const m = 'matchId' in cmd ? day.matches.find((x) => x.id === cmd.matchId) : undefined;
-  const L = m ? `M${matchNo(m, day.matches)}` : 'a match';
+  const L = m ? matchTitle(m, day.matches) : 'a match';
   switch (cmd.type) {
     case 'match.start':
       return `Call ${L} to station ${cmd.station}`;
@@ -287,6 +287,8 @@ function describe(cmd: Command, day: MatchDay) {
       return `Set stations to ${cmd.count}`;
     case 'bracket.load':
       return 'Load the bracket';
+    case 'bracket.label':
+      return 'Add the Toornament match numbers';
     case 'bracket.reset':
       return 'Reset the bracket';
     case 'players.onspot':
@@ -866,7 +868,7 @@ function QueueView({
   const n = (id: string | null) => (id ? names[id] : 'TBD');
   // On the station cards only — where players are called — the in-game name goes under the name.
   const ign = (id: string | null) => (id && igns[id] ? <small className="ign">{igns[id]}</small> : null);
-  const label = (m: Match) => `M${matchNo(m, day.matches)} · ${roundName(m.round, total)}`;
+  const label = (m: Match) => `${matchTitle(m, day.matches)} · ${roundName(m.round, total)}`;
   // Score drafts are per attempt (match + start time), so a cancelled or undone match never
   // brings an old score back when it is played again (audit F16).
   const [scores, setScores] = useState<Record<string, string>>({});
@@ -1089,7 +1091,7 @@ function QueueView({
           <ol className="qlist quiet">
             {q.upcoming.map((m) => {
               const feeder = (side: 0 | 1) => day.matches.find((x) => x.round === m.round - 1 && x.index === m.index * 2 + side)!;
-              const who = (id: string | null, side: 0 | 1) => (id ? names[id] : `Winner of M${matchNo(feeder(side), day.matches)}`);
+              const who = (id: string | null, side: 0 | 1) => (id ? names[id] : `Winner of ${matchTitle(feeder(side), day.matches)}`);
               return (
                 <li key={m.id}>
                   <span className="qn">—</span>
@@ -1303,7 +1305,7 @@ function BracketView({ store, names, igns, cmds, canReset, hq, onCheckIn }: { st
     cmds.run({ type: 'bracket.reset', base: cmds.base });
   };
 
-  const no = (m: Match) => `M${matchNo(m, matches)}`;
+  const no = (m: Match) => `M${matchNo(m, matches)}`; // the card shows Toornament's number beside it as a small muted span (.tno)
   const slot = (m: Match, side: 0 | 1) => {
     const id = side === 0 ? m.a : m.b;
     const kind = slotKind(m, id, checkIn);
@@ -1376,7 +1378,7 @@ function BracketView({ store, names, igns, cmds, canReset, hq, onCheckIn }: { st
               Following <strong>{names[followed]}</strong>
               <span className="label">
                 {nextOfMine
-                  ? ` · next ${no(nextOfMine)}, ${roundName(nextOfMine.round, total)}`
+                  ? ` · next ${matchTitle(nextOfMine, matches)},${roundName(nextOfMine.round, total)}`
                   : lastOfMine?.winner === followed
                     ? ' · champion'
                     : lastOfMine

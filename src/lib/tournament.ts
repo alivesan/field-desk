@@ -1,5 +1,5 @@
 /*
- * Tournament commands (match.start / finish / undo, bracket.load / reset / place, stations.set, the
+ * Tournament commands (match.start / finish / undo, bracket.load / reset / place / label, stations.set, the
  * players / seeding commands, and on-the-spot registration). Pure handlers over one store's match day — run by the server inside its commit and
  * optimistically by the client. See src/lib/commands.ts.
  *
@@ -7,7 +7,7 @@
  *   bracket.load / bracket.reset / bracket.place — destructive: `base` must equal the current day version,
  *     so a device that hasn't seen the latest bracket can't replace, wipe or re-slot it.
  *     bracket.place with `swap` moves a player who already has a first-round slot: the two slots trade occupants.
- *   stations.set / match.start / match.finish / match.undo / players.onspot / players.edit / onspot.mark / onspot.remove / winners.set / winners.manual / winners.clear —
+ *   bracket.label / stations.set / match.start / match.finish / match.undo / players.onspot / players.edit / onspot.mark / onspot.remove / winners.set / winners.manual / winners.clear —
  *     `base` is informational only.
  *     These are checked against the *current* state (station free, players checked in and
  *     not busy, match in the right status, nothing downstream started), which is the real
@@ -19,7 +19,7 @@
  */
 import type { Match, MatchDay, OnSpotEntry, Player, Store, WinnerDetails, Winners } from './types.ts';
 import { CommandError, type Command, type CommandContext, type Role } from './command-types.ts';
-import { buildBracket, isPow2, matchNo, nextOf, reopened, resolve } from './bracket.ts';
+import { buildBracket, isPow2, matchNo, nextOf, reopened, resolve, roundCount } from './bracket.ts';
 import { onSpotPlayer } from './onspot.ts';
 import { cleanIgn, isPhone, MAX_IGN, normalizePhone, playerIdFor } from './phone.ts';
 import { cleanWinnerInput, finalOf, finalResult } from './winnerInput.ts';
@@ -28,6 +28,7 @@ export const TOURNAMENT_COMMANDS: Record<string, Role[]> = {
   // HQ owns the bracket: it loads players from its sheet / CSV / tournament site. Admins run the day.
   'bracket.load': ['super'],
   'bracket.reset': ['super'],
+  'bracket.label': ['super'], // Toornament's match numbers onto an existing bracket — HQ, even with matches under way
   'players.set': ['super'],
   'players.seed': ['super'],
   'bracket.build': ['super'],
@@ -58,6 +59,9 @@ export function tournamentCommand(store: Store, cmd: Command, ctx: CommandContex
   switch (cmd.type) {
     case 'bracket.load':
       next = load(day, version, cmd, ctx);
+      break;
+    case 'bracket.label':
+      next = labelled(day, cmd);
       break;
     case 'bracket.reset':
       // The bracket only: players, seeds and check-ins stay, so HQ can re-seed and build again.
@@ -261,6 +265,33 @@ function load(day: MatchDay, version: number, cmd: Extract<Command, { type: 'bra
     m.toornament = { id: t.id, label: t.label };
   }
   return { ...day, ...keptCheckIns(day, clean), players: clean, matches, stations };
+}
+
+/**
+ * bracket.label: Toornament's match numbers onto the matches already here — a bracket loaded before they existed, or one
+ * with matches under way (which can't be loaded again). Only `toornament` of the matches at those positions is set; players,
+ * slots, results and status are never touched. The nodes must describe this bracket: every one a match here, and the
+ * rounds the size the final node implies (round r has 2^(last − r) matches). Matches no node names (byes Toornament
+ * doesn't have) keep whatever they had.
+ */
+function labelled(day: MatchDay, cmd: Extract<Command, { type: 'bracket.label' }>): MatchDay {
+  const refuse = () => invalid('The Toornament match numbers don’t fit this bracket — refresh the Toornament page and try again.');
+  if (!day.matches.length) throw invalid('There is no bracket here to add Toornament match numbers to.');
+  if (!cmd.toornament.length) throw refuse();
+  const last = Math.max(...cmd.toornament.map((t) => t.round));
+  if (last > 9) throw refuse();
+  for (let r = 0; r <= Math.max(last, roundCount(day.matches) - 1); r++)
+    if (day.matches.filter((m) => m.round === r).length !== (r <= last ? 2 ** (last - r) : 0)) throw refuse();
+  const at = new Map<string, Match>(day.matches.map((m) => [`${m.round}:${m.index}`, m]));
+  const set = new Map<Match, { id: string; label: string }>();
+  for (const t of cmd.toornament) {
+    const m = at.get(`${t.round}:${t.index}`);
+    if (!m || set.has(m)) throw refuse();
+    set.set(m, { id: t.id, label: t.label });
+  }
+  const changed = [...set].some(([m, t]) => m.toornament?.id !== t.id || m.toornament?.label !== t.label);
+  if (!changed) return day;
+  return { ...day, matches: day.matches.map((m) => (set.has(m) ? { ...m, toornament: set.get(m)! } : m)) };
 }
 
 /* ---------- on-the-spot registration ---------- */

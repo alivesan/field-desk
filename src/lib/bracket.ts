@@ -225,6 +225,9 @@ export function matchNo(m: Match, all: Match[]) {
   return all.filter((x) => x.round < m.round || (x.round === m.round && x.index < m.index)).length + 1;
 }
 
+/** "M5", and Toornament's number beside it when the match has one ("M5 · #1.1.2.1") — for text; cards show the number as a small muted span instead. */
+export const matchTitle = (m: Match, all: Match[]) => `M${matchNo(m, all)}${m.toornament?.label ? ` · #${m.toornament.label}` : ''}`;
+
 export function nextOf(m: Match, all: Match[]) {
   return all.find((x) => x.round === m.round + 1 && x.index === Math.floor(m.index / 2));
 }

@@ -10,9 +10,11 @@ import {
   applyToornamentLink,
   bracketFromNodes,
   isToornamentHost,
+  labelsToAdd,
   parseToornamentLink,
   pickStage,
   planImport,
+  sameFirstRound,
   readParticipants,
   readStages,
   readTournament,
@@ -707,4 +709,18 @@ test('the bracket link goes to the stages, whatever page of the tournament the s
   assert.equal(toornamentBracketPage('https://play.toornament.com/tournaments/2596019755383668735/registration/'), 'https://play.toornament.com/en_US/tournaments/2596019755383668735/stages/');
   assert.equal(toornamentBracketPage(t, '2596019755383668999'), 'https://play.toornament.com/en_US/tournaments/2596019755383668735/stages/2596019755383668999/');
   assert.equal(toornamentBracketPage(`${t}stages/2596019755383668111/`, '2596019755383668999'), 'https://play.toornament.com/en_US/tournaments/2596019755383668735/stages/2596019755383668111/');
+});
+
+test('labelsToAdd counts the Toornament matches a bracket does not carry yet; sameFirstRound compares the first round by player', () => {
+  const matches = buildBracket([1, 2, 3, 4].map((n) => ({ id: 'p' + n, name: 'P' + n, seed: n })), null, 'x');
+  const nodes = [{ round: 0, index: 0, id: 'a', label: '1.1.1.1' }, { round: 0, index: 1, id: 'b', label: '1.1.1.2' }, { round: 1, index: 0, id: 'c', label: '1.1.2.1' }];
+  assert.equal(labelsToAdd(matches, nodes), 3);
+  const some = matches.map((m) => (m.round === 0 && m.index === 0 ? { ...m, toornament: { id: 'a', label: '1.1.1.1' } } : m.round === 1 ? { ...m, toornament: { id: 'c', label: '1.1.9.9' } } : m));
+  assert.equal(labelsToAdd(some, nodes), 2, 'one already there; a different number counts');
+  assert.equal(labelsToAdd(some, []), 0);
+  assert.equal(labelsToAdd([], nodes), 3, 'a node with no match here still counts (the command refuses it)');
+  const first = matches.filter((m) => m.round === 0).map((m) => [m.a, m.b] as [string | null, string | null]);
+  assert.equal(sameFirstRound(matches, first), true);
+  assert.equal(sameFirstRound(matches, [first[1], first[0]]), false);
+  assert.equal(sameFirstRound(matches, first.slice(0, 1)), false);
 });

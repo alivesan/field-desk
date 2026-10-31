@@ -112,7 +112,7 @@ function useRun(store: Store, event: TournamentEvent) {
   return { run, notice };
 }
 
-const SETUP: Record<string, string> = { 'event.finish': 'Finished', 'event.reopen': 'Reopen', 'players.set': 'Players', 'players.seed': 'Seeding', 'bracket.build': 'Bracket', 'bracket.reset': 'Bracket reset', 'bracket.load': 'Players & bracket', 'onspot.mark': 'On-spot' };
+const SETUP: Record<string, string> = { 'event.finish': 'Finished', 'event.reopen': 'Reopen', 'players.set': 'Players', 'players.seed': 'Seeding', 'bracket.build': 'Bracket', 'bracket.reset': 'Bracket reset', 'bracket.load': 'Players & bracket', 'bracket.label': 'Toornament match numbers', 'onspot.mark': 'On-spot' };
 
 /** This store's setup commands still on their way, or refused by the server. */
 function Work({ store }: { store: Store }) {

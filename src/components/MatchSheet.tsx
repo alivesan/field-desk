@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react';
-import { canUndo, matchNo, roundCount, roundName } from '../lib/bracket.ts';
+import { canUndo, matchNo, matchTitle, roundCount, roundName } from '../lib/bracket.ts';
 import type { Command } from '../lib/commands.ts';
 import { onSpotByPlayer } from '../lib/onspot.ts';
 import { feederOf, KIND_INFO, matchState, playedFor, stationSlots, telFor, undoBlockedBy, type MatchKind } from '../lib/day-ui.ts';
@@ -52,7 +52,7 @@ interface Props {
 export function MatchSheet(p: Props) {
   const m = p.matchId ? p.day.matches.find((x) => x.id === p.matchId) : undefined;
   return (
-    <Sheet open={!!m} onClose={p.onClose} label={m ? `Match M${matchNo(m, p.day.matches)}` : 'Match'}>
+    <Sheet open={!!m} onClose={p.onClose} label={m ? `Match ${matchTitle(m, p.day.matches)}` : 'Match'}>
       {/* a new attempt at the same match (cancelled and called again, or a result undone) starts with clean drafts */}
       {m && <MatchBody key={`${m.id}@${m.status}@${m.startedAt ?? ''}`} m={m} {...p} />}
     </Sheet>
@@ -62,7 +62,7 @@ export function MatchSheet(p: Props) {
 function MatchBody({ m, day, names, igns, hq, cmds, pendingText, onCheckIn, onClose }: Props & { m: Match }) {
   const all = day.matches;
   const st = matchState(m, day);
-  const no = (x: Match) => `M${matchNo(x, all)}`;
+  const no = (x: Match) => matchTitle(x, all);
   const pend = cmds.pendingFor(m.id);
   const [error, setError] = useState('');
   const [pick, setPick] = useState<string | null>(null);
@@ -149,7 +149,7 @@ function MatchBody({ m, day, names, igns, hq, cmds, pendingText, onCheckIn, onCl
   return (
     <>
       <div className="label">
-        {no(m)}
+        M{matchNo(m, all)}
         {m.toornament && <small className="tno"> · #{m.toornament.label}</small>} · {roundName(m.round, total)}
       </div>
       <div className="sheet-state">
