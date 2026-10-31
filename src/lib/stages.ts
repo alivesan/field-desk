@@ -43,7 +43,7 @@ export function storeStages(store: Store): Stage[] {
     players: day.players.length > 0,
     bracket: day.matches.length > 0,
     live: !!finalResult(day.matches),
-    winners: ws.kind === 'saved' && !ws.missing,
+    winners: (ws.kind === 'saved' || ws.kind === 'manual') && !ws.missing,
     finished: fin.finished,
   };
   const current = ORDER.find((k) => !done[k]);
@@ -60,7 +60,7 @@ export function storeStages(store: Store): Stage[] {
 /** A final that has been played, but whose winner and runner-up details aren't saved in full. */
 export const winnersMissing = (store: Store) => {
   const ws = winnersState(store.day);
-  return ws.kind === 'collect' || ws.kind === 'stale' || (ws.kind === 'saved' && ws.missing);
+  return ws.kind === 'collect' || ws.kind === 'stale' || ((ws.kind === 'saved' || ws.kind === 'manual') && ws.missing);
 };
 
 export interface CampaignProgress {

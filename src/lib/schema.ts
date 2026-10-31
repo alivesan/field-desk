@@ -457,21 +457,24 @@ function validateDay(c: C, d: unknown, path: string) {
     }
   }
   // Winner + runner-up details: playerId may name someone HQ has since replaced (the record is kept across resets).
+  // A manual record (HQ typed it) has no final, and playerId is '' unless HQ picked someone from the list.
   if (d.winners !== undefined) {
     const wp = `${path}.winners`;
     if (c.obj(d.winners, wp)) {
+      if (d.winners.manual !== undefined && d.winners.manual !== true) c.bad(`${wp}.manual`, 'must be true when present');
+      const manual = d.winners.manual === true;
       for (const side of ['winner', 'runnerUp'] as const) {
         const w = d.winners[side];
         const sp = `${wp}.${side}`;
         if (!c.obj(w, sp)) continue;
-        c.id(w.playerId, `${sp}.playerId`);
+        if (!manual || w.playerId !== '') c.id(w.playerId, `${sp}.playerId`);
         c.str(w.realName, `${sp}.realName`, 100);
         c.optStr(w.ign, `${sp}.ign`, MAX_IGN);
         if (w.phone !== undefined && (typeof w.phone !== 'string' || !PHONE_DIGITS.test(w.phone))) c.bad(`${sp}.phone`, 'must be 6–15 digits');
         c.optStr(w.email, `${sp}.email`, 200);
         if (w.instagram !== undefined && (typeof w.instagram !== 'string' || !INSTAGRAM_HANDLE.test(w.instagram))) c.bad(`${sp}.instagram`, 'must be a handle of letters, digits, “.” and “_” (up to 30)');
       }
-      c.id(d.winners.finalMatchId, `${wp}.finalMatchId`);
+      if (!manual || d.winners.finalMatchId !== '') c.id(d.winners.finalMatchId, `${wp}.finalMatchId`);
       c.time(d.winners.at, `${wp}.at`);
       c.time(d.winners.updatedAt, `${wp}.updatedAt`);
       c.str(d.winners.by, `${wp}.by`, 200);

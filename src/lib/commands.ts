@@ -101,6 +101,7 @@ export function validateCommand(input: unknown): Command {
       if (c.alsoPlayers !== undefined && typeof c.alsoPlayers !== 'boolean') throw new CommandError('invalid', 'alsoPlayers must be true/false');
       break;
     case 'winners.set':
+    case 'winners.manual':
       for (const k of ['winner', 'runnerUp']) {
         const w = c[k] as Record<string, unknown> | null;
         if (!w || typeof w !== 'object' || Array.isArray(w)) throw new CommandError('invalid', `${k} must be an object`);

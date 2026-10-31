@@ -71,7 +71,7 @@ export function WinnersBanner({
     const m = missingFields(d);
     return m.length ? m.map((f) => FIELD_LABEL[f]) : null;
   };
-  const savedLine = w ? `Saved ${fmtTime(w.updatedAt)} by ${w.by}` : '';
+  const savedLine = w ? `${w.manual ? 'Entered by HQ' : 'Saved'} ${fmtTime(w.updatedAt)} · ${w.by}` : '';
   const cta = (label: string, primary: boolean) => (
     <button className={cx('btn', primary ? 'accent' : 'ghost')} onClick={() => setOpen(true)}>
       {label}
@@ -80,7 +80,7 @@ export function WinnersBanner({
   const status = pending ? <span className="label pending-tag">{pending === 'sending' ? 'Saving…' : offline ? 'Queued · offline' : 'Queued'}</span> : null;
 
   return (
-    <section className={cx('wb', hero && 'hero', ws.kind, ws.kind === 'saved' && (ws.missing ? 'incomplete' : 'complete'))} aria-label="Winner details">
+    <section className={cx('wb', hero && 'hero', ws.kind, (ws.kind === 'saved' || ws.kind === 'manual') && (ws.missing ? 'incomplete' : 'complete'))} aria-label="Winner details">
       {result && (
         <>
           <span className="label wb-kicker">
@@ -141,7 +141,7 @@ export function WinnersBanner({
             <p className="wb-when">{savedLine}</p>
           </div>
           <div className="wb-actions">
-            {cta(ws.missing ? 'Collect winner details' : 'Edit details', ws.missing)}
+            {ws.kind === 'saved' && cta(ws.missing ? 'Collect winner details' : 'Edit details', ws.missing)}
             {status}
           </div>
         </div>
