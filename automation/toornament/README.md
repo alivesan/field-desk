@@ -1,14 +1,23 @@
-# Toornament Phase 2 — local feasibility toolkit
+# Toornament Phase 2 — browser worker prototype
 
-This package prepares owner-operated tests on approved single-elimination tournaments. The owner supplied Kochi as a testing tournament and explicitly authorized its current Alive De account. A 2–1 result, synthetic participant creation, forfeit and locked/unlocked reset behavior were observed there; see the evidence map for verification limits. It is not the production bot. No Field Desk queue, live result webhook or automatic organizer write is implemented. Steam OTP and both servers are unaffected.
+This package contains the owner-operated feasibility tools and a browser worker prototype. The owner supplied Kochi as a testing tournament and explicitly authorized its current Alive De account. A 2–1 result, synthetic participant creation, forfeit and locked/unlocked reset behavior were observed there; see the evidence map for verification limits. The current worker runs against an **in-memory mock queue**; Field Desk has no matching queue API yet. Nothing has been deployed to either server, and Steam OTP is unaffected.
 
 ## Current handoff
 
 - [Feasibility findings and outstanding trials](FEASIBILITY.md)
 - [Selector/URL evidence map](SELECTOR-MAP.md)
-- [Proposed contract for Claude](JOB-CONTRACT.md)
+- [Proposed queue contract for Claude](JOB-CONTRACT.md)
 
-Further tests require owner-confirmed tournament and stage IDs and organizer access. The local unit tests do not verify website behavior, session lifetime or safe pacing. The current Kochi approval covers testing on that tournament; it does not make the recorder safe to navigate anywhere else.
+## What is implemented now
+
+- `adapter.mjs` prepares result, forfeit and reset writes through the observed organizer form. It requires an exact tournament/stage allowlist, public node and organizer match ID mapping, label, both player IDs and names, previous result, and a durable pre-save checkpoint. It reopens the organizer form and waits for matching public readback. A mismatch or possible save with uncertain readback stops for review.
+- `public-reader.mjs` reads the public tournament, stage, participant and bracket-node endpoints with page/size bounds. The public participant endpoint omits the organizer's custom user identifier, so `participant.add` is deliberately stopped before navigation until an identity-safe organizer readback is established.
+- `queue.mjs` is a client and worker for the **proposed** Field Desk lease/heartbeat/checkpoint/ack API. `mock-queue.mjs` is an in-memory reference for local tests only. There is no production execution guard, runnable service or live Field Desk queue yet. No background browser worker is running on the VM.
+- `npm test` runs the pure/local tests. On 31 October, the approved Kochi pending match and existing forfeit both passed read-only adapter reconciliation with the saved Playwright session. A full mock-queue claim → real browser/public readback → mock acknowledgment also returned `done` / `VERIFIED` on an already-pending match. Those checks did not click Update or Create.
+
+The proposed queue needs structured score and exact mapping data from Field Desk; see [JOB-CONTRACT.md](JOB-CONTRACT.md). Do not set queue credentials or run live jobs until that contract, an exclusive execution guard, server capacity and website automation permission are resolved.
+
+Further tests require owner-confirmed tournament and stage IDs and organizer access. The local unit tests do not verify session lifetime or safe pacing. The current Kochi approval covers testing on that tournament; it does not make the recorder safe to navigate anywhere else.
 
 ## Local Windows setup
 
@@ -52,7 +61,7 @@ npm run record
 
 `inspect` first confirms the exact match ID belongs to the approved public stage, then opens its organizer result page read-only using the saved session. It reports the heading and control counts only. The Kochi match `2602174454244941769` passed with two scores, two forfeit checkboxes and one Update button. This verifies Playwright can reach the form; it does not record a write.
 
-On this Codex Windows execution environment the Chromium download succeeded, but launching a visible Chromium from the protected terminal returned `spawn UNKNOWN`, including when a separate approved process was attempted. The owner ran `npm run login` from an interactive PowerShell, which saved the state. `npm run probe` then succeeded from a fresh headless process here. Run `npm run record` in your interactive PowerShell to use the visible recorder. Do not send the state file, cookies or password through chat. A full recorder trial has not yet passed.
+On this Codex Windows execution environment the Chromium download succeeded, but launching a visible Chromium from the protected terminal returned `spawn UNKNOWN`, including when a separate approved process was attempted. The owner ran `npm run login` from an interactive PowerShell, which saved the state. `npm run probe` then succeeded from a fresh headless process here. Run `npm run record` in your interactive PowerShell to use the visible recorder. Do not send the state file, cookies or password through chat. The owner confirmed the recorder opened Kochi; no recorder-generated mutation was executed.
 
 `record` loads that state into Playwright's recorder and opens the configured tournament. The owner confirmed on 31 October 2026 that it opened Kochi without a login prompt. **This is an owner-operated recorder, not an enforced browser sandbox: subsequent clicks can leave the approved tournament.** Stay inside the approved disposable tournament/stage. If a login screen appears, close the recorder and run `login` again. Typing credentials while recording can put them into the generated code; never do that.
 
@@ -76,4 +85,4 @@ First verify the mapping without writes. Then use only the approved test fixture
 
 No pressure testing is included. Start serially and use the conservative proposed pacing in the feasibility report. A locked match, identity mismatch, uncertain save or login challenge ends that automated attempt; don't erase downstream results or blindly retry.
 
-After the evidence is collected, update the report with a decision per operation. Only then implement the queue consumer, verified website adapter and approved deployment. Any later VM pilot must measure Chromium memory/latency alongside n8n on the 1 GB host.
+The queue consumer and adapter are now prototypes. A live pilot still requires Field Desk's durable queue, a process-level execution guard, an identity-safe path for participant creation, operator handling for uncertain jobs, and the remaining policy/session tests. Any later VM pilot must measure Chromium memory/latency alongside n8n on the 1 GB host.

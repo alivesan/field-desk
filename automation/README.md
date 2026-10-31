@@ -1,6 +1,6 @@
 # Field Desk automation — Steam OTP
 
-Phase 2 Toornament organizer-browser feasibility work is documented in [toornament/README.md](toornament/README.md). Owner-approved Kochi testing has verified a 2–1 result through public readback and observed participant creation, forfeit, and downstream lock/reset behavior in the organizer. Stored Playwright sessions, public readback of the later tests and the production bot remain pending.
+Phase 2 Toornament organizer-browser work is documented in [toornament/README.md](toornament/README.md). Owner-approved Kochi testing verified a 2–1 result, forfeit, participant creation and downstream lock/reset behavior. A local worker prototype now has an in-memory queue, guarded Playwright adapter and public readback. Field Desk's durable job API and a deployable worker are still pending; see the [Claude handoff](toornament/JOB-CONTRACT.md).
 
 The approved design reads **one central Gmail inbox**. Four original mailboxes (Gmail or Outlook) will forward their Steam messages into it after the owner confirms the exact forwarding addresses and enables forwarding. The worker reads only the central inbox; it does not need OAuth access to the four source accounts. The Oracle stack is running against the synthetic Field Desk mock.
 

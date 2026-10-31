@@ -1,0 +1,24 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {MockQueue,createMockExecutionGuard} from './mock-queue.mjs';
+import {createWorker,queueConfig,classifyFailure} from './queue.mjs';
+const scope={tournamentId:'1',stageId:'2'};
+const job={...scope,schemaVersion:1,origin:'field-desk',jobId:'j1',payloadHash:'hash',kind:'match.result',revision:1,expectedPreviousRevision:0,entityId:'m1',bracketGenerationId:'g1',createdAt:new Date().toISOString()};
+const worker=(queue,adapter)=>createWorker({queue,adapter,allowlist:[scope],workerId:'w',executionGuard:createMockExecutionGuard()});
+test('missing queue credentials fail closed',()=>assert.throws(()=>queueConfig({})));
+test('duplicate event is delivered once; altered identity conflicts',async()=>{const q=new MockQueue();q.enqueue(job);q.enqueue(job);assert.throws(()=>q.enqueue({...job,payloadHash:'different'}),/conflict/);let calls=0;const w=worker(q,{async execute(){calls++;return {status:'done',verified:true};}});assert.equal((await w.runOnce()).status,'done');assert.equal(await w.runOnce(),null);assert.equal(calls,1);});
+test('expired fencing token cannot checkpoint or acknowledge',async()=>{let t=0;const q=new MockQueue({now:()=>t,leaseMs:10});q.enqueue(job);const a=await q.claim({workerId:'a',scopes:[scope]});t=11;const b=await q.claim({workerId:'b',scopes:[scope]});assert.equal(b.recoveryRequired,true);await assert.rejects(q.ack({...a.job,claimToken:a.claimToken,workerId:'a',status:'done'}),/Stale/);});
+test('possible save followed by transient error never retries',async()=>{const q=new MockQueue();q.enqueue(job);const w=worker(q,{async execute(_,{checkpoint}){await checkpoint();throw Object.assign(Error('secret'),{code:'PRE_SAVE_TRANSIENT'});}});assert.equal((await w.runOnce()).status,'needs-human');assert.equal(q.jobs.get('j1').history[0].code,'UNCERTAIN_EFFECT');});
+test('crashed lease uses read-only reconciliation, never execute',async()=>{let t=0;const q=new MockQueue({now:()=>t,leaseMs:10});q.enqueue(job);await q.claim({workerId:'old',scopes:[scope]});t=11;let executed=false;const w=worker(q,{async execute(){executed=true;},async reconcile(){return {status:'done',verified:true};}});assert.equal((await w.runOnce()).status,'done');assert.equal(executed,false);});
+test('remote conflict requires human review',async()=>{const q=new MockQueue();q.enqueue(job);const w=worker(q,{async execute(){return {status:'needs-human',code:'STATE_CONFLICT'};}});assert.equal((await w.runOnce()).status,'needs-human');assert.deepEqual(classifyFailure({code:'PRE_SAVE_TRANSIENT'}),{status:'pending',code:'PRE_SAVE_TRANSIENT'});});
+test('unverified completion cannot mark done',async()=>{const q=new MockQueue();q.enqueue(job);assert.equal((await worker(q,{async execute(){return {status:'done'};}}).runOnce()).status,'needs-human');});
+test('worker refuses overlapping processing and serializes browser mutations',async()=>{const q=new MockQueue();q.enqueue(job);let finish;const gate=new Promise(r=>{finish=r;});const w=worker(q,{async execute(){await gate;return {status:'done',verified:true};}});const first=w.runOnce();await assert.rejects(w.runOnce(),/already processing/);finish();await first;});
+test('dependent revision waits for verified predecessor',async()=>{const q=new MockQueue();q.enqueue({...job,jobId:'j2',revision:2,expectedPreviousRevision:1});assert.equal(await q.claim({workerId:'w',scopes:[scope]}),null);});
+test('only one claim per tournament stage can be active',async()=>{
+  const q=new MockQueue();q.enqueue(job);q.enqueue({...job,jobId:'j2',entityId:'m2'});
+  const first=await q.claim({workerId:'a',scopes:[scope]});
+  assert.equal(await q.claim({workerId:'b',scopes:[scope]}),null);
+  await q.ack({jobId:first.job.jobId,payloadHash:first.job.payloadHash,revision:first.job.revision,claimToken:first.claimToken,workerId:'a',status:'done'});
+  assert.equal((await q.claim({workerId:'b',scopes:[scope]})).job.jobId,'j2');
+});
+test('adapter cannot request an unclassified retry',async()=>{const q=new MockQueue();q.enqueue(job);assert.equal((await worker(q,{async execute(){return {status:'pending',code:'UNKNOWN'};}}).runOnce()).status,'needs-human');});
