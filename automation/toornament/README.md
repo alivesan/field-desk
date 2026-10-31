@@ -42,12 +42,15 @@ These placeholders intentionally fail validation. Approve one tournament/stage a
 ```powershell
 npm run login
 npm run probe
+npm run inspect -- <approved-match-id>
 npm run record
 ```
 
 `login` opens a separate visible Chromium browser without recording actions. Enter credentials directly on Toornament and finish any normal verification yourself. Return to the terminal only after successful sign-in; pressing Enter saves private browser state. This does not prove that the session is valid or how long it lasts. It stores no password for automated re-login; VM re-login is deferred until feasibility is established.
 
 `probe` starts a fresh headless Chromium process with the saved state and opens only the approved tournament. It prints whether access works, without showing cookies or credentials. The owner completed login locally; the first fresh-process probe succeeded on 31 October 2026. Session lifetime beyond this immediate check remains unknown.
+
+`inspect` first confirms the exact match ID belongs to the approved public stage, then opens its organizer result page read-only using the saved session. It reports the heading and control counts only. The Kochi match `2602174454244941769` passed with two scores, two forfeit checkboxes and one Update button. This verifies Playwright can reach the form; it does not record a write.
 
 On this Codex Windows execution environment the Chromium download succeeded, but launching a visible Chromium from the protected terminal returned `spawn UNKNOWN`, including when a separate approved process was attempted. The owner ran `npm run login` from an interactive PowerShell, which saved the state. `npm run probe` then succeeded from a fresh headless process here. Run `npm run record` in your interactive PowerShell to use the visible recorder. Do not send the state file, cookies or password through chat. A full recorder trial has not yet passed.
 

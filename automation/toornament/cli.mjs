@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { resolve, dirname } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { spawn } from 'node:child_process';
-import { config, privatePath, organizerUrl, snapshot, compare } from './lib.mjs';
+import { config, id, privatePath, organizerUrl, snapshot, compare } from './lib.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../data/toornament');
 async function load(name) {
  const path=privatePath(root,name); const actual=await realpath(path); privatePath(await realpath(root),actual);
@@ -11,9 +11,9 @@ async function load(name) {
 }
 async function save(name,value) { await writeFile(privatePath(root,name),JSON.stringify(value,null,2)+'\n',{flag:'wx',mode:0o600}); }
 async function main() {
- const [action,...args]=process.argv.slice(2); const expected={login:0,probe:0,record:0,snapshot:1,compare:3};
+ const [action,...args]=process.argv.slice(2); const expected={login:0,probe:0,inspect:1,record:0,snapshot:1,compare:3};
  if (!(action in expected)||args.length!==expected[action]) throw Error('Usage error');
- for(const a of args) if(!/^[a-zA-Z0-9_-]+\.json$/.test(a)) throw Error('Simple filenames required');
+ for(const a of args) if(action==='inspect' ? !/^[0-9]{1,24}$/.test(a) : !/^[a-zA-Z0-9_-]+\.json$/.test(a)) throw Error('Approved match ID or simple filenames required');
  await mkdir(root, { recursive: true, mode: 0o700 });
  const c=config(await load('approved.local.json'));
  if(action==='snapshot') {await save(args[0],await snapshot(c)); console.log('Private identity-only snapshot saved; scores and results are not captured.'); return;}
@@ -38,6 +38,26 @@ async function main() {
   } finally {await browser.close();} return;
  }
  await load('auth-state.json');
+ if(action==='inspect') {
+  const matchId=id(args[0]);
+  const publicState=await snapshot(c);
+  if(!publicState.nodes.some(node=>node.id===matchId)) throw Error('Match is not in the approved test stage.');
+  const {chromium}=await import('playwright'); const browser=await chromium.launch({headless:true});
+  try {
+   const context=await browser.newContext({storageState:privatePath(root,'auth-state.json')});
+   const page=await context.newPage();
+   const target=organizerUrl(c)+`matches/${matchId}/`;
+   await page.goto(target,{timeout:30000});
+   if(!page.url().startsWith(target)) throw Error('Approved match access not verified.');
+   const heading=await page.getByRole('heading',{level:1}).innerText();
+   const scores=await page.getByRole('spinbutton').count();
+   const forfeits=await page.getByRole('checkbox').count();
+   const update=await page.getByRole('button',{name:'Update',exact:true}).count();
+   if(scores!==2||forfeits!==2||update!==1) throw Error('Result form differs from observed layout.');
+   console.log(JSON.stringify({matchId,heading,scores,forfeits,updateButton:update,readOnly:true}));
+  } finally {await browser.close();}
+  return;
+ }
  if(action==='probe') {
   const {chromium}=await import('playwright'); const browser=await chromium.launch({headless:true});
   try {
