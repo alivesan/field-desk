@@ -28,6 +28,8 @@ async function main() {
    await page.goto('https://organizer.toornament.com/en_US/login/',{timeout:30000});
    const rl=createInterface({input:process.stdin,output:process.stdout});
    try {await rl.question('Sign in manually in the browser. Never enter credentials here. Press Enter here when signed in: ');} finally {rl.close();}
+   await page.goto(organizerUrl(c), { timeout: 30000 });
+   if (new URL(page.url()).origin !== 'https://organizer.toornament.com' || !page.url().startsWith(organizerUrl(c))) throw Error('Approved tournament access not verified; no authentication state saved.');
    const state = await context.storageState();
    const temporary = privatePath(root, 'auth-state-' + Date.now() + '.tmp');
    await writeFile(temporary, JSON.stringify(state), { flag: 'wx', mode: 0o600 });
@@ -41,4 +43,4 @@ async function main() {
  const child=spawn(process.execPath,[cli,'codegen','--load-storage',privatePath(root,'auth-state.json'),'--output',privatePath(root,`recording-${Date.now()}.js`),organizerUrl(c)],{stdio:['inherit','ignore','ignore'],shell:false});
  await new Promise((ok,fail)=>{child.on('error',fail);child.on('exit',code=>code===0?ok():fail(Error('Recorder failed')));});
 }
-main().catch(()=>{console.error('Operation stopped. Check private config, dependency/browser installation, scope, filenames, and public response bounds. Remote data and credentials are not printed.');process.exitCode=1;});
+main().catch(error=>{console.error(error?.message?.includes('spawn UNKNOWN') ? 'Chromium could not start in this execution environment. Run the documented command in your own PowerShell window.' : 'Operation stopped. Check private configuration, browser installation, session, or public response; no credentials were printed.');process.exitCode=1;});

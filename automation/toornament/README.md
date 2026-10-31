@@ -1,6 +1,6 @@
 # Toornament Phase 2 — local feasibility toolkit
 
-This package prepares owner-operated tests on approved single-elimination tournaments. The owner supplied Kochi as a testing tournament and explicitly authorized its current Alive De account. One 2–1 match result was saved and verified there through organizer reload and public readback; see the evidence map. It is not the production bot. No Field Desk queue, live result webhook or automatic organizer write is implemented. Steam OTP and both servers are unaffected.
+This package prepares owner-operated tests on approved single-elimination tournaments. The owner supplied Kochi as a testing tournament and explicitly authorized its current Alive De account. A 2–1 result, synthetic participant creation, forfeit and locked/unlocked reset behavior were observed there; see the evidence map for verification limits. It is not the production bot. No Field Desk queue, live result webhook or automatic organizer write is implemented. Steam OTP and both servers are unaffected.
 
 ## Current handoff
 
@@ -45,6 +45,8 @@ npm run record
 ```
 
 `login` opens a separate visible Chromium browser without recording actions. Enter credentials directly on Toornament and finish any normal verification yourself. Return to the terminal only after successful sign-in; pressing Enter saves private browser state. This does not prove that the session is valid or how long it lasts. It stores no password for automated re-login; VM re-login is deferred until feasibility is established.
+
+On this Codex Windows execution environment the Chromium download succeeded, but launching a visible Chromium from the protected terminal returned `spawn UNKNOWN`, including when a separate approved process was attempted. Run `npm run login` from your own interactive PowerShell in `automation/toornament/` if you want to complete the session trial; the command verifies that the approved tournament opens before saving state. Do not send the state file, cookies or password through chat. The sign-in/recorder trial has **not** yet passed.
 
 `record` loads that state into Playwright's recorder and opens the configured tournament. **This is an owner-operated recorder, not an enforced browser sandbox: subsequent clicks can leave the approved tournament.** Stay inside the approved disposable tournament/stage. If a login screen appears, close the recorder and run `login` again. Typing credentials while recording can put them into the generated code; never do that.
 
