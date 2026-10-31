@@ -71,6 +71,12 @@ export { ADMIN_CODE };
  *   GET  /api/roster/fetch?url=<https link>   HQ only: { url, contentType, text, fetchedAt } (server/roster-fetch.ts)
  *   GET  /api/toornament/fetch?url=<toornament link>&stage=<stageId>   HQ only: tournament, stages,
  *        participants, the stage's first round (server/toornament-fetch.ts, src/lib/toornament.ts)
+ *   GET  /api/toornament/jobs[?storeId=]   HQ only: { jobs } — the Toornament result queue, newest first, at most 300: id, storeId, entityId,
+ *        revision, kind, state, attempt, code, createdAt, updatedAt, history, toornamentLabel, participants (names), desired
+ *        ({ outcome, winnerName }) — nothing else from the payload (server/toornament-jobs.ts viewOf, src/lib/toornament-queue.ts)
+ *   POST /api/toornament/jobs/:id/resolve  { action: "manual" | "retry" }   HQ only: a job in needs-human / failed (else 409
+ *        conflict) → done (resolved-by-hq: it was fixed on Toornament by hand) or pending (retry-by-hq: attempts back to 0, the
+ *        next claim is a recovery one); one transaction, the history says by: "hq" -> { ok, job }
  *   GET  /api/print/sheet?url=<Google Sheets link>&year=<yyyy>   HQ only: the creatives sheet read into
  *        tabs → blocks → Drive files with their real names (PrintSheetParse, src/lib/print.ts; server/print.ts)
  *   GET  /api/print/file/:storeId/:kind[?inline=1]   HQ, or that store's team / admin: one print file from Google
@@ -1026,6 +1032,22 @@ export function createApi(opts: ApiOptions) {
         log('warn', 'toornament-fetch-failed', { code: e.code, status: e.status });
         return send(res, e.status, { code: e.code, error: e.message, ...e.extra });
       }
+    }
+
+    // HQ's Toornament to-do (docs/toornament-jobs.md, "HQ"): the result queue, and settling a job that needs a person.
+    if (route === 'GET /api/toornament/jobs') {
+      if (who.role !== 'super') return send(res, 403, { code: 'forbidden', error: 'HQ only' });
+      const storeId = url.searchParams.get('storeId') || undefined;
+      return send(res, 200, { jobs: toornamentJobs.list(storeId) });
+    }
+    const resolveRoute = req.method === 'POST' ? url.pathname.match(/^\/api\/toornament\/jobs\/([\w-]{1,64})\/resolve$/) : null;
+    if (resolveRoute) {
+      if (who.role !== 'super') return send(res, 403, { code: 'forbidden', error: 'HQ only' });
+      const body = await readJson(req, 4096);
+      if (body?.action !== 'manual' && body?.action !== 'retry') throw new HttpError(400, 'bad-request', 'action must be "manual" or "retry"');
+      const r = toornamentJobs.resolve(resolveRoute[1], body.action, 'hq');
+      if (!r.ok) return send(res, r.status, { code: r.code, error: r.status === 404 ? 'No such job.' : 'That job is not waiting for a person any more — refresh the page.' });
+      return send(res, 200, { ok: true, job: r.job });
     }
 
     if (route === 'GET /api/print/sheet') {

@@ -1,0 +1,227 @@
+/*
+ * HQ's Toornament result queue: the to-do page (#/toornament, pages/ToornamentQueuePage.tsx), the store panel's switch and
+ * count, and the line on HQ's home (components/ToornamentQueue.tsx). Mobile first (360px, no sideways scroll, 44px taps).
+ * Tokens come from base.css.
+ */
+
+/* ---------- the to-do page ---------- */
+
+.tq-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 16px;
+  margin: 4px 0 8px;
+}
+.tq-summary {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.tq-summary b {
+  font-weight: 600;
+}
+.tq-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.tq-toggle input,
+.tq-switch input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  flex: none;
+  accent-color: var(--ink);
+}
+.tq-loading {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.tq-store {
+  margin: 24px 0 0;
+  min-width: 0;
+}
+.tq-store-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--ink);
+}
+.tq-store-head h2 {
+  font-size: 24px;
+  overflow-wrap: anywhere;
+  margin-right: auto;
+}
+.tq-store-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+  text-underline-offset: 3px;
+  text-decoration-color: var(--rule);
+}
+
+.tq-jobs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.tq-job {
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--rule);
+  border-left: 3px solid transparent;
+  min-width: 0;
+}
+.tq-job.hq {
+  border-left-color: var(--warn);
+  background: var(--warn-soft);
+}
+.tq-job.quiet {
+  color: var(--muted);
+}
+.tq-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+.tq-match {
+  font: 500 13px/1.3 var(--mono);
+  letter-spacing: 0.02em;
+  overflow-wrap: anywhere;
+}
+.tq-what {
+  margin-top: 4px;
+  font: 400 19px/1.25 var(--serif);
+  overflow-wrap: anywhere;
+}
+.tq-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.tq-meta span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tq-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.tq-actions .btn {
+  flex: 1 1 200px;
+  min-height: 44px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.2;
+}
+@media (min-width: 720px) {
+  .tq-job {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 24px;
+    align-items: center;
+  }
+  .tq-job > div:not(.tq-actions) {
+    grid-column: 1;
+  }
+  .tq-actions {
+    grid-column: 2;
+    grid-row: 1 / span 3;
+    margin: 0;
+    padding: 0;
+    flex-wrap: nowrap;
+  }
+  .tq-actions .btn {
+    flex: none;
+  }
+}
+
+/* ---------- a store's Toornament panel ---------- */
+
+/* base.css colours text of anything with .ok; here only the left border takes the tone */
+.tn-auto.tq-send {
+  color: var(--ink);
+}
+.tq-send .tq-switch {
+  min-height: 44px;
+  font-size: 14px;
+  color: var(--ink);
+}
+.tq-send .hint {
+  margin-top: 0;
+}
+.tq-send .tq-count {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.tq-send .tq-count a {
+  color: var(--ink);
+  text-underline-offset: 3px;
+  text-decoration-color: var(--rule);
+}
+.tq-blocked {
+  margin-top: 10px;
+}
+.tq-blocked p {
+  font-size: 13px;
+  font-weight: 500;
+}
+.tq-block {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.tq-block li {
+  padding: 6px 0;
+  border-top: 1px solid var(--rule);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- HQ's home ---------- */
+
+.tq-home {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin: 32px 0 0;
+  padding: 14px 16px;
+  background: var(--paper-2);
+  border-left: 3px solid var(--rule);
+}
+.tq-home.warn {
+  border-left-color: var(--warn);
+}
+.tq-home p {
+  margin: 4px 0 0;
+  font-size: 14px;
+}
+.tq-home .btn {
+  min-height: 44px;
+}

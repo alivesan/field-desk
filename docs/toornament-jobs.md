@@ -136,11 +136,17 @@ States: `pending`, `claimed`, `done`, `failed`, `needs-human`, `cancelled`.
 
 ## HQ
 
-- The store's Toornament panel gets the switch **Send results to Toornament** (off by default) and a one-line count
-  (waiting / needs you).
-- An HQ-only **Toornament to-do** page lists the jobs by store: the match (`M5 · #1.1.2.1`, both names, W/L), state,
-  attempts, last code and time. For `needs-human` and `failed`: **Fixed on Toornament by hand** (→ `done`, code
-  `resolved-by-hq`) or **Try again** (→ `pending`, a new attempt, recoveryRequired). HQ routes: `GET /api/toornament/jobs`
-  and `POST /api/toornament/jobs/:id/resolve` `{ action: "manual" | "retry" }`, super only. The page polls every 15 s.
+- The store's Toornament panel (and, once the bracket is built, the Bracket section of Players & bracket) gets the switch
+  **Send results to Toornament** (off by default) and a one-line count (waiting / needs you / done today) with a link to the
+  to-do page.
+- An HQ-only **Toornament to-do** page (`#/toornament`, linked from HQ's home once any store sends results, and from each store's
+  panel) lists the jobs by store, needs-you first: the match (`M5 · #1.1.2.1`, "A beat B" / "B wins by forfeit" / "Reset"),
+  state, attempts, last code in plain words and time. For `needs-human` and `failed`: **Fixed on Toornament by hand** (→ `done`,
+  code `resolved-by-hq`) or **Try again** (→ `pending`, attempts back to 0, history code `retry-by-hq`, so the next claim has
+  `recoveryRequired`). Done and cancelled jobs are hidden until asked for. The page polls every 15 s while visible.
+- HQ routes, super only: `GET /api/toornament/jobs[?storeId=]` (newest first, at most 300; per job the state, attempts, code,
+  history, match label, the two names and who won — never the claim token, the hash, the participant ids or the rest of the
+  payload) and `POST /api/toornament/jobs/:id/resolve` `{ action: "manual" | "retry" }` (only from `needs-human` / `failed`, else
+  409; one transaction; the history line says `by: "hq"`).
 - Matches the queue could not cover (sync on, but "not mapped") are listed with the reason, so HQ knows to enter them
-  by hand.
+  by hand (byes, and matches still waiting for their players, are left out).

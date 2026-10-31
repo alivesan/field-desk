@@ -2,6 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Command } from '../src/lib/commands.ts';
 import type { Store } from '../src/lib/types.ts';
+import type { QueueJob } from '../src/lib/toornament-queue.ts';
 import { buildToornamentJob, jobMatchId, type ToornamentJob, type ToornamentJobDraft } from '../src/lib/toornament-jobs.ts';
 import { canonical } from './canonical.ts';
 import { consoleLogger, type Logger } from './log.ts';
@@ -27,6 +28,8 @@ export interface HistoryEntry {
   code: string;
   attempt: number;
   workerId?: string;
+  /** Who changed the job when it was a person (HQ's page): 'hq'. Never a name or a phone number. */
+  by?: string;
   /** Toornament ids the worker saw (ack only): short, printable, at most OBSERVED_MAX of them. */
   observedRemoteIds?: string[];
 }
@@ -113,6 +116,34 @@ export function withHistory(row: Pick<JobRow, 'history'>, entry: HistoryEntry): 
   return JSON.stringify([...(JSON.parse(row.history) as HistoryEntry[]), entry]);
 }
 
+/** HQ's cap on one listing. */
+export const LIST_MAX = 300;
+
+/**
+ * A job as HQ's page gets it: state, attempts, code, history, and from the payload only the label, the two names and the
+ * outcome. Never the claim token, the worker's lease, the payload hash, the participant ids or anything else.
+ */
+export function viewOf(row: JobRow): QueueJob {
+  const p = JSON.parse(row.payload) as ToornamentJobDraft;
+  const name = (id: string) => p.participants.find((x) => x.id === id)?.name ?? '';
+  return {
+    id: row.id,
+    storeId: row.store_id,
+    entityId: row.entity_id,
+    revision: row.revision,
+    kind: p.kind,
+    state: row.state,
+    attempt: row.attempt,
+    code: row.code,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+    history: (JSON.parse(row.history) as HistoryEntry[]).map((h) => ({ at: h.at, state: h.state, code: h.code, attempt: h.attempt, ...(h.workerId ? { workerId: h.workerId } : {}), ...(h.by ? { by: h.by } : {}) })),
+    toornamentLabel: p.toornamentLabel,
+    participants: [p.participants[0].name, p.participants[1].name],
+    desired: p.desired ? { outcome: p.desired.outcome, winnerName: name(p.desired.winnerId) } : null,
+  };
+}
+
 /** Commands that replace the whole match list, so every pending job of the old bracket is stale. */
 const REPLACES_BRACKET = new Set<Command['type']>(['bracket.load', 'bracket.reset']);
 
@@ -194,6 +225,39 @@ export function createJobStore(db: DatabaseSync, now: () => number, log: Logger 
   return {
     /** One job by id. */
     get: (id: string) => byId.get(id) as JobRow | undefined,
+
+    /** HQ's listing: newest first, at most `limit` (LIST_MAX), optionally one store's. */
+    list(storeId?: string, limit = LIST_MAX): QueueJob[] {
+      const n = Math.max(1, Math.min(limit, LIST_MAX));
+      const rows = storeId
+        ? (db.prepare('SELECT * FROM toornament_jobs WHERE store_id = ? ORDER BY created_at DESC, revision DESC, rowid DESC LIMIT ?').all(storeId, n) as unknown as JobRow[])
+        : (db.prepare('SELECT * FROM toornament_jobs ORDER BY created_at DESC, revision DESC, rowid DESC LIMIT ?').all(n) as unknown as JobRow[]);
+      return rows.map(viewOf);
+    },
+
+    /**
+     * HQ settles a job that is `needs-human` or `failed`: `manual` (it was fixed on Toornament by hand) → `done`, code
+     * `resolved-by-hq`; `retry` → `pending`, attempts back to 0, code `retry-by-hq` (which makes the next claim a
+     * recoveryRequired one — the worker reads first, it never just saves again). One transaction. `by` goes into the history.
+     */
+    resolve(id: string, action: 'manual' | 'retry', by: string): { ok: true; job: QueueJob } | { ok: false; status: 404 | 409; code: string } {
+      return tx(() => {
+        const row = byId.get(id) as JobRow | undefined;
+        if (!row) return { ok: false, status: 404, code: 'not-found' };
+        if (row.state !== 'needs-human' && row.state !== 'failed') return { ok: false, status: 409, code: 'conflict' };
+        const at = now();
+        const state: JobState = action === 'manual' ? 'done' : 'pending';
+        const code = action === 'manual' ? 'resolved-by-hq' : 'retry-by-hq';
+        const attempt = action === 'manual' ? row.attempt : 0;
+        const history = withHistory(row, { at: iso(at), state, code, attempt, by });
+        db.prepare(
+          `UPDATE toornament_jobs SET state = ?, code = ?, attempt = ?, updated_at = ?, claim_token = NULL, worker_id = NULL, lease_until = NULL,
+             checkpoint_at = NULL, next_attempt_at = NULL, history = ? WHERE id = ? AND state IN ('needs-human', 'failed')`,
+        ).run(state, code, attempt, at, history, id);
+        log('info', 'toornament-job-resolved', { job: id, store: row.store_id, action, by, code });
+        return { ok: true, job: viewOf(byId.get(id) as unknown as JobRow) };
+      });
+    },
 
     /** The highest revision made for this (store, match), cancelled ones included; 0 when none. */
     lastRevision: (storeId: string, entityId: string) => (maxRev.get(storeId, entityId) as { r: number }).r,

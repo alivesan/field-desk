@@ -19,6 +19,7 @@ import { storeShortName } from '../lib/names.ts';
 import { useStoreName } from '../components/useStoreName.ts';
 import { PhoneAccess } from '../components/PhoneAccess.tsx';
 import { ReportsInbox } from '../components/ReportsInbox.tsx';
+import { QueueHomeLink } from '../components/ToornamentQueue.tsx';
 import '../styles/evidence.css';
 import '../styles/onspot.css';
 
@@ -99,6 +100,7 @@ export function Home() {
           <RecceTodo todo={home.recceTodo} />
           <ThisWeekend week={home.thisWeekend} next={home.nextWeekendLabel} />
           <ReportsInbox />
+          <QueueHomeLink />
         </>
       )}
 
