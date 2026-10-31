@@ -11,6 +11,8 @@ import { askConfirm, Chip, NotFound, NumberField, PageHead, Shell, toast } from 
 import { EmptyCard } from '../components/flair.tsx';
 import { AutoCheck, ToornamentImport } from '../components/ToornamentImport.tsx';
 import { RosterImport } from '../components/RosterImport.tsx';
+import { PlayerEditForm, type PlayerEdit } from '../components/PlayerEditForm.tsx';
+import { Sheet } from '../components/Sheet.tsx';
 import { OnSpotList } from '../components/OnSpotList.tsx';
 import { PublicBracketLink } from '../components/PublicBracketLink.tsx';
 import { ResetWinners } from './WinnersPage.tsx';
@@ -24,7 +26,7 @@ import '../styles/done.css';
 /*
  * HQ inside one store: 01 Players (import / add / remove — the list order is the seed order)
  * → 02 Bracket (build from that order, reset). Each change is a server command — players.set,
- * bracket.build, bracket.reset — HQ-only and checked against the current state.
+ * players.edit, bracket.build, bracket.reset — HQ-only and checked against the current state.
  * Admins never see this page; they run the day on the match-day page.
  */
 
@@ -90,29 +92,33 @@ export function StoreSetupPage({ storeId }: { storeId: string }) {
 function useRun(store: Store, event: TournamentEvent) {
   const sync = useSync();
   const [problem, setProblem] = useState('');
-  const run = (cmd: Command, done?: string) => {
-    setProblem('');
+  /** Checks, then queues, one command: null = sent; else why not (for a caller that shows the reason itself). */
+  const attempt = (cmd: Command, done?: string): string | null => {
     const ctx: CommandContext = { commandId: 'hq-precheck', now: new Date().toISOString(), actor: { principal: sync.principal ?? 'super', name: sync.name ?? 'HQ', role: 'super' }, event };
     try {
       applyCommand(store, cmd, ctx);
     } catch (e) {
-      setProblem(e instanceof Error ? e.message : String(e));
-      return false;
+      return e instanceof Error ? e.message : String(e);
     }
     try {
       sendCommand(store.id, cmd);
       if (done) toast(done);
-      return true;
+      return null;
     } catch (e) {
-      setProblem(`Couldn’t queue this on the device: ${(e as Error).message}`);
-      return false;
+      return `Couldn’t queue this on the device: ${(e as Error).message}`;
     }
   };
+  /** The same, with the reason shown on the page; true = sent. */
+  const run = (cmd: Command, done?: string) => {
+    const why = attempt(cmd, done);
+    setProblem(why ?? '');
+    return !why;
+  };
   const notice = problem ? <p className="setup-problem">{problem}</p> : null;
-  return { run, notice };
+  return { run, attempt, notice };
 }
 
-const SETUP: Record<string, string> = { 'event.finish': 'Finished', 'event.reopen': 'Reopen', 'players.set': 'Players', 'players.seed': 'Seeding', 'bracket.build': 'Bracket', 'bracket.reset': 'Bracket reset', 'bracket.load': 'Players & bracket', 'onspot.mark': 'On-spot' };
+const SETUP: Record<string, string> = { 'event.finish': 'Finished', 'event.reopen': 'Reopen', 'players.set': 'Players', 'players.edit': 'Player','players.seed': 'Seeding', 'bracket.build': 'Bracket', 'bracket.reset': 'Bracket reset', 'bracket.load': 'Players & bracket', 'onspot.mark': 'On-spot' };
 
 /** This store's setup commands still on their way, or refused by the server. */
 function Work({ store }: { store: Store }) {
@@ -187,7 +193,7 @@ function FinishPanel({ store, event }: { store: Store; event: TournamentEvent })
 /* ---------- 01 Players ---------- */
 
 function PlayersStep({ store, event, campaign, onNext }: { store: Store; event: TournamentEvent; campaign: Store[]; onNext: () => void }) {
-  const { run, notice } = useRun(store, event);
+  const { run, attempt, notice } = useRun(store, event);
   const day = store.day;
   const locked = underway(day);
   const players = bySeed(day.players);
@@ -197,6 +203,8 @@ function PlayersStep({ store, event, campaign, onNext }: { store: Store; event: 
   const [ign, setIgn] = useState('');
   const [ask, setAsk] = useState<null | { existing: Player; kind: 'phone' | 'name' }>(null);
   const [badPhone, setBadPhone] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null); // the player whose Edit sheet is open
+  const editing = players.find((p) => p.id === editId) ?? null;
   const [importing, setImporting] = useState(!players.length);
   const showImport = !locked && (importing || !players.length);
 
@@ -235,6 +243,13 @@ function PlayersStep({ store, event, campaign, onNext }: { store: Store; event: 
     }
   };
 
+  // Any time, bracket or none: matches hold player ids, so the bracket shows the new name by itself.
+  const saveEdit = (p: Player, edit: PlayerEdit) => {
+    const refused = attempt({ type: 'players.edit', base: dayVersion(store), playerId: p.id, ...edit }, 'Player saved');
+    if (!refused) setEditId(null);
+    return refused;
+  };
+
   const remove = async (p: Player) => {
     if (day.checkIn[p.id] && !(await askConfirm(`${p.name} is checked in. Remove them anyway?`, { ok: 'Remove', danger: true }))) return;
     setPlayers(
@@ -249,7 +264,7 @@ function PlayersStep({ store, event, campaign, onNext }: { store: Store; event: 
   return (
     <section className="setup-section fd-enter">
       {notice}
-      {locked && <p className="setup-lock">Matches are under way, so the players are locked. Reset the bracket (step 2) to change them.</p>}
+      {locked && <p className="setup-lock">Matches are under way, so the list is locked — a player’s name, in-game name and number can still be edited. Reset the bracket (step 2) to add or remove players.</p>}
       {day.matches.length > 0 && !locked && <p className="hint">Changing the players clears the bracket (it hasn’t started) — build it again in step 2.</p>}
       {onSpotOf(day).length > 0 && <OnSpotList event={event} stores={[store]} single />}
 
@@ -290,15 +305,30 @@ function PlayersStep({ store, event, campaign, onNext }: { store: Store; event: 
               </span>
               <span className={cx('sr-phone', !p.phone && 'none')}>{p.phone ? prettyPhone(p.phone) : 'no phone'}</span>
               <span className="sr-state">{day.checkIn[p.id] ? (day.checkInSource?.[p.id] === 'self' ? 'Here · QR' : 'Here') : ''}</span>
-              {!locked && (
-                <button className="link sr-remove" aria-label={`Remove ${p.name}`} onClick={() => remove(p)}>
-                  Remove
+              <span className="sr-actions">
+                <button className="link sr-act" aria-label={`Edit ${p.name}`} onClick={() => setEditId(p.id)}>
+                  Edit
                 </button>
-              )}
+                {!locked && (
+                  <button className="link sr-act" aria-label={`Remove ${p.name}`} onClick={() => remove(p)}>
+                    Remove
+                  </button>
+                )}
+              </span>
             </li>
           ))}
         </ol>
       )}
+
+      <Sheet open={!!editing} onClose={() => setEditId(null)} label={editing ? `Edit ${editing.name}` : 'Edit player'}>
+        {editing && (
+          <>
+            <div className="label">Seed {String(editing.seed).padStart(2, '0')}</div>
+            <h2 className="sheet-title">{editing.name}</h2>
+            <PlayerEditForm player={editing} hq phone onSave={(edit) => saveEdit(editing, edit)} onCancel={() => setEditId(null)} />
+          </>
+        )}
+      </Sheet>
 
       {!locked && (
         <form
