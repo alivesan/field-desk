@@ -77,7 +77,9 @@ test('public GET: store, campaign, date and open — never players; unknown / ma
   try {
     const r = await t.json(`/api/public/checkin/${TOKEN}`);
     assert.equal(r.status, 200);
-    assert.deepEqual(r.body, { store: 'Store s1', campaign: 'Synthetic Campaign', date: '2026-10-24', open: true });
+    assert.match(r.body.bracketPath, /^\/b\/[A-Za-z0-9_-]{16,64}$/, 'the store’s bracket link (on by default)');
+    const { bracketPath: _link, ...rest } = r.body;
+    assert.deepEqual(rest, { store: 'Store s1', campaign: 'Synthetic Campaign', date: '2026-10-24', open: true });
     const raw = JSON.stringify(r.body);
     for (const p of players) {
       assert.ok(!raw.includes(p.name), 'no player names');

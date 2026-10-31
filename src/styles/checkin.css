@@ -120,6 +120,19 @@
   border-width: 0 3px 3px 0;
   transform: rotate(45deg);
 }
+.ci-follow {
+  margin-top: 28px;
+}
+.ci-follow .ci-btn {
+  margin-top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+.ci-follow .ci-help {
+  margin: 10px 0 0;
+}
 .ci-notyou {
   margin-top: 40px;
   padding-top: 16px;
