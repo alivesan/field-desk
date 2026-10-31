@@ -11,7 +11,7 @@ async function load(name) {
 }
 async function save(name,value) { await writeFile(privatePath(root,name),JSON.stringify(value,null,2)+'\n',{flag:'wx',mode:0o600}); }
 async function main() {
- const [action,...args]=process.argv.slice(2); const expected={login:0,record:0,snapshot:1,compare:3};
+ const [action,...args]=process.argv.slice(2); const expected={login:0,probe:0,record:0,snapshot:1,compare:3};
  if (!(action in expected)||args.length!==expected[action]) throw Error('Usage error');
  for(const a of args) if(!/^[a-zA-Z0-9_-]+\.json$/.test(a)) throw Error('Simple filenames required');
  await mkdir(root, { recursive: true, mode: 0o700 });
@@ -38,6 +38,17 @@ async function main() {
   } finally {await browser.close();} return;
  }
  await load('auth-state.json');
+ if(action==='probe') {
+  const {chromium}=await import('playwright'); const browser=await chromium.launch({headless:true});
+  try {
+   const context=await browser.newContext({storageState:privatePath(root,'auth-state.json')});
+   const page=await context.newPage(); await page.goto(organizerUrl(c),{timeout:30000});
+   const signedIn=page.url().startsWith(organizerUrl(c));
+   console.log(signedIn ? 'Saved session opens the approved tournament.' : 'Saved session needs a fresh login.');
+   if(!signedIn) process.exitCode=2;
+  } finally {await browser.close();}
+  return;
+ }
  console.log('Human-operated recorder: clicks and navigation are NOT constrained. Stay only in the approved throwaway tournament and stage. Stop if sign-in is requested and use login separately. No unattended mutations are implemented. Expired-session credential entry CAN be recorded; close codegen before signing in.');
  const cli=resolve(dirname(fileURLToPath(import.meta.resolve('playwright/package.json'))),'cli.js');
  const child=spawn(process.execPath,[cli,'codegen','--load-storage',privatePath(root,'auth-state.json'),'--output',privatePath(root,`recording-${Date.now()}.js`),organizerUrl(c)],{stdio:['inherit','ignore','ignore'],shell:false});
