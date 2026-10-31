@@ -12,13 +12,14 @@ import { cardOtp, currentSteamStore, liveOtp, LOOKUP_WINDOW_MS, OTP_TTL_MS, stea
 import { isPrintKind, PRINT_KINDS, printSpecOf, thisWeekKits } from '../src/lib/print.ts';
 import { campaignStoreNames, storeShortName } from '../src/lib/names.ts';
 import { storeDate } from '../src/lib/recce.ts';
+import { publicBracketOf } from '../src/lib/publicBracket.ts';
 import { openDatabase, photoIds } from './migrate.ts';
 import { acquireLock } from './lock.ts';
 import { createSessions, hashToken, TOKEN } from './sessions.ts';
 import { clientIp, createLoginLimiter, DEFAULT_LIMITS, type LimitConfig, type LoginKind } from './ratelimit.ts';
 import { createPhotoStore, PhotoConflict, PhotoQuota } from './photos.ts';
 import { consoleLogger, errorFields, type Logger } from './log.ts';
-import { createPublicLimiter, DEFAULT_PUBLIC_LIMITS, selfCheckIn, storeByToken, type PublicLimitConfig } from './public.ts';
+import { createPublicLimiter, DEFAULT_PUBLIC_LIMITS, selfCheckIn, storeByBracketToken, storeByToken, type PublicLimitConfig } from './public.ts';
 import { fetchRoster, RosterFetchError, type RosterFetchOptions } from './roster-fetch.ts';
 import { createPrinter } from './print.ts';
 import { fetchToornament } from './toornament-fetch.ts';
@@ -73,7 +74,7 @@ export { ADMIN_CODE };
  *        Drive, streamed under its proper name ("Subham Infotech - A3 Poster.jpg")
  *   GET  /api/print/zip/:storeId       the same store's files as one zip
  *   Nothing is recorded when a file is downloaded: the client writes store.printDownloads itself (a store field a
- *   team may write); store.print, event.printSheet / printDesk / printSpec are HQ's
+ *   team may write); store.print, store.publicBracket, event.printSheet / printDesk / printSpec are HQ's
  *   (so is event.marketing, the Marketing page's prize pool, times and promo texts).
  *
  * No request for these: from 12:30 on a store's day the server checks its Toornament stage every 5
@@ -88,6 +89,8 @@ export { ADMIN_CODE };
  * Public — no session, for players at the venue (server/public.ts has the limits):
  *   GET  /api/public/checkin/:token   { store, campaign, date, open } — nothing about players
  *   POST /api/public/checkin/:token   { phone } -> { ok, name: "First L.", already }
+ *   GET  /api/public/bracket/:token   a store's live bracket (store.publicBracket, switched on): { store, city, campaign, game?, date, rounds, matches: [{ id,
+ *        round, index, no, a, aIgn?, aSeed, b, bIgn?, bSeed, winner: 'a'|'b'|null, status, bye, walkover?, score, station? }], champion, updatedAt } — names only
  *   GET  /api/public/print/:token     the print desk (event.printDesk.token): { campaign: { id, name }, stores: [{ id, name, city,
  *        date, files: [{ kind, label, size, qty, driveId }], downloaded: [kind] }] } — this week's stores only, nothing else about them
  *   GET  /api/public/print/:token/file/:storeId/:kind[?inline=1], /zip/:storeId, /zip (every store, a folder each)
@@ -120,6 +123,8 @@ export interface ApiOptions {
   publicLimits?: Partial<PublicLimitConfig>;
   /** The print desk's per-address limits (same shape; a wrong token costs more). */
   printLimits?: Partial<PublicLimitConfig>;
+  /** The live bracket page's per-address limits (it polls, so they are generous). */
+  bracketLimits?: Partial<PublicLimitConfig>;
   /** Print file downloads (server/print.ts): size caps and how many run at once. Fetches use `rosterFetch`. */
   print?: { maxFileBytes?: number; maxSheetBytes?: number; maxDownloads?: number };
   /** Roster link and Toornament fetches: DNS / transport / limits, for tests (server/roster-fetch.ts). */
@@ -255,6 +260,8 @@ export function createApi(opts: ApiOptions) {
   // The print desk's link is a bearer token like the check-in QR, but its downloads are heavy: one address gets
   // 120 requests / 10 min, a wrong token costs 10 (so ~12 guesses).
   const printLimiter = createPublicLimiter({ perIp: 120, perIpWindowMs: 10 * 60000, perStore: Infinity, perStoreWindowMs: 10 * 60000, failCost: 10, ...opts.printLimits }, now);
+  // The live bracket page polls every 15 s: one address (a venue's Wi-Fi is one) gets 120 requests a minute, a wrong token costs 10.
+  const bracketLimiter = createPublicLimiter({ perIp: 120, perIpWindowMs: 60000, perStore: Infinity, perStoreWindowMs: 60000, failCost: 10, ...opts.bracketLimits }, now);
   const printer = createPrinter({ now, fetch: opts.rosterFetch, log, ...opts.print });
 
   // Steam Guard codes: the automation's key, its idempotency keys (a server-only table) and the request webhook.
@@ -406,8 +413,8 @@ export function createApi(opts: ApiOptions) {
       stores: Object.fromEntries(
         stores.map((s) => {
           // The team code signs people in: HQ's only. So is which account HQ picked (`steam`); the store gets its login instead
-          // (and the lookup it last started, inside it).
-          const { roster: _hq, access: _code, steam: _pick, otpState: _lookups, ...rest } = s;
+          // (and the lookup it last started, inside it). The public bracket link (`publicBracket`) is HQ's to hand out.
+          const { roster: _hq, access: _code, steam: _pick, otpState: _lookups, publicBracket: _link, ...rest } = s;
           const steamLogin = steamLoginFor(s, docs.accounts, otpFor(s, today));
           return [s.id, { ...rest, ...(steamLogin ? { steamLogin } : {}), day: phonesForAdmins(rest.day) } as typeof s];
         }),
@@ -731,6 +738,9 @@ export function createApi(opts: ApiOptions) {
     // Players at the venue: no session, whoever's cookie this browser happens to carry.
     const checkin = url.pathname.match(/^\/api\/public\/checkin\/([^/]+)$/);
     if (checkin) return publicCheckIn(req, res, checkin[1]);
+    // Anyone following a bracket: the link is the key.
+    const bracket = url.pathname.match(/^\/api\/public\/bracket\/([^/]+)$/);
+    if (bracket) return publicBracket(req, res, bracket[1]);
     // Whoever downloads the week's print files: the link is the key.
     const desk = url.pathname.match(/^\/api\/public\/print\/([^/]+)(\/[^?]*)?$/);
     if (desk) return publicPrint(req, res, url, desk[1], desk[2] ?? '');
@@ -1266,6 +1276,19 @@ export function createApi(opts: ApiOptions) {
     };
   }
 
+  /** The live bracket: the link (store.publicBracket.token, switched on) shows one store's bracket — names, results, stations. No session, nothing else about the store. */
+  function publicBracket(req: IncomingMessage, res: ServerResponse, token: string) {
+    if (req.method !== 'GET') return send(res, 405, { code: 'bad-request', error: 'GET only' });
+    const ip = clientIp(req, trustProxy);
+    const wait = bracketLimiter.ipBlockedFor(ip);
+    if (wait) return tooMany(res, wait);
+    const store = storeByBracketToken(docs.stores, token);
+    bracketLimiter.attempt(ip, null, !store);
+    const event = store && docs.events[store.eventId];
+    if (!store || !event) return send(res, 404, { code: 'not-found', error: 'This bracket isn’t public right now.' });
+    return send(res, 200, publicBracketOf(store, event, Object.values(docs.stores)));
+  }
+
   /* ---------- public self check-in ---------- */
 
   const tooMany = (res: ServerResponse, wait: number) => {
@@ -1332,7 +1355,7 @@ export function createApi(opts: ApiOptions) {
         const known = e instanceof HttpError;
         const status = known ? e.status : (e as { status?: number }).status ?? 500;
         // The public links carry their token in the path: logged as ":token".
-        if (status >= 500) log('error', 'request-failed', { route: `${req.method} ${(req.url ?? '').split('?')[0].replace(/^\/api\/public\/(checkin|print)\/[^/]+/, '/api/public/$1/:token').slice(0, 200)}`, ...errorFields(e) });
+        if (status >= 500) log('error', 'request-failed', { route: `${req.method} ${(req.url ?? '').split('?')[0].replace(/^\/api\/public\/(checkin|print|bracket)\/[^/]+/, '/api/public/$1/:token').slice(0, 200)}`, ...errorFields(e) });
         if (!res.headersSent) {
           if (status === 413) res.setHeader('Connection', 'close');
           send(res, status, known ? { code: e.code, error: e.message, ...e.extra } : { code: status === 413 ? 'too-large' : 'server-error', error: status >= 500 ? 'Server error' : (e as Error).message });

@@ -12,6 +12,7 @@ import { EmptyCard } from '../components/flair.tsx';
 import { AutoCheck, ToornamentImport } from '../components/ToornamentImport.tsx';
 import { RosterImport } from '../components/RosterImport.tsx';
 import { OnSpotList } from '../components/OnSpotList.tsx';
+import { PublicBracketLink } from '../components/PublicBracketLink.tsx';
 import { ResetWinners } from './WinnersPage.tsx';
 import { useStoreName } from '../components/useStoreName.ts';
 import { onSpotByPlayer, onSpotOf, prettyPhone } from '../lib/onspot.ts';
@@ -77,6 +78,7 @@ export function StoreSetupPage({ storeId }: { storeId: string }) {
 
       <Work store={store} />
       <FinishPanel store={store} event={event} />
+      <PublicBracketLink store={store} />
       {current === 'players' && <PlayersStep store={store} event={event} campaign={campaign} onNext={() => setStep('bracket')} />}
       {current === 'bracket' && <BracketStep store={store} event={event} onBack={() => setStep('players')} />}
     </Shell>

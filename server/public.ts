@@ -1,5 +1,5 @@
 import type { Store } from '../src/lib/types.ts';
-import { CHECKIN_TOKEN } from '../src/lib/schema.ts';
+import { BRACKET_TOKEN, CHECKIN_TOKEN } from '../src/lib/schema.ts';
 import { isPhone, normalizePhone, publicName } from '../src/lib/phone.ts';
 
 /*
@@ -59,6 +59,12 @@ export function createPublicLimiter(cfg: PublicLimitConfig, now: () => number) {
 export function storeByToken(stores: Record<string, Store>, token: string): Store | undefined {
   if (!CHECKIN_TOKEN.test(token)) return undefined;
   return Object.values(stores).find((s) => s.day?.selfCheckIn?.token === token);
+}
+
+/** The store whose public bracket link carries this token and is switched on, or undefined (bad format, unknown, rotated, off). */
+export function storeByBracketToken(stores: Record<string, Store>, token: string): Store | undefined {
+  if (!BRACKET_TOKEN.test(token)) return undefined;
+  return Object.values(stores).find((s) => s.publicBracket?.on === true && s.publicBracket.token === token);
 }
 
 export type SelfCheckInResult =

@@ -42,6 +42,8 @@ export const ADMIN_CODE = /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{4}$/;
 export const MAX_STATIONS = 64;
 /** Self check-in token — the only thing in the venue QR (/c/<token>). Must match the client route. */
 export const CHECKIN_TOKEN = /^[A-Za-z0-9_-]{16,64}$/;
+/** A store's public bracket token — the only thing in its link (/b/<token>). Same shape as the check-in token. */
+export const BRACKET_TOKEN = /^[A-Za-z0-9_-]{16,64}$/;
 /** The print desk's token — the only thing in its public link (/p/<token>). Same shape as the check-in token. */
 export const PRINT_TOKEN = /^[A-Za-z0-9_-]{16,64}$/;
 /** A Google Drive file id (the /file/d/<id>/ part of a share link). */
@@ -219,6 +221,13 @@ function validateStore(c: C, s: Rec, ctx: ValidationContext) {
     c.time(a.createdAt, 'access.createdAt');
     if (typeof a.code === 'string' && ctx.admins && Object.values(ctx.admins).some((o) => o?.code === a.code)) c.bad('access.code', 'is already used by an admin');
     else if (typeof a.code === 'string' && ctx.stores && Object.values(ctx.stores).some((o) => o && o.id !== s.id && o.access?.code === a.code)) c.bad('access.code', 'is already used by another store');
+  }
+  if (s.publicBracket !== undefined && c.obj(s.publicBracket, 'publicBracket')) {
+    const b = s.publicBracket;
+    if (typeof b.token !== 'string' || !BRACKET_TOKEN.test(b.token)) c.bad('publicBracket.token', 'must be 16–64 letters, digits, _ or -');
+    else if (ctx.stores && Object.values(ctx.stores).some((o) => o && o.id !== s.id && o.publicBracket?.token === b.token)) c.bad('publicBracket.token', 'is already used by another store');
+    c.bool(b.on, 'publicBracket.on');
+    c.time(b.createdAt, 'publicBracket.createdAt');
   }
   if (s.steam !== undefined && c.obj(s.steam, 'steam')) {
     const st = s.steam;
