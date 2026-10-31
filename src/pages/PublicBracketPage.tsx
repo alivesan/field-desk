@@ -319,7 +319,7 @@ function Bracket({ view, fetchedAt, stale }: { view: PublicBracketView; fetchedA
         <Head view={view} fetchedAt={fetchedAt} stale={stale} />
         <main className="pb-plain-inner">
           <h2 className="pb-empty">The bracket isn’t out yet.</h2>
-          <p className="pb-deck">It appears here as soon as the draw is made. This page refreshes by itself.</p>
+          <p className="pb-deck">This page updates by itself — keep it open and the bracket appears here the moment it’s out.</p>
         </main>
       </div>
     );
