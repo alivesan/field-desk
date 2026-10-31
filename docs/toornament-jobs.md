@@ -90,25 +90,49 @@ Base `FIELD_DESK_QUEUE_URL = https://<host>/api/v1/toornament`, so the automatio
 `POST /api/v1/toornament/worker/v1/jobs/{claim,heartbeat,checkpoint,ack}`. Bearer key with scope
 `toornament-jobs:write`, configured the same way as the Steam keys (never logged, never in a response).
 
-- **claim** `{ workerId, scopes: [{ tournamentId, stageId }] }` → `null` or `{ job, claimToken, attempt,
+- **claim** `{ workerId, scopes: [{ tournamentId, stageId }] }` (1–50 scopes) → `null` or `{ job, claimToken, attempt,
   recoveryRequired }`. Picks the oldest claimable job in an asked scope whose store has sync on: state `pending`,
-  `next_attempt_at` passed, no other job of the same stage `claimed`, and no earlier revision of the same match
-  still `pending`, `claimed` or `needs-human`. `recoveryRequired` is true when an earlier attempt of this job had its
-  lease expire or reached a checkpoint.
-- **heartbeat** `{ jobId, payloadHash, revision, claimToken, workerId }` → extends the lease (2 minutes from now).
-  A stale token, a wrong hash or revision, or a job no longer `claimed` → 409.
-- **checkpoint** same identity plus `phase: "before-save"` → records `checkpoint_at` for this attempt. 409 as above.
-- **ack** same identity plus `status: "done" | "failed" | "needs-human" | "retry"`, `code` (`[a-z0-9-]{1,64}`), optional
-  `nextAttemptAt`, `observedRemoteIds` (strings). `retry` is refused (409) once this attempt has a checkpoint: an
-  uncertain save never goes back to `pending` by itself. `retry` → `pending` with `next_attempt_at`, capped at 5
-  attempts (then `failed`, code `too-many-attempts`).
-- **Lease expiry** (checked on every claim, and every minute): a `claimed` job whose lease ran out goes back to
+  `next_attempt_at` passed, no other job of the same stage (tournament + stage, any store) `claimed`, and no earlier
+  revision of the same match still `pending`, `claimed` or `needs-human`. Select and update are one `BEGIN IMMEDIATE`
+  transaction. `recoveryRequired` is true when an earlier attempt of this job had its lease expire or reached a
+  checkpoint (the history holds `lease-expired`, `lease-expired-after-checkpoint`, `checkpoint` or `retry-by-hq`).
+- **heartbeat** `{ jobId, payloadHash, revision, claimToken, workerId }` → `{ ok: true, leaseUntil }`, extends the lease
+  (2 minutes from now). A job no longer `claimed`, a stale token, a wrong worker, hash or revision → 409, `{ error, message }`
+  with the fixed `error` `not_claimed`, `stale_token`, `wrong_worker`, `wrong_hash` or `wrong_revision` (checked in that
+  order); an unknown job id → 404 `job_not_found`.
+- **checkpoint** same identity plus `phase: "before-save"` → `{ ok: true }`, records `checkpoint_at` for this attempt (saying it
+  again changes nothing). 409 as above.
+- **ack** same identity plus `status: "done" | "failed" | "needs-human" | "retry"`, `code`, optional `nextAttemptAt` (ISO
+  time), `observedRemoteIds` (strings) → `{ ok: true, state, code }` with the state the job is in now. `code` is
+  `[a-z0-9-]{1,64}`, or `[A-Z][A-Z0-9_]{0,63}` (the automation’s client sends its codes in that style, e.g. `VERIFIED`); `pending`
+  is accepted as another word for `retry` (the client calls a transient failure `pending`). `retry` is refused (409
+  `checkpoint_reached`) once this attempt has a checkpoint: an uncertain save never goes back to `pending` by itself.
+  `retry` → `pending` with `next_attempt_at` (`nextAttemptAt`, kept between now and an hour ahead; else 1 s, 2 s, 4 s … up to
+  60 s), capped at 5 attempts: a retry after the fifth attempt, and a job that has used five attempts and is claimable again,
+  becomes `failed`, code `too-many-attempts`. `observedRemoteIds`: at most 100 printable strings are accepted; the history line
+  keeps the first 10 that are at most 40 characters.
+- Input is checked strictly (types, lengths, the id formats): anything else is 400 `invalid_body`; a body over 16 KB is 413. No key
+  → 401 `unauthorized`; `FD_TOORNAMENT_JOBS_KEY` unset → 503 `not_configured`; another method → 405. Errors are the Steam
+  routes’ shape `{ error, message }`.
+- **Lease expiry** (checked on every claim, heartbeat, checkpoint and ack, and every minute — a worker whose lease ran out gets 409 `not_claimed`): a `claimed` job whose lease ran out goes back to
   `pending` (recoveryRequired next time) if it has no checkpoint this attempt, else to `needs-human`, code
   `lease-expired-after-checkpoint`.
 - Every state change appends `{ at, state, code, attempt, workerId? }` to `history`. Codes, ids and timestamps only:
   never OTPs, cookies, passwords or page content.
 
 States: `pending`, `claimed`, `done`, `failed`, `needs-human`, `cancelled`.
+
+### How the worker connects
+
+- **Base URL:** `https://<host>/api/v1/toornament` (the automation’s `FIELD_DESK_QUEUE_URL`), so it posts to
+  `<base>/worker/v1/jobs/claim` etc.
+- **Scope:** `toornament-jobs:write`. Like the Steam keys, the scope is a server environment variable holding one bearer token:
+  `FD_TOORNAMENT_JOBS_KEY` (in `deploy/.env`, passed on by `deploy/docker-compose.yml`; `createApi({ toornamentWorker: { apiKey } })`
+  in tests). There is no screen for it: HQ (whoever runs the server) makes a long random value (`openssl rand -base64 32`), puts it in
+  `deploy/.env`, restarts, and gives the same value to the automation as `FIELD_DESK_QUEUE_KEY`. It is the only credential those
+  routes accept and it is accepted nowhere else (not the Steam key, not a session). Rotate it by changing the variable and restarting.
+  Unset = the routes answer 503. It is never logged and never in a response.
+- Nothing is claimable until a store’s sync is on (`store.toornament.sync`) and a match is finished there.
 
 ## HQ
 

@@ -25,6 +25,7 @@ import { createPrinter } from './print.ts';
 import { fetchToornament } from './toornament-fetch.ts';
 import { canonical } from './canonical.ts';
 import { createJobStore } from './toornament-jobs.ts';
+import { checkAck, checkCheckpoint, checkClaim, checkIdentity, toornamentWorkerConfig, workerBearerMatches, WORKER_BODY_MAX, type ToornamentWorkerOptions } from './toornament-worker.ts';
 import { createToornamentAuto, type ToornamentAutoOptions } from './toornament-auto.ts';
 import { lanOrigins, listensOnAll } from './lan.ts';
 import { bearerMatches, createKeyStore, createOtpRequests, otpFingerprint, steamOtpConfig, type OtpWho, type SteamOtpOptions } from './steam-otp.ts';
@@ -88,6 +89,13 @@ export { ADMIN_CODE };
  *   GET  /api/v1/steam/accounts   scope steam-accounts:read   the accounts and who holds each now (never a code)
  *   POST /api/v1/steam/otp        scope steam-otp:write       { accountUsername?, accountEmail?, code, receivedAt, requestId? }
  *
+ * The Toornament browser worker (server/toornament-worker.ts, server/toornament-jobs.ts, docs/toornament-jobs.md) has its own
+ * bearer key (FD_TOORNAMENT_JOBS_KEY, scope toornament-jobs:write) and the same error shape; no other credential is accepted there:
+ *   POST /api/v1/toornament/worker/v1/jobs/claim       { workerId, scopes: [{ tournamentId, stageId }] } -> null | { job, claimToken, attempt, recoveryRequired }
+ *   POST /api/v1/toornament/worker/v1/jobs/heartbeat   { jobId, payloadHash, revision, claimToken, workerId } -> { ok, leaseUntil }   409 = not your claim
+ *   POST /api/v1/toornament/worker/v1/jobs/checkpoint  the same + phase: "before-save" -> { ok }
+ *   POST /api/v1/toornament/worker/v1/jobs/ack         the same + status: done | failed | needs-human | retry, code, nextAttemptAt?, observedRemoteIds? -> { ok, state, code }
+ *
  * Public — no session, for players at the venue (server/public.ts has the limits):
  *   GET  /api/public/checkin/:token   { store, campaign, date, open, bracketPath? } — nothing about players; bracketPath ("/b/<token>") only while the store's public bracket is on
  *   POST /api/public/checkin/:token   { phone } -> { ok, name: "First L.", already }
@@ -135,6 +143,8 @@ export interface ApiOptions {
   toornamentAuto?: ToornamentAutoOptions;
   /** The Steam OTP automation (FD_STEAM_API_KEY, FD_STEAM_WEBHOOK_URL, FD_STEAM_WEBHOOK_SECRET); the environment fills what is left out. */
   steam?: SteamOtpOptions;
+  /** The Toornament browser worker (FD_TOORNAMENT_JOBS_KEY); the environment fills what is left out. */
+  toornamentWorker?: ToornamentWorkerOptions;
   /** How often open event streams are pinged and their sessions re-checked. Default 20 s. */
   streamCheckMs?: number;
   /** Clock, for tests. */
@@ -246,7 +256,8 @@ export function createApi(opts: ApiOptions) {
   const findBatch = db.prepare('SELECT seq, hash FROM batches WHERE id = ?');
   const addBatch = db.prepare('INSERT INTO batches (id, seq, at, hash) VALUES (?, ?, ?, ?)');
 
-  const toornamentJobs = createJobStore(db, now, log);
+  const toornamentJobs = createJobStore(db, now, log, (storeId) => docs.stores[storeId]?.toornament?.sync?.on === true);
+  const workerCfg = toornamentWorkerConfig(opts.toornamentWorker ?? {});
   const sessions = createSessions(db, now);
   sessions.prune();
   const photos = createPhotoStore(db, path.join(dataDir, 'photos'), now);
@@ -457,6 +468,15 @@ export function createApi(opts: ApiOptions) {
     otpKeys.prune();
   }, 3600000);
   pruner.unref();
+  // A claim whose worker went quiet is given back every minute (and by every worker call, first thing).
+  const leaseSweeper = setInterval(() => {
+    try {
+      toornamentJobs.expireLeases();
+    } catch (e) {
+      log('error', 'toornament-lease-sweep-failed', { errorName: e instanceof Error ? e.name : 'unknown' });
+    }
+  }, 60000);
+  leaseSweeper.unref();
 
   /** A retry of something already committed returns its seq; reusing an id for a different payload is refused. */
   function seen(key: string, hash: string) {
@@ -764,6 +784,8 @@ export function createApi(opts: ApiOptions) {
       if (host === null || host !== own) return send(res, 403, { code: 'forbidden', error: 'Cross-origin request refused' });
     }
 
+    // The Toornament browser worker: its own key (the Steam key is no use here), the Steam routes' error shape.
+    if (url.pathname.startsWith('/api/v1/toornament/')) return toornamentWorkerApi(req, res, url);
     // The Steam OTP automation: its own key and error shape; a session cookie means nothing here.
     if (url.pathname.startsWith('/api/v1/')) return steamApi(req, res, url);
 
@@ -1115,6 +1137,72 @@ export function createApi(opts: ApiOptions) {
     }
   }
 
+  /* ---------- the Toornament browser worker (docs/toornament-jobs.md, "The worker's routes") ---------- */
+
+  /**
+   * POST /api/v1/toornament/worker/v1/jobs/{claim,heartbeat,checkpoint,ack}. Bearer key FD_TOORNAMENT_JOBS_KEY (scope
+   * toornament-jobs:write), the error shape { error, message } of the Steam routes. 409 = this claim is not (or no longer)
+   * the worker's; the answers are JSON (the client reads every one).
+   */
+  async function toornamentWorkerApi(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
+    try {
+      const m = /^\/api\/v1\/toornament\/worker\/v1\/jobs\/(claim|heartbeat|checkpoint|ack)$/.exec(url.pathname);
+      if (!m) return steamFail(res, 404, 'not_found', 'No such route.');
+      if (!workerCfg.apiKey) return steamFail(res, 503, 'not_configured', 'The Toornament worker API isn’t set up on this server.');
+      // The worker's key is the only thing accepted here: not a cookie, not a session, not the Steam key.
+      if (!workerBearerMatches(req.headers.authorization, workerCfg.apiKey)) return steamFail(res, 401, 'unauthorized', 'A valid API key is needed.');
+      if (req.method !== 'POST') {
+        res.setHeader('Allow', 'POST');
+        return steamFail(res, 405, 'method_not_allowed', 'That method isn’t allowed on this route.');
+      }
+      const raw = await readRaw(req, WORKER_BODY_MAX);
+      let body: unknown;
+      try {
+        body = safeParse(raw.toString('utf8'));
+      } catch {
+        return steamFail(res, 400, 'invalid_body', 'Send a JSON body.');
+      }
+      const refuse = (r: { status: number; code: string }) => steamFail(res, r.status, r.code, r.status === 404 ? 'No such job.' : 'This claim is not the worker’s current claim of the job.');
+      switch (m[1]) {
+        case 'claim': {
+          const c = checkClaim(body);
+          if (!c.ok) return steamFail(res, 400, 'invalid_body', c.message);
+          return send(res, 200, toornamentJobs.claim(c.value.workerId, c.value.scopes)); // null when nothing is claimable
+        }
+        case 'heartbeat': {
+          const c = checkIdentity(body);
+          if (!c.ok) return steamFail(res, 400, 'invalid_body', c.message);
+          const r = toornamentJobs.heartbeat(c.value);
+          return r.ok ? send(res, 200, { ok: true, leaseUntil: new Date(r.leaseUntil).toISOString() }) : refuse(r);
+        }
+        case 'checkpoint': {
+          const c = checkCheckpoint(body);
+          if (!c.ok) return steamFail(res, 400, 'invalid_body', c.message);
+          const r = toornamentJobs.checkpoint(c.value);
+          return r.ok ? send(res, 200, { ok: true }) : refuse(r);
+        }
+        default: {
+          const c = checkAck(body);
+          if (!c.ok) return steamFail(res, 400, 'invalid_body', c.message);
+          const r = toornamentJobs.ack(c.value.id, c.value.ack);
+          return r.ok ? send(res, 200, { ok: true, state: r.state, code: r.code }) : refuse(r);
+        }
+      }
+    } catch (e) {
+      if (e instanceof HttpError && e.status === 413) {
+        res.setHeader('Connection', 'close');
+        return steamFail(res, 413, 'body_too_large', 'The body is over 16 KB.');
+      }
+      // Only the kind of failure: an error's own message can quote the request.
+      log('error', 'toornament-worker-failed', { errorName: e instanceof Error ? e.name : 'unknown' });
+      if (res.headersSent) {
+        res.destroy();
+        return true;
+      }
+      return steamFail(res, 500, 'internal_error', 'Something went wrong on the server.');
+    }
+  }
+
   /** GET /api/v1/steam/accounts — a bare array; never a code. */
   function steamAccounts(res: ServerResponse) {
     const world = { events: docs.events, stores: docs.stores };
@@ -1420,6 +1508,7 @@ export function createApi(opts: ApiOptions) {
       otpRequests.close();
       clearInterval(ticker);
       clearInterval(pruner);
+      clearInterval(leaseSweeper);
       for (const res of streams.keys()) res.end();
       streams.clear();
       try {
