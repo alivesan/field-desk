@@ -164,6 +164,13 @@ export interface SelfCheckIn {
   openedAt?: string;
 }
 
+/** A store's public live bracket (/b/<token>): anyone with the link follows the bracket, names only. HQ hands the link out, so admins never receive it. */
+export interface PublicBracket {
+  token: string; // 16+ url-safe random chars — the only thing in the link
+  on: boolean;
+  createdAt: string; // ISO — when this token was made
+}
+
 /** Where HQ got this store's player list from (HQ-only metadata; the players themselves are in day.players). */
 export interface RosterSource {
   kind: 'upload' | 'link' | 'paste';
@@ -248,6 +255,7 @@ export interface Store {
   submissions?: Submission[]; // append-only revision history, newest last (server commands only)
   roster?: RosterSource; // HQ-only
   access?: StoreAccess; // HQ-only: the store team's shared sign-in code (never sent to admins)
+  publicBracket?: PublicBracket; // HQ-only: the no-sign-in live bracket link (/b/<token>) for players and the venue
   print?: PrintKit; // the store's print files (HQ imports them from the creatives sheet); the store team sees them
   printDownloads?: Partial<Record<PrintKind, PrintDownload>>; // who on the store team saved each file (admin-writable)
   toornament?: ToornamentSource; // HQ-only
