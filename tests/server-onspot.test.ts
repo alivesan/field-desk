@@ -143,3 +143,42 @@ test('an admin can’t register walk-ins at a store that isn’t theirs', async 
     await t.close();
   }
 });
+
+test('players.edit: the desk gives a no-number player a number and still only sees its last 4 until check-in; HQ sees it and can change any', async () => {
+  const { t, admin, hq, cmd, day } = await setup();
+  try {
+    assert.equal((await cmd(hq, 'hq-set-edit0001', { type: 'players.set', base: 0, players })).status, 200);
+    const add = await cmd(admin, 'desk-edit-0001', { type: 'players.edit', base: 1, playerId: 'p2', phone: '+91 98200 33333', ign: 'Bil' });
+    assert.equal(add.status, 200, JSON.stringify(add.body));
+    // the admin's view: p2 isn't checked in, so only the end of the number he just typed comes back
+    let seen = (await day(admin)).players.find((p: { id: string }) => p.id === 'p2');
+    assert.deepEqual({ phone: seen.phone, phoneEnd: seen.phoneEnd, ign: seen.ign }, { phone: undefined, phoneEnd: '3333', ign: 'Bil' });
+    seen = (await day(hq)).players.find((p: { id: string }) => p.id === 'p2');
+    assert.deepEqual({ phone: seen.phone, phoneEnd: seen.phoneEnd }, { phone: '9820033333', phoneEnd: undefined });
+
+    // the desk can't change a number that's there (nor rename), nor take Asha's; HQ can
+    const v = (await day()).version;
+    for (const [id, c] of [
+      ['desk-edit-0002', { playerId: 'p2', phone: '9820099999' }],
+      ['desk-edit-0003', { playerId: 'p1', phone: '' }],
+      ['desk-edit-0004', { playerId: 'p2', name: 'Bilal K.' }],
+    ] as const) {
+      const r = await cmd(admin, id, { type: 'players.edit', base: v, ...c });
+      assert.equal(r.status, 403, `${id}: ${JSON.stringify(r.body)}`);
+      assert.match(r.body.error, /Only HQ can/);
+    }
+    const dup = await cmd(hq, 'hq-edit-000001', { type: 'players.edit', base: v, playerId: 'p2', phone: '98200 11111' });
+    assert.equal(dup.status, 409);
+    assert.match(dup.body.error, /already on the list as Asha R\./);
+    const byHq = await cmd(hq, 'hq-edit-000002', { type: 'players.edit', base: v, playerId: 'p2', name: 'Bilal K.', phone: '9820044444' });
+    assert.equal(byHq.status, 200, JSON.stringify(byHq.body));
+    assert.equal((await day()).players.find((p: { id: string }) => p.id === 'p2').name, 'Bilal K.');
+
+    // checked in, the admin sees the whole number
+    const ci = await t.json('/api/batch', { method: 'POST', cookie: admin, body: { id: 'ci-edit-000001', ops: [{ k: 'stores', id: 's1', p: ['day', 'checkIn', 'p2'], v: '2026-10-24T09:00:00.000Z' }] } });
+    assert.equal(ci.status, 200, JSON.stringify(ci.body));
+    assert.equal((await day(admin)).players.find((p: { id: string }) => p.id === 'p2').phone, '9820044444');
+  } finally {
+    await t.close();
+  }
+});

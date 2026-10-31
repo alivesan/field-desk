@@ -291,6 +291,8 @@ function describe(cmd: Command, day: MatchDay) {
       return 'Reset the bracket';
     case 'players.onspot':
       return `Register ${cmd.name.trim() || 'a player'} on the spot`;
+    case 'players.edit':
+      return `Edit ${day.players.find((p) => p.id === cmd.playerId)?.name ?? 'a player'}`;
     case 'winners.set':
       return 'Save the winner details';
     case 'onspot.mark': {
@@ -322,8 +324,17 @@ function WorkNotices({
   if (!refused.length && !local.length && !waiting.length) return null;
   const regs = waiting.filter((w) => w.cmd?.type === 'players.onspot').length;
   const saves = waiting.filter((w) => w.cmd?.type === 'winners.set').length;
+  const edits = waiting.filter((w) => w.cmd?.type === 'players.edit').length;
   const noun = (n: number) =>
-    regs === n ? `registration${n === 1 ? '' : 's'}` : saves === n ? `winner-details save${n === 1 ? '' : 's'}` : regs || saves ? `action${n === 1 ? '' : 's'}` : `match action${n === 1 ? '' : 's'}`;
+    regs === n
+      ? `registration${n === 1 ? '' : 's'}`
+      : saves === n
+        ? `winner-details save${n === 1 ? '' : 's'}`
+        : edits === n
+          ? `player edit${n === 1 ? '' : 's'}`
+          : regs || saves || edits
+            ? `action${n === 1 ? '' : 's'}`
+            : `match action${n === 1 ? '' : 's'}`;
   return (
     <div className="day-notices" role="status">
       {local.map((x) => (
@@ -491,6 +502,7 @@ function CheckIn({
         day={day}
         hq={hq}
         onSpot={open ? onSpot.get(open) : undefined}
+        onSave={(p, edit) => cmds.attempt({ type: 'players.edit', base: cmds.base, playerId: p.id, ...edit })}
         // An admin checking someone in stays on the sheet: the number arrives with the server's confirmation.
         onToggle={async (p) => {
           const wasIn = !!day.checkIn[p.id];

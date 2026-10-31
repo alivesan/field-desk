@@ -91,6 +91,12 @@ export function validateCommand(input: unknown): Command {
         if (c[k] !== undefined && (typeof c[k] !== 'string' || (c[k] as string).length > 200)) throw new CommandError('invalid', `${k} must be short text`);
       if (c.sameName !== undefined && c.sameName !== 'different') throw new CommandError('invalid', 'sameName must be "different"');
       break;
+    case 'players.edit':
+      str('playerId');
+      for (const k of ['name', 'ign', 'phone'])
+        if (c[k] !== undefined && (typeof c[k] !== 'string' || (c[k] as string).length > 200)) throw new CommandError('invalid', `${k} must be short text`);
+      if (c.name === undefined && c.ign === undefined && c.phone === undefined) throw new CommandError('invalid', 'name, ign or phone is needed');
+      break;
     case 'onspot.mark':
       str('entryId');
       if (typeof c.done !== 'boolean') throw new CommandError('invalid', 'done must be true/false');
@@ -101,6 +107,7 @@ export function validateCommand(input: unknown): Command {
       if (c.alsoPlayers !== undefined && typeof c.alsoPlayers !== 'boolean') throw new CommandError('invalid', 'alsoPlayers must be true/false');
       break;
     case 'winners.set':
+    case 'winners.manual':
       for (const k of ['winner', 'runnerUp']) {
         const w = c[k] as Record<string, unknown> | null;
         if (!w || typeof w !== 'object' || Array.isArray(w)) throw new CommandError('invalid', `${k} must be an object`);

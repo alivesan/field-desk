@@ -284,12 +284,12 @@ function StoreTasks({ store, event, now, index }: { store: Store; event: Tournam
             {step(!!q?.champion, 'Champion', q?.champion ? names[q.champion] : '—')}
             {(q?.champion || day.winners) &&
               step(
-                ws.kind === 'saved' && !ws.missing,
-                ws.kind === 'saved' && !ws.missing ? 'Winners: details saved ✓' : 'Winner details',
+                (ws.kind === 'saved' || ws.kind === 'manual') && !ws.missing,
+                (ws.kind === 'saved' || ws.kind === 'manual') && !ws.missing ? 'Winners: details saved ✓' : 'Winner details',
                 ws.kind === 'stale'
                   ? 'Saved details no longer match the bracket — open match day'
-                  : ws.kind === 'saved'
-                    ? `${ws.missing ? 'Still needs a real name or phone' : 'Winner and runner-up'} · saved ${fmtTime(day.winners!.updatedAt)} by ${day.winners!.by}`
+                  : ws.kind === 'saved' || ws.kind === 'manual'
+                    ? `${ws.missing ? 'Still needs a real name or phone' : 'Winner and runner-up'}${ws.kind === 'manual' ? ' · entered by HQ' : ''} · saved ${fmtTime(day.winners!.updatedAt)} by ${day.winners!.by}`
                     : 'Collect the winner’s and runner-up’s name, phone, email and Instagram',
                 ws.kind === 'stale' || (ws.kind === 'saved' && ws.missing),
               )}

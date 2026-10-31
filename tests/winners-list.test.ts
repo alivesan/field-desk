@@ -145,10 +145,10 @@ test('CSV: BOM, the agreed header, one line per row, phones spaced, handle bare'
   const csv = winnersCsv(winnerRows(state(s)));
   assert.ok(csv.startsWith('\uFEFF'));
   const lines = csv.slice(1).split('\r\n');
-  assert.equal(lines[0], 'Campaign,Store,City,State,Event date (yyyy-mm-dd),Place,Real name,In-game name,Phone,Email,Instagram (@handle),Status,Saved at,Saved by');
+  assert.equal(lines[0], 'Campaign,Store,City,State,Event date (yyyy-mm-dd),Place,Real name,In-game name,Phone,Email,Instagram (@handle),Status,Saved at,Saved by,Source');
   assert.equal(lines[0], CSV_HEADER.join(','));
   assert.equal(lines.length, 4); // header, winner, runner-up, trailing newline
-  assert.match(lines[1], /^Campus Clash,San Infotech,Mumbai,Maharashtra,2026-10-24,Winner,Asha Rao,ign,98200 11111,x@example\.com,asha\.rao,Complete,2026-10-24 \d\d:\d\d,Priya \(admin\)$/);
+  assert.match(lines[1], /^Campus Clash,San Infotech,Mumbai,Maharashtra,2026-10-24,Winner,Asha Rao,ign,98200 11111,x@example\.com,asha\.rao,Complete,2026-10-24 \d\d:\d\d,Priya \(admin\),Bracket$/);
   assert.match(lines[2], /,Runner-up,Rohan Mehta,/);
 });
 
@@ -159,8 +159,8 @@ test('CSV: quoting and formula guard; unfinished stores are listed with their st
   const csv = winnersCsv(winnerRows(state(s, open, part)));
   assert.match(csv, /"Chai, ""Chat"" & Co","'=HYPERLINK\(""x""\)"/);
   assert.match(csv, /"'\+91 Asha\nRao"/);
-  assert.match(csv, /,'-cmd\r\n/);
-  assert.match(csv, /Open Store,Mumbai,,2026-10-24,Winner,,,,,,Final not played,,\r\n/);
+  assert.match(csv, /,'-cmd,Bracket\r\n/);
+  assert.match(csv, /Open Store,Mumbai,,2026-10-24,Winner,,,,,,Final not played,,,Bracket\r\n/);
   assert.match(csv, /Partial — missing phone, email/);
   assert.equal(csv.split('\r\n').length, 1 + 6 + 1 - 0);
 });

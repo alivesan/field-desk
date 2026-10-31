@@ -227,6 +227,9 @@ export function readParticipants(json: unknown): ToornamentParticipant[] {
 /** Same name, ignoring case and spacing — how Toornament names are matched to the store's players. */
 export const nameKey = (name: string) => name.normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
 
+/** nameKey without a trailing " (2)", " (3)"… — the tag the desk form gives a second person with the same name (differentName). */
+export const baseKey = (name: string) => nameKey(name).replace(/ \(\d+\)$/, '');
+
 /** Names unique by nameKey: a repeat becomes "Name (2)" (Field Desk refuses two players with one name). */
 function uniqueNames(names: string[]): { names: string[]; renamed: string[] } {
   const seen = new Map<string, number>();
@@ -440,6 +443,12 @@ export interface ImportPlan {
  * else is added without a phone. Goes to the server as one bracket.load { players, pairs } —
  * atomic, and refused if the store changed.
  *
+ * Someone the desk had to register as "Rohit Rajan (2)" — to give a player without a number one —
+ * is Toornament's "Rohit Rajan" when Toornament doesn't have the "(2)" name itself (baseKey): if the
+ * original is gone, or is on the list without a phone, the one with the phone is used — id, phone and
+ * check-in — and takes Toornament's name. Nothing else about exact and in-game-name matches changes,
+ * and a guess between equal candidates is never made.
+ *
  * Walk-ins (opts.onSpot = the store's day.onSpot): those on the list match like everyone else; a
  * registration whose player has since left the list (an earlier import) is matched last, by name
  * then IGN, and comes back with its id, phone and IGN. Walk-ins Toornament doesn't have are
@@ -471,21 +480,50 @@ export function planImport(bracket: Pick<StageBracket, 'players' | 'pairs'>, exi
   const matched: Player[] = [];
   const added: Player[] = [];
   const idByName = new Map<string, string>();
-  // Names first, for every Toornament name — so a gamertag that happens to be someone's IGN
-  // can't take a player whose own name comes later in the list. Then in-game names; then the
-  // same two for walk-ins no longer on the list.
+  const theirs = new Set(bracket.players.map(nameKey));
   const found = new Map<number, Player>();
-  for (const by of [byName(existing), byIgn(existing), byName(restored), byIgn(restored)])
+  const byBase = new Set<number>(); // matched through baseKey: they take Toornament's name
+  const claim = (by: Map<string, Player>) =>
     bracket.players.forEach((name, i) => {
       const old = found.has(i) ? undefined : by.get(nameKey(name));
       if (!old || used.has(old.id)) return;
       used.add(old.id);
       found.set(i, old);
     });
+  // "Rohit Rajan (2)" for Toornament's "Rohit Rajan": prefer the one with a phone, else the only one. Not someone Toornament has under their own name.
+  const sameBase = (list: Player[], name: string) => list.filter((c) => !used.has(c.id) && baseKey(c.name) === nameKey(name) && !theirs.has(nameKey(c.name)));
+  const guess = (list: Player[], name: string) => {
+    const all = sameBase(list, name);
+    const withPhone = all.filter((c) => c.phone);
+    return withPhone.length === 1 ? withPhone[0] : !withPhone.length && all.length === 1 ? all[0] : undefined;
+  };
+  // Names first, for every Toornament name — so a gamertag that happens to be someone's IGN
+  // can't take a player whose own name comes later in the list.
+  claim(byName(existing));
+  // An exact match without a phone, while a "(2)" of the same name has one: that is the person the desk registered with a number.
+  found.forEach((old, i) => {
+    if (old.phone) return;
+    const [twin, ...more] = sameBase(existing, bracket.players[i]).filter((c) => c.phone);
+    if (!twin || more.length) return;
+    used.delete(old.id);
+    used.add(twin.id);
+    found.set(i, twin);
+    byBase.add(i);
+  });
+  // Then in-game names; then the same two for walk-ins no longer on the list; then the base-name guess for whoever is left.
+  for (const by of [byIgn(existing), byName(restored), byIgn(restored)]) claim(by);
+  for (const list of [existing, restored])
+    bracket.players.forEach((name, i) => {
+      const twin = found.has(i) ? undefined : guess(list, name);
+      if (!twin) return;
+      used.add(twin.id);
+      found.set(i, twin);
+      byBase.add(i);
+    });
   const players = bracket.players.map((name, i): Player => {
     const old = found.get(i);
     if (old) {
-      const p: Player = { id: old.id, name: old.name, seed: i + 1 };
+      const p: Player = { id: old.id, name: byBase.has(i) ? name.replace(/\s+/g, ' ').trim() : old.name, seed: i + 1 };
       if (old.phone) p.phone = old.phone;
       if (old.ign) p.ign = old.ign;
       matched.push(p);

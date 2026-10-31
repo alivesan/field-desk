@@ -482,6 +482,86 @@ test('walk-ins whose player left the list earlier come back from their registrat
   assert.equal(notYet.players.length, 2);
 });
 
+/* ---------- “Rohit Rajan (2)” is Toornament’s “Rohit Rajan” ---------- */
+
+const twins = (...more: Player[]) => {
+  const { store } = storeWithCsv();
+  return { ...store, day: { ...store.day, players: [...store.day.players, ...more] } };
+};
+
+test('base name: the original was deleted, the “(2)” with the number is Toornament’s “Rohit Rajan” — phone, check-in and walk-in record kept, named as on Toornament', () => {
+  const store = withWalkIn(storeWithCsv().store, 'Rohit Rajan (2)', '9820077777');
+  const two = store.day.players.find((p) => p.name === 'Rohit Rajan (2)')!;
+  const plan = planImport({ players: ['asha RAO', 'Rohit Rajan'], pairs: [['asha RAO', 'Rohit Rajan']] }, store.day.players, { onSpot: store.day.onSpot });
+  assert.deepEqual(plan.added, []);
+  const rohit = plan.players[1];
+  assert.deepEqual([rohit.id, rohit.name, rohit.phone, rohit.seed], [two.id, 'Rohit Rajan', '9820077777', 2]);
+  assert.deepEqual(plan.matched.map((p) => p.id), [plan.players[0].id, two.id]);
+  assert.deepEqual(plan.pairs, [[plan.players[0].id, two.id]]);
+  assert.deepEqual(plan.onSpotFound.map((f) => [f.entry.playerId, f.player.name]), [[two.id, 'Rohit Rajan']]);
+  const after = applyCommand(store, { type: 'bracket.load', base: dayVersion(store), players: plan.players, pairs: plan.pairs }, ctx());
+  assert.ok(after.day.checkIn[two.id], 'still checked in');
+  assert.equal(after.day.players.find((p) => p.id === two.id)!.phone, '9820077777');
+});
+
+test('base name: both are still on the list — the one with the number is used, the number-less duplicate is dropped', () => {
+  const original = csvPlayer('Rohit Rajan', undefined, 5);
+  const two: Player = { ...csvPlayer('Rohit Rajan (2)', '9820077777', 6), ign: 'RoRa' };
+  const plan = planImport({ players: ['asha RAO', 'Rohit Rajan'], pairs: [['asha RAO', 'Rohit Rajan']] }, twins(original, two).day.players);
+  assert.deepEqual(plan.players.map((p) => [p.id, p.name, p.phone, p.ign]), [
+    [playerIdFor('9820011111', 'asha  RAO'), 'asha RAO', '9820011111', undefined],
+    [two.id, 'Rohit Rajan', '9820077777', 'RoRa'],
+  ]);
+  assert.ok(plan.dropped.some((p) => p.id === original.id), 'the duplicate without a number is a plain duplicate');
+  assert.ok(!plan.dropped.some((p) => p.id === two.id) && !plan.added.length);
+  // the other way round nothing changes: Toornament’s name goes to the player with that exact name
+  const keep = planImport({ players: ['asha RAO', 'Rohit Rajan'], pairs: null }, twins(csvPlayer('Rohit Rajan', '9820066666', 5), csvPlayer('Rohit Rajan (2)', undefined, 6)).day.players);
+  assert.equal(keep.players[1].phone, '9820066666');
+  assert.ok(keep.dropped.some((p) => p.name === 'Rohit Rajan (2)'));
+});
+
+test('base name: two different people on Toornament as “Rohit Rajan” and “Rohit Rajan (2)” each match exactly, unchanged', () => {
+  const original = csvPlayer('Rohit Rajan', undefined, 5);
+  const two = csvPlayer('Rohit Rajan (2)', '9820077777', 6);
+  const plan = planImport({ players: ['Rohit Rajan', 'Rohit Rajan (2)'], pairs: [['Rohit Rajan', 'Rohit Rajan (2)']] }, twins(original, two).day.players);
+  assert.deepEqual(plan.players.map((p) => [p.id, p.name, p.phone]), [[original.id, 'Rohit Rajan', undefined], [two.id, 'Rohit Rajan (2)', '9820077777']]);
+  assert.deepEqual(plan.added, []);
+  assert.deepEqual(plan.dropped.map((p) => p.name), ['asha RAO', 'Rohan Mehta', 'Kabir Singh', 'Zoya Ali']);
+});
+
+test('base name: no guess between candidates — several without numbers, or several with — the name is added as before', () => {
+  const run = (...more: Player[]) => planImport({ players: ['Rohit Rajan', 'asha RAO'], pairs: null }, twins(...more).day.players);
+  const none = run(csvPlayer('Rohit Rajan (2)', undefined, 5), csvPlayer('Rohit Rajan (3)', undefined, 6));
+  assert.deepEqual(none.added.map((p) => p.name), ['Rohit Rajan']);
+  assert.ok(none.dropped.some((p) => p.name === 'Rohit Rajan (2)') && none.dropped.some((p) => p.name === 'Rohit Rajan (3)'));
+  const phones = run(csvPlayer('Rohit Rajan (2)', '9820077777', 5), csvPlayer('Rohit Rajan (3)', '9820088888', 6));
+  assert.deepEqual(phones.added.map((p) => p.name), ['Rohit Rajan']);
+  // an exact match without a number stays when two “(n)” have numbers
+  const stays = run(csvPlayer('Rohit Rajan', undefined, 5), csvPlayer('Rohit Rajan (2)', '9820077777', 6), csvPlayer('Rohit Rajan (3)', '9820088888', 7));
+  assert.deepEqual(stays.added, []);
+  assert.equal(stays.players[0].id, playerIdFor(undefined, 'Rohit Rajan'));
+  // one with a number beats one without; a single one without is used
+  const pick = run(csvPlayer('Rohit Rajan (2)', undefined, 5), csvPlayer('Rohit Rajan (3)', '9820088888', 6));
+  assert.deepEqual([pick.players[0].phone, pick.players[0].name], ['9820088888', 'Rohit Rajan']);
+  const lone = run(csvPlayer('Rohit Rajan (2)', undefined, 5));
+  assert.deepEqual([lone.players[0].id, lone.players[0].name, lone.added.length], [playerIdFor(undefined, 'Rohit Rajan (2)'), 'Rohit Rajan', 0]);
+  // only a trailing “(n)” is a tag
+  const other = run(csvPlayer('Rohit Rajan Jr', '9820077777', 5), csvPlayer('Rohit Rajan (x)', '9820088888', 6));
+  assert.deepEqual(other.added.map((p) => p.name), ['Rohit Rajan']);
+});
+
+test('base name: an in-game name match is not overruled, and a walk-in whose player left the list comes back under Toornament’s name', () => {
+  const ign = planImport({ players: ['RoRa', 'asha RAO'], pairs: null }, twins({ ...csvPlayer('Someone Else', '9820055555', 5), ign: 'RoRa' }, csvPlayer('Rohit Rajan (2)', '9820077777', 6)).day.players);
+  assert.deepEqual([ign.players[0].name, ign.players[0].phone], ['Someone Else', '9820055555']);
+  let store = withWalkIn(storeWithCsv().store, 'Rohit Rajan (2)', '9820077777', 'RoRa');
+  const entry = store.day.onSpot![0];
+  store = { ...store, day: { ...store.day, players: store.day.players.filter((p) => p.id !== entry.playerId) } };
+  const plan = planImport({ players: ['asha RAO', 'Rohit Rajan'], pairs: [['asha RAO', 'Rohit Rajan']] }, store.day.players, { onSpot: store.day.onSpot });
+  assert.deepEqual([plan.players[1].id, plan.players[1].name, plan.players[1].phone, plan.players[1].ign], [entry.playerId, 'Rohit Rajan', '9820077777', 'RoRa']);
+  assert.deepEqual(plan.added, []);
+  assert.deepEqual(plan.onSpotFound.map((f) => f.entry.id), [entry.id]);
+});
+
 test('the bracket link goes to the stages, whatever page of the tournament the sheet gave', async () => {
   const { toornamentBracketPage } = await import('../src/lib/toornament.ts');
   const t = 'https://play.toornament.com/en_US/tournaments/2596019755383668735/';

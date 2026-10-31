@@ -32,10 +32,13 @@ export type Command =
   // Desk registration on the day (admin or HQ); never touches the bracket. sameName 'different': the
   // admin confirmed this is another person with a name already on the list → added as "Name (2)".
   | { type: 'players.onspot'; base: number; name: string; phone?: string; ign?: string; sameName?: 'different' }
+  // Change one player, bracket or not (never touches it). HQ: name, in-game name, number ('' removes the last two). Desk: only a number for a player who has none, and the in-game name. `base` is informational.
+  | { type: 'players.edit'; base: number; playerId: string; name?: string; ign?: string; phone?: string }
   | { type: 'onspot.mark'; base: number; entryId: string; done: boolean } // HQ: added to Toornament (or not yet)
   // HQ deletes registrations (test data, mistakes). The players stay on the list unless alsoPlayers (refused once matches are under way).
   | { type: 'onspot.remove'; base: number; entryIds: string[]; alsoPlayers?: boolean }
   | { type: 'winners.set'; base: number; winner: WinnerInput; runnerUp: WinnerInput } // admin or HQ, once the final is done; who won comes from the final
+  | { type: 'winners.manual'; base: number; winner: WinnerInput; runnerUp: WinnerInput } // HQ: type them by hand — a store whose bracket ran elsewhere; the runner-up may be left empty
   | { type: 'winners.clear'; base: number } // HQ: drop the saved winner + runner-up details (test data, or a final that was reset); the bracket stays
   // submissions (src/lib/submission.ts)
   | { type: 'recce.submit'; base: number }

@@ -26,7 +26,7 @@ export const FINISH_COMMANDS: Record<string, Role[]> = {
 
 export interface StoreFinished {
   finished: boolean;
-  /** 'auto': the final is played and the winner details are saved. 'manual': HQ marked it. */
+  /** 'auto': the final is played and the winner details are saved (or HQ typed them). 'manual': HQ marked it. */
   how: 'auto' | 'manual' | null;
   /** When: HQ's mark, or the moment the winner details were saved. */
   at?: string;
@@ -38,7 +38,7 @@ export interface StoreFinished {
 export function storeFinished(store: Store, _event?: TournamentEvent): StoreFinished {
   if (store.finishedAt) return { finished: true, how: 'manual', at: store.finishedAt, by: store.finishedBy };
   const ws = winnersState(store.day);
-  if (ws.kind === 'saved' && !ws.missing) return { finished: true, how: 'auto', at: store.day.winners?.updatedAt };
+  if ((ws.kind === 'saved' || ws.kind === 'manual') && !ws.missing) return { finished: true, how: 'auto', at: store.day.winners?.updatedAt };
   return { finished: false, how: null };
 }
 

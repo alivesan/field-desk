@@ -11,6 +11,7 @@ import { cx, downloadBlob, fmtDate, slug, todayLocal } from '../lib/util.ts';
 import { askConfirm, Chip, notify, PageHead, Shell, toast } from '../components/ui.tsx';
 import { CountUp, EmptyCard } from '../components/flair.tsx';
 import { useHqCommand } from '../components/hqCommand.ts';
+import { ManualWinnersSheet } from '../components/WinnersManual.tsx';
 import { useStoreName } from '../components/useStoreName.ts';
 import '../styles/winners.css';
 
@@ -139,6 +140,8 @@ function StoreCard({ rows, index }: { rows: WinnerRow[]; index: number }) {
   const store = useApp((s) => s.stores[first.storeId]);
   const { short } = useStoreName(store);
   const open = !first.finalDone && rows.every((r) => r.status === 'no-final');
+  const [typing, setTyping] = useState(false);
+  const hand = !store?.day.winners ? 'Enter by hand' : store.day.winners.manual ? 'Edit' : ''; // a bracket-based record is the desk’s: HQ resets it first
   return (
     <article className="wn-store" style={{ ['--i' as string]: index }}>
       <header className="wn-store-head">
@@ -152,7 +155,17 @@ function StoreCard({ rows, index }: { rows: WinnerRow[]; index: number }) {
         </div>
       </header>
       {open ? <p className="wn-open">Final not played yet.</p> : <div className="wn-places">{rows.map((r) => <Person key={r.place} row={r} />)}</div>}
-      {store?.day.winners && <ResetWinners store={store} />}
+      {store && (hand || store.day.winners) && (
+        <div className="wn-actions">
+          {hand && (
+            <button className="btn ghost" onClick={() => setTyping(true)}>
+              {hand}
+            </button>
+          )}
+          {store.day.winners && <ResetWinners store={store} />}
+        </div>
+      )}
+      {store && <ManualWinnersSheet open={typing} onClose={() => setTyping(false)} store={store} />}
     </article>
   );
 }
@@ -190,6 +203,7 @@ function Person({ row: r }: { row: WinnerRow }) {
           {r.place === 'Winner' ? '1' : '2'}
         </span>
         <span className="label">{r.place}</span>
+        {r.manual && <span className="wn-tag">{r.note}</span>}
         <Chip tone={TONE[r.status]}>{STATUS_LABEL[r.status]}</Chip>
       </div>
       <div className={cx('wn-name', !r.realName && 'list')}>{name || 'Name not given'}</div>

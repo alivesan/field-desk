@@ -17,7 +17,7 @@ import '../styles/winners-form.css';
  * server rules (src/lib/tournament.ts) are the same cleaning shown here as inline hints.
  */
 
-interface Draft {
+export interface Draft {
   realName: string;
   ign: string;
   phone: string;
@@ -27,7 +27,7 @@ interface Draft {
 type Field = keyof Draft;
 const FIELDS = ['phone', 'email', 'instagram'] as const;
 
-const asInput = (d: Draft): WinnerInput => ({ realName: d.realName, ign: d.ign, phone: d.phone, email: d.email, instagram: d.instagram });
+export const asInput = (d: Draft): WinnerInput => ({ realName: d.realName, ign: d.ign, phone: d.phone, email: d.email, instagram: d.instagram });
 
 /** What the form starts with: the saved record for this very person, else the player list. */
 function initial(saved: WinnerDetails | undefined, id: string, p: Player | undefined): Draft {
@@ -130,7 +130,8 @@ function WinnersForm({ day, result, matchLabel, save, onClose }: { day: MatchDay
   );
 }
 
-function Person({ who, medal, listName, draft, onChange, shown }: { who: Who; medal: string; listName: string; draft: Draft; onChange: (d: Draft) => void; shown: boolean }) {
+/** One person's fields; HQ's hand-entry form (WinnersManual.tsx) reuses it. */
+export function Person({ who, medal, listName, draft, onChange, shown, children }: { who: Who; medal: string; listName?: string; draft: Draft; onChange: (d: Draft) => void; shown: boolean; children?: React.ReactNode }) {
   const [touched, setTouched] = useState<Partial<Record<Field, boolean>>>({});
   const id = who === 'Winner' ? 'win' : 'run';
   const set = (f: Field) => (e: React.ChangeEvent<HTMLInputElement>) => onChange({ ...draft, [f]: e.target.value });
@@ -165,8 +166,9 @@ function Person({ who, medal, listName, draft, onChange, shown }: { who: Who; me
     <fieldset className="wf-person">
       <legend>
         <span aria-hidden>{medal}</span> {who}
-        <small>{listName}</small>
+        {listName && <small>{listName}</small>}
       </legend>
+      {children}
       {block('realName', 'Real name', (p) => (
         <input {...p} value={draft.realName} onChange={set('realName')} maxLength={MAX_REAL_NAME} autoComplete="off" autoCapitalize="words" enterKeyHint="next" placeholder="Full name, as on their ID" />
       ))}
