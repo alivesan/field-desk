@@ -188,6 +188,7 @@ function cleanPlayers(players: Player[], min: number): Player[] {
     if (seeds.has(p.seed)) throw invalid(`Seed ${p.seed} is given to two players.`);
     if (p.phone !== undefined && (typeof p.phone !== 'string' || !/^\d{6,15}$/.test(p.phone))) throw invalid(`${name}’s phone number should be 6–15 digits.`);
     if (p.ign !== undefined && typeof p.ign !== 'string') throw invalid(`${name}’s in-game name should be text.`);
+    if (p.toornamentId !== undefined && (typeof p.toornamentId !== 'string' || !/^\d{1,24}$/.test(p.toornamentId))) throw invalid(`${name}’s Toornament id should be digits.`);
     const ign = p.ign === undefined ? '' : cleanIgn(p.ign);
     if (ign.length > MAX_IGN) throw invalid(`${name}’s in-game name is longer than ${MAX_IGN} characters.`);
     ids.add(p.id);
@@ -198,6 +199,7 @@ function cleanPlayers(players: Player[], min: number): Player[] {
     const out: Player = { id: p.id, name, seed: p.seed };
     if (p.phone) out.phone = p.phone;
     if (ign) out.ign = ign;
+    if (p.toornamentId) out.toornamentId = p.toornamentId;
     return out;
   });
   return clean;

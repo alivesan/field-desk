@@ -194,6 +194,7 @@ export function ToornamentImport({ store, event }: { store: Store; event: Tourna
       if (!s.toornament) return;
       s.toornament.stageId = data.stage?.id;
       s.toornament.stageName = data.stage?.name;
+      s.toornament.tournamentName = data.tournament.name.slice(0, 200);
       s.toornament.appliedAt = at;
       s.toornament.by = sync.principal ?? 'super';
       s.toornament.loadId = id; // the bracket's match ids start with it — how the auto-check knows this one came from Toornament

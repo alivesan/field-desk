@@ -23,6 +23,8 @@ import { createPublicLimiter, DEFAULT_PUBLIC_LIMITS, selfCheckIn, storeByBracket
 import { fetchRoster, RosterFetchError, type RosterFetchOptions } from './roster-fetch.ts';
 import { createPrinter } from './print.ts';
 import { fetchToornament } from './toornament-fetch.ts';
+import { canonical } from './canonical.ts';
+import { createJobStore } from './toornament-jobs.ts';
 import { createToornamentAuto, type ToornamentAutoOptions } from './toornament-auto.ts';
 import { lanOrigins, listensOnAll } from './lan.ts';
 import { bearerMatches, createKeyStore, createOtpRequests, otpFingerprint, steamOtpConfig, type OtpWho, type SteamOtpOptions } from './steam-otp.ts';
@@ -184,15 +186,7 @@ const envNum = (name: string) => {
   return v !== undefined && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : undefined;
 };
 
-/** JSON with object keys sorted — equal values give equal text. */
-export function canonical(v: unknown): string {
-  if (Array.isArray(v)) return `[${v.map((x) => (x === undefined ? 'null' : canonical(x))).join(',')}]`;
-  if (v && typeof v === 'object') {
-    const keys = Object.keys(v).filter((k) => (v as Record<string, unknown>)[k] !== undefined).sort();
-    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`).join(',')}}`;
-  }
-  return JSON.stringify(v) ?? 'null';
-}
+export { canonical };
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
 class HttpError extends Error {
@@ -252,6 +246,7 @@ export function createApi(opts: ApiOptions) {
   const findBatch = db.prepare('SELECT seq, hash FROM batches WHERE id = ?');
   const addBatch = db.prepare('INSERT INTO batches (id, seq, at, hash) VALUES (?, ?, ?, ?)');
 
+  const toornamentJobs = createJobStore(db, now, log);
   const sessions = createSessions(db, now);
   sessions.prune();
   const photos = createPhotoStore(db, path.join(dataDir, 'photos'), now);
@@ -513,8 +508,11 @@ export function createApi(opts: ApiOptions) {
     if (problems.length) throw new HttpError(400, 'invalid', problems.length === 1 ? problems[0] : `${problems.length} problems — first: ${problems[0]}`, { problems: problems.slice(0, 50) });
   }
 
-  /** Writes the touched documents and the dedupe record in one transaction, then publishes. */
-  function commit(key: string, hash: string, work: Docs, touched: Map<string, [DocKind, string]>, id: string, ops: Op[]) {
+  /**
+   * Writes the touched documents and the dedupe record in one transaction, then publishes. `extra` writes more rows in the same
+   * transaction (a command's Toornament job): if it throws, nothing is committed.
+   */
+  function commit(key: string, hash: string, work: Docs, touched: Map<string, [DocKind, string]>, id: string, ops: Op[], extra?: () => void) {
     db.exec('BEGIN IMMEDIATE');
     try {
       for (const [k, docId] of touched.values()) {
@@ -524,6 +522,7 @@ export function createApi(opts: ApiOptions) {
       }
       setMeta.run('seq', String(seq + 1));
       addBatch.run(key, seq + 1, now(), hash);
+      extra?.();
       db.exec('COMMIT');
     } catch (e) {
       db.exec('ROLLBACK');
@@ -620,7 +619,8 @@ export function createApi(opts: ApiOptions) {
     work.stores[storeId] = next;
     check(work, touched, false);
     const ops = diffDocs({ events: {}, stores: { [storeId]: store }, admins: {}, accounts: {} }, { events: {}, stores: { [storeId]: next }, admins: {}, accounts: {} });
-    return commit(`cmd:${id}`, hash, work, touched, id, ops);
+    // A finished or undone match makes its Toornament job (and a replaced bracket cancels the old ones) in the same transaction.
+    return commit(`cmd:${id}`, hash, work, touched, id, ops, () => toornamentJobs.onCommand({ before: store, after: next, cmd, commandId: id, now: ctx.now }));
   }
 
   /** A server-made change to a store's Toornament record (the auto-check's status): validated and committed like a batch, so every client hears of it. */
@@ -1412,6 +1412,8 @@ export function createApi(opts: ApiOptions) {
     },
     /** The Toornament auto-check: tick() looks at every store that is due right now (the timer calls it; tests call it with a fake clock). */
     toornamentAuto,
+    /** The Toornament result queue (server/toornament-jobs.ts): the job rows, for the worker's routes, HQ's page and tests. */
+    toornamentJobs,
     /** Stops timers, ends event streams, closes the database and releases the data-dir lock. */
     close() {
       toornamentAuto.stop();

@@ -77,9 +77,10 @@ As in JOB-CONTRACT.md. Every id is a string.
 
 - `revision` counts per (store, match), starting at 1. `expectedPreviousRevision` is the revision before it (0 for
   the first).
-- `expectedPrevious` is the match as Field Desk last sent it: before the first result `status: "pending"`, sides all
-  null. Before a reset (or a result after a reset) it is the last result Field Desk sent: `status: "completed"`,
-  `result: "win" | "loss"`, `forfeit` true for the side that forfeited, `score: null`.
+- `expectedPrevious` is the match as Field Desk last sent it (the newest job for the match that is not cancelled): before the
+  first result, and again after a reset, `status: "pending"` with all sides null. Before a reset (or a result sent while
+  an earlier result was never reset) it is the last result Field Desk sent: `status: "completed"`, `result: "win" | "loss"`,
+  `forfeit` true for the side that forfeited, `score: null`.
 - `desired` for a forfeit: `{ "outcome": "forfeit", "winnerId": "…", "forfeitingParticipantId": "…" }`.
 - `match.reset` omits `desired`.
 

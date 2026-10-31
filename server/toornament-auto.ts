@@ -144,6 +144,7 @@ export function createToornamentAuto(host: AutoHost, opts: ToornamentAutoOptions
         t.loadId = commandId;
         t.stageId = stage.id;
         t.stageName = stage.name;
+        t.tournamentName = data.tournament.name.slice(0, 200);
         t.appliedAt = at.toISOString();
         t.by = AUTO_ACTOR.principal;
         t.auto = { enabled: t.auto?.enabled !== false, lastCheckAt: at.toISOString(), lastResult: 'applied', message, appliedAt: at.toISOString() };

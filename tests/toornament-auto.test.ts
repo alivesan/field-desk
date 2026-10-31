@@ -234,6 +234,8 @@ test('auto-check: waits while there is no bracket or nobody is placed, then load
     assert.equal(st.toornament!.by, 'system:toornament');
     assert.equal(st.toornament!.appliedAt, ist('12:40').toISOString());
     assert.equal(st.toornament!.stageName, 'Playoffs');
+    assert.equal(st.toornament!.tournamentName, 'Synthetic Cup — 8 slots', 'the name the result jobs expect');
+    assert.ok(st.day.players.filter((p) => !p.id.startsWith('os-')).every((p) => /^\d+$/.test(p.toornamentId ?? '')), 'every player carries Toornament’s participant id');
     assert.equal(bracketOrigin(st), 'toornament');
     assert.ok(autoFinished(st, ist('12:41')));
 
