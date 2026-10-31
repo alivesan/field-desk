@@ -19,6 +19,7 @@ export interface PublicMatch {
   round: number; // 0 = first round
   index: number;
   no: number; // matchNo: the number on the card
+  label?: string; // Toornament's match number ("1.1.2.1"), when the bracket came from Toornament
   a: string | null; // the player's name; null = not decided yet (or a bye's empty side)
   aIgn?: string; // in-game name, when HQ's list has one
   aSeed: number | null; // tells two players apart for "follow" — the player id would be a hash of the phone
@@ -63,6 +64,7 @@ export function publicBracketView(store: Store, event: TournamentEvent, siblingN
         round: m.round,
         index: m.index,
         no: matchNo(m, day.matches),
+        ...(m.toornament?.label ? { label: m.toornament.label } : {}),
         a: a.name,
         ...(a.ign ? { aIgn: a.ign } : {}),
         aSeed: a.seed,
@@ -118,8 +120,8 @@ export function rotatePublicBracket(s: Store, now: string, token: () => string =
 
 /* ---------- the page ---------- */
 
-/** The label on a card. TOORNAMENT LABEL: when a match carries Toornament's label ("#1.1.2.1"), have the server add it to PublicMatch and return it here. */
-export const matchLabel = (m: Pick<PublicMatch, 'no'>) => `M${m.no}`;
+/** The label on a card: "M5", and Toornament's number beside it when the bracket came from there ("M5 · #1.1.2.1"). */
+export const matchLabel = (m: Pick<PublicMatch, 'no' | 'label'>) => (m.label ? `M${m.no} · #${m.label}` : `M${m.no}`);
 
 /** How many matches the page marks "Up next" — the public can't see who has checked in, so it names the next few whose players are both known. */
 export const UP_NEXT_COUNT = 4;
