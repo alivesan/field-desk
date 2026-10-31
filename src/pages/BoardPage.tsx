@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp, useSync, type SyncInfo } from '../lib/db.ts';
-import { computeQueue, matchNo, roundCount, roundName } from '../lib/bracket.ts';
+import { computeQueue, matchTitle, roundCount, roundName } from '../lib/bracket.ts';
 import { NotFound, useNow } from '../components/ui.tsx';
 import { useStoreName } from '../components/useStoreName.ts';
 import { cx, fmtTime } from '../lib/util.ts';
@@ -43,7 +43,7 @@ export function BoardPage({ storeId }: { storeId: string }) {
   const q = computeQueue(day);
   const names = Object.fromEntries(day.players.map((p) => [p.id, p.name]));
   const total = roundCount(day.matches);
-  const label = (m: (typeof day.matches)[number]) => `M${matchNo(m, day.matches)} · ${roundName(m.round, total)}`;
+  const label = (m: (typeof day.matches)[number]) => `${matchTitle(m, day.matches)} · ${roundName(m.round, total)}`;
   const callNext = q.ready.slice(0, 6);
   const needed = [...new Set(q.waiting.flatMap((w) => w.missing))];
   const runnerUp = finalResult(day.matches)?.runnerUp; // names only on this public screen — never the collected contact details

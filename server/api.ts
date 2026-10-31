@@ -12,7 +12,7 @@ import { cardOtp, currentSteamStore, liveOtp, LOOKUP_WINDOW_MS, OTP_TTL_MS, stea
 import { isPrintKind, PRINT_KINDS, printSpecOf, thisWeekKits } from '../src/lib/print.ts';
 import { campaignStoreNames, storeShortName } from '../src/lib/names.ts';
 import { storeDate } from '../src/lib/recce.ts';
-import { publicBracketOf } from '../src/lib/publicBracket.ts';
+import { publicBracketOf, turnOnPublicBracket } from '../src/lib/publicBracket.ts';
 import { openDatabase, photoIds } from './migrate.ts';
 import { acquireLock } from './lock.ts';
 import { createSessions, hashToken, TOKEN } from './sessions.ts';
@@ -87,7 +87,7 @@ export { ADMIN_CODE };
  *   POST /api/v1/steam/otp        scope steam-otp:write       { accountUsername?, accountEmail?, code, receivedAt, requestId? }
  *
  * Public — no session, for players at the venue (server/public.ts has the limits):
- *   GET  /api/public/checkin/:token   { store, campaign, date, open } — nothing about players
+ *   GET  /api/public/checkin/:token   { store, campaign, date, open, bracketPath? } — nothing about players; bracketPath ("/b/<token>") only while the store's public bracket is on
  *   POST /api/public/checkin/:token   { phone } -> { ok, name: "First L.", already }
  *   GET  /api/public/bracket/:token   a store's live bracket (store.publicBracket, switched on): { store, city, campaign, game?, date, rounds, matches: [{ id,
  *        round, index, no, a, aIgn?, aSeed, b, bIgn?, bSeed, winner: 'a'|'b'|null, status, bye, walkover?, score, station? }], champion, updatedAt } — names only
@@ -585,6 +585,13 @@ export function createApi(opts: ApiOptions) {
       (day as Record<string, unknown>).checkInSource = {};
       seeded.push({ k: 'stores', id: docId, p: ['day', 'checkInSource'], v: {} });
     }
+    // A store created by this batch gets its public bracket link (on) in the same commit.
+    for (const [k, docId] of touched.values()) {
+      const made = k === 'stores' && !docs.stores[docId] ? (work.stores[docId] as Store | undefined) : undefined;
+      if (!made || made.publicBracket) continue;
+      turnOnPublicBracket(made, new Date(now()).toISOString());
+      seeded.push({ k: 'stores', id: docId, p: ['publicBracket'], v: made.publicBracket });
+    }
     check(work, touched, true);
     return commit(id, hash, work, touched, id, [...ops, ...seeded]);
   }
@@ -652,6 +659,31 @@ export function createApi(opts: ApiOptions) {
     check(work, touched, true);
     const id = `steam-otp-state-${randomBytes(9).toString('base64url')}`;
     commit(id, sha256(canonical({ ops })), work, touched, id, ops);
+  }
+
+  /**
+   * The public bracket is on by default: every store without a link (stores from before this, or made some other way)
+   * gets one, in a single server commit. A link HQ turned off (`on: false`) is a link and stays off.
+   */
+  function ensureBracketLinks() {
+    const missing = Object.values(docs.stores).filter((s) => !s.publicBracket);
+    if (!missing.length) return;
+    const { work, touched } = workCopy(missing.map((s): [DocKind, string] => ['stores', s.id]));
+    const at = new Date(now()).toISOString();
+    const [was, is]: Docs[] = [{ events: {}, stores: {}, admins: {}, accounts: {} }, { events: {}, stores: {}, admins: {}, accounts: {} }];
+    for (const s of missing) {
+      turnOnPublicBracket(work.stores[s.id], at);
+      [was.stores[s.id], is.stores[s.id]] = [s, work.stores[s.id]];
+    }
+    const ops = diffDocs(was, is);
+    check(work, touched, true);
+    const id = `bracket-link-${randomBytes(9).toString('base64url')}`;
+    commit(id, sha256(canonical({ ops })), work, touched, id, ops);
+  }
+  try {
+    ensureBracketLinks();
+  } catch (e) {
+    log('warn', 'bracket-links-failed', errorFields(e)); // not worth stopping the server: the check-in page tries again
   }
 
   const toornamentAuto = createToornamentAuto(
@@ -1309,7 +1341,22 @@ export function createApi(opts: ApiOptions) {
     }
     if (req.method === 'GET') {
       const event = docs.events[store.eventId];
-      return send(res, 200, { store: store.name, campaign: event?.name ?? '', date: store.date || event?.date || '', open: store.day.selfCheckIn?.open === true });
+      // A store from before the link was on by default (or made some other way) gets its link now.
+      if (!store.publicBracket) {
+        try {
+          ensureBracketLinks();
+        } catch (e) {
+          log('warn', 'bracket-links-failed', errorFields(e));
+        }
+        store = storeByToken(docs.stores, token) ?? store;
+      }
+      return send(res, 200, {
+        store: store.name,
+        campaign: event?.name ?? '',
+        date: store.date || event?.date || '',
+        open: store.day.selfCheckIn?.open === true,
+        ...(store.publicBracket?.on ? { bracketPath: `/b/${store.publicBracket.token}` } : {}),
+      });
     }
 
     const storeWait = publicLimiter.storeBlockedFor(store.id);

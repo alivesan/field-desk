@@ -101,7 +101,7 @@ test('startup migration: backup first, legacy docs normalized, photos owned, leg
 
     const hq = await t.login(SUPER);
     const state = (await t.json('/api/state', { cookie: hq })).body;
-    assert.equal(state.seq, 4);
+    assert.equal(state.seq, 5, 'the four legacy commits, then the server giving each store its bracket link');
     assert.equal(state.stores.s1.day.version, 0);
     assert.equal(state.stores.s1.recce.collateral.standee, true);
     assert.deepEqual(state.stores.s1.recce.collateral.standeePhotos.map((p: any) => p.id), ['legacyp1']);

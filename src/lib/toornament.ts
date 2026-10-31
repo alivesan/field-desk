@@ -32,7 +32,7 @@
  *
  * Node-loadable: no browser APIs, explicit .ts imports only.
  */
-import type { OnSpotEntry, Player, Store } from './types.ts';
+import type { Match, OnSpotEntry, Player, Store } from './types.ts';
 import { isPow2, seedOrder } from './bracket.ts';
 import { playerIdFor } from './phone.ts';
 import { onSpotPlayer } from './onspot.ts';
@@ -586,4 +586,17 @@ export function planImport(bracket: Pick<StageBracket, 'players' | 'pairs'> & { 
 
 /** True once a real match has been called or played (bracket.load / players.set are refused then). */
 export const underWay = (store: Store) => store.day.matches.some((m) => !m.bye && m.status !== 'pending');
+
+/** How many of Toornament's matches (nodes) the store's matches don't carry yet — no number, or another one. What `bracket.label` would set. */
+export const labelsToAdd = (matches: Match[], nodes: MatchNode[]) =>
+  nodes.filter((n) => {
+    const m = matches.find((x) => x.round === n.round && x.index === n.index);
+    return !m || m.toornament?.id !== n.id || m.toornament.label !== n.label;
+  }).length;
+
+/** Whether Toornament's first-round pairings (by player id, null = BYE) are the ones in the store's bracket now — same players in the same places. */
+export function sameFirstRound(matches: Match[], pairs: [string | null, string | null][]) {
+  const first = matches.filter((m) => m.round === 0).sort((a, b) => a.index - b.index);
+  return first.length === pairs.length && first.every((m, i) => m.a === pairs[i][0] && m.b === pairs[i][1]);
+}
 

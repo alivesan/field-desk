@@ -808,3 +808,79 @@ test('validateCommand: bracket.load toornament shape', () => {
   ])
     assert.throws(() => validateCommand(load(bad)), CommandError, JSON.stringify(bad).slice(0, 60));
 });
+
+/* ---------- bracket.label: Toornament match numbers onto a bracket that is already here ---------- */
+
+const hand = (n = 6) => loaded(n, 4, n === 6 ? [['p1', 'p2'], ['p3', null], ['p4', 'p5'], ['p6', null]] : undefined);
+const withoutLabels = (s: Store) => s.day.matches.map(({ toornament: _t, ...rest }) => rest);
+const label = (s: Store, toornament = TN, over: Partial<CommandContext> = {}) => run(s, { type: 'bracket.label', base: dayVersion(s), toornament }, ctx(over));
+
+test('bracket.label: sets the Toornament match at each position and changes nothing else', () => {
+  const s = hand();
+  assert.ok(s.day.matches.every((x) => !x.toornament));
+  const after = label(s);
+  assert.deepEqual(tnOf(after), tnOf(fromToornament()));
+  assert.deepEqual(m(after, 1, 0).toornament, { id: '9011', label: '1.1.2.1' });
+  assert.deepEqual(withoutLabels(after), withoutLabels(s), 'players, slots, results and status are as they were');
+  assert.deepEqual(after.day.players, s.day.players);
+  assert.deepEqual(after.day.checkIn, s.day.checkIn);
+  assert.equal(after.day.stations, s.day.stations);
+  assert.equal(dayVersion(after), dayVersion(s) + 1);
+  assert.ok(s.day.matches.every((x) => !x.toornament), 'the store it was applied to is not mutated');
+});
+
+test('bracket.label: works with matches under way and finished, and the results stay', () => {
+  let s = hand();
+  s = run(s, { type: 'match.start', base: dayVersion(s), matchId: m(s, 0, 0).id, station: 1 });
+  s = run(s, { type: 'match.finish', base: dayVersion(s), matchId: m(s, 0, 0).id, winner: 'p1', score: '2-0' });
+  s = run(s, { type: 'match.start', base: dayVersion(s), matchId: m(s, 0, 2).id, station: 2 }); // live
+  const after = label(s);
+  assert.equal(m(after, 0, 0).status, 'done');
+  assert.equal(m(after, 0, 0).winner, 'p1');
+  assert.equal(m(after, 0, 0).score, '2-0');
+  assert.equal(m(after, 0, 2).status, 'live');
+  assert.equal(m(after, 0, 2).station, 2);
+  assert.equal(m(after, 1, 0).a, 'p1', 'the winner is still in the next match');
+  assert.deepEqual(tnOf(after), tnOf(fromToornament()));
+  assert.deepEqual(withoutLabels(after), withoutLabels(s));
+  // ...and later play keeps the labels
+  const moved = run(after, { type: 'match.undo', base: dayVersion(after), matchId: m(after, 0, 2).id });
+  assert.deepEqual(tnOf(moved), tnOf(after));
+});
+
+test('bracket.label: replaces a different number, leaves matches no node names, and does nothing when it is all there already', () => {
+  const s = fromToornament();
+  const other = TN.map((t) => (t.round === 1 && t.index === 0 ? { ...t, id: '777', label: '1.1.2.9' } : t));
+  const after = label(s, other);
+  assert.deepEqual(m(after, 1, 0).toornament, { id: '777', label: '1.1.2.9' });
+  assert.equal(dayVersion(after), dayVersion(s) + 1);
+  const part = label(hand(), [...TN.slice(3, 6)]); // the later rounds only
+  assert.deepEqual(tnOf(part).filter((x) => x.startsWith('0:') && !x.endsWith('=-')), []);
+  assert.equal(m(part, 2, 0).toornament?.label, '1.1.3.1');
+  assert.equal(label(s), s, 'identical numbers: no change, no new version');
+});
+
+test('bracket.label: HQ only', () => {
+  const s = hand();
+  rejects(() => label(s, TN, { actor: { principal: 'admin-1', name: 'Desk', role: 'admin' } }), 'forbidden', /admin can’t bracket.label/);
+});
+
+test('bracket.label: refused when there is no bracket, a node does not fit, or the shape differs', () => {
+  rejects(() => label(emptyStore()), 'invalid', /no bracket/);
+  const s = hand(); // 8 slots: 4 + 2 + 1
+  const tn = (round: number, index: number) => ({ round, index, id: `x${round}${index}`, label: `1.1.${round + 1}.${index + 1}` });
+  rejects(() => label(s, [tn(0, 4), ...TN.slice(3)]), 'invalid', /don’t fit/); // no 5th first-round match
+  rejects(() => label(s, [...TN, tn(3, 0)]), 'invalid', /don’t fit/); // a round the bracket doesn't have
+  rejects(() => label(s, [...TN, TN[0]]), 'invalid', /don’t fit/); // the same position twice
+  rejects(() => label(s, TN.filter((t) => t.round < 2)), 'invalid', /don’t fit/); // the nodes stop a round short
+  rejects(() => label(hand(4), TN), 'invalid', /don’t fit/); // a 4-slot bracket, an 8-slot stage
+  rejects(() => label(s, []), 'invalid', /don’t fit/);
+});
+
+test('validateCommand: bracket.label needs 1–512 well-formed Toornament matches', () => {
+  const ok = { round: 0, index: 0, id: '9001', label: '1.1.1.1' };
+  assert.equal(validateCommand({ type: 'bracket.label', base: 3, toornament: [ok] }).type, 'bracket.label');
+  for (const bad of [undefined, null, [], 'x', Array.from({ length: 513 }, () => ok), [{ ...ok, label: '1.1.2' }], [{ ...ok, round: -1 }], [{ ...ok, id: '' }]])
+    assert.throws(() => validateCommand({ type: 'bracket.label', base: 3, toornament: bad }), CommandError, JSON.stringify(bad)?.slice(0, 60));
+  assert.throws(() => validateCommand({ type: 'bracket.label', toornament: [ok] }), CommandError, 'base is required');
+});

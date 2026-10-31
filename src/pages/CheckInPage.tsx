@@ -16,6 +16,7 @@ interface Info {
   campaign: string;
   date: string;
   open: boolean;
+  bracketPath: string; // "/b/<token>" while the store's public bracket is on; '' when it isn't
 }
 
 type Load = { kind: 'loading' } | { kind: 'ready'; info: Info } | { kind: 'problem'; problem: CheckInProblem };
@@ -38,6 +39,22 @@ async function call(token: string, init?: RequestInit): Promise<{ status: number
 
 const text = (v: unknown) => (typeof v === 'string' ? v : v && typeof v === 'object' && typeof (v as { name?: unknown }).name === 'string' ? (v as { name: string }).name : '');
 
+/** Only our own bracket page is ever linked to: "/b/<token>", nothing else. */
+const bracketPathOf = (v: unknown) => (typeof v === 'string' && /^\/b\/[A-Za-z0-9_-]{16,64}$/.test(v) ? v : '');
+
+/** The way on to the live bracket, under a checked-in player's name. */
+function FollowBracket({ path }: { path: string }) {
+  if (!path) return null; // HQ turned this store's public bracket off
+  return (
+    <div className="ci-follow">
+      <a className="btn accent block ci-btn" href={path}>
+        Follow the live bracket
+      </a>
+      <p className="ci-help">Results and who plays next, live. It goes live here once the bracket is officially out.</p>
+    </div>
+  );
+}
+
 export function CheckInPage({ token }: { token: string }) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
   const [phone, setPhone] = useState('');
@@ -52,7 +69,7 @@ export function CheckInPage({ token }: { token: string }) {
     if (!quiet) setLoad({ kind: 'loading' });
     try {
       const r = await call(token);
-      if (r.status === 200) setLoad({ kind: 'ready', info: { store: text(r.body.store), campaign: text(r.body.campaign), date: text(r.body.date), open: r.body.open !== false } });
+      if (r.status === 200) setLoad({ kind: 'ready', info: { store: text(r.body.store), campaign: text(r.body.campaign), date: text(r.body.date), open: r.body.open !== false, bracketPath: bracketPathOf(r.body.bracketPath) } });
       else setLoad({ kind: 'problem', problem: r.status === 404 ? 'not-found' : problemFor(r.status, text(r.body.code)) });
     } catch {
       if (!quiet) setLoad({ kind: 'problem', problem: 'offline' });
@@ -177,6 +194,7 @@ export function CheckInPage({ token }: { token: string }) {
             )}
           </h1>
           <p className="ci-deck">Stay close — your match will be called on the screen{where ? ` at ${where}` : ''}.</p>
+          <FollowBracket path={info!.bracketPath} />
           <div className="ci-notyou">
             <strong>Not you?</strong> The number may have been mistyped. Tell the staff at the desk so they can fix it, then{' '}
             <button className="link" onClick={again}>

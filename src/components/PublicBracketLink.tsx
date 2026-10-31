@@ -11,8 +11,9 @@ import '../styles/public-bracket.css';
 
 /**
  * HQ: the store's public bracket link (Store.publicBracket) — players and anyone at the venue follow the bracket
- * live on /b/<token>, no sign-in, names and results only. Turn it on (the first time makes the link), copy it or
- * show its QR, make a new link (the old one stops working at once) or turn it off.
+ * live on /b/<token>, no sign-in, names and results only. It is on by default (the server gives every store a link,
+ * and the check-in page offers it to players), empty until the bracket is out. Copy it or show its QR, make a new
+ * link (the old one stops working at once) or turn it off — and back on, which keeps the link.
  */
 export function PublicBracketLink({ store }: { store: Store }) {
   useLan(); // the PC's Wi-Fi address, once known, replaces "localhost" in the link
@@ -45,8 +46,8 @@ export function PublicBracketLink({ store }: { store: Store }) {
         </h2>
         <p className="hint">
           {on
-            ? 'Anyone with this link or QR follows the bracket live, with no sign-in — names, in-game names, results and stations. Never phones or check-ins.'
-            : 'A live bracket page for players and the venue: results as they happen, on a phone or a TV. Names only, no sign-in.'}
+            ? 'Always on: players get this link after they check in, and it goes live once the bracket is out. Anyone with it follows along with no sign-in — names, in-game names, results and stations. Never phones or check-ins.'
+            : 'Turned off: players are not shown a bracket link, and an old link or QR says the bracket isn’t public. Turn it on to bring the same link back.'}
         </p>
         {on && (
           <span className="pbl-url" title={url}>

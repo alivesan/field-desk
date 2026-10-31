@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { sendCommand, updateStore, usePendingWork, useSync } from '../lib/db.ts';
-import { applyCommand, type Command, type CommandContext } from '../lib/commands.ts';
+import { applyCommand, dayVersion, type Command, type CommandContext } from '../lib/commands.ts';
 import { maskPhone } from '../lib/phone.ts';
-import { applyToornamentLink, toornamentBracketPage, toornamentLinkProblem, underWay, type ToornamentFetch } from '../lib/toornament.ts';
+import { applyToornamentLink, labelsToAdd, sameFirstRound, toornamentBracketPage, toornamentLinkProblem, underWay, type ToornamentFetch } from '../lib/toornament.ts';
 import { AUTO_EVERY_MIN, autoFinished, autoLine, loadCommand, planFor } from '../lib/toornament-auto.ts';
 import type { Store, TournamentEvent } from '../lib/types.ts';
 import { ago, cx } from '../lib/util.ts';
@@ -20,6 +20,9 @@ import '../styles/onspot.css';
  * Walk-ins registered at the desk (day.onSpot) take part in the matching; those Toornament
  * doesn't have yet are named in the preview, and once the bracket is used HQ is offered to mark
  * the walk-ins it does have as added to Toornament (onspot.mark) — never done silently.
+ * A bracket that is already here (loaded before Toornament's match numbers existed, or with matches
+ * under way) can still get them: "Add Toornament match numbers" sends bracket.label, which sets only
+ * those numbers — players, slots and results stay as they are.
  * Self-contained: needs only the store and its campaign.
  */
 
@@ -71,11 +74,14 @@ export function ToornamentImport({ store, event }: { store: Store; event: Tourna
   const [confirming, setConfirming] = useState(false);
   const [sentId, setSentId] = useState<string | null>(null);
   const [problem, setProblem] = useState('');
+  const [labelId, setLabelId] = useState<string | null>(null);
+  const [labelProblem, setLabelProblem] = useState('');
   // After "Use": walk-ins in this bracket not yet marked as added to Toornament, offered to HQ.
   const [offer, setOffer] = useState<{ ids: string[]; names: string[]; done?: boolean; problem?: string } | null>(null);
   const mark = useMarkOnSpot();
   const work = usePendingWork(store.id);
   const sent = sentId ? work.find((w) => w.id === sentId) : undefined;
+  const labelSent = labelId ? work.find((w) => w.id === labelId) : undefined;
 
   // A link changed elsewhere (store details, another device): start over from it.
   useEffect(() => {
@@ -91,6 +97,7 @@ export function ToornamentImport({ store, event }: { store: Store; event: Tourna
     setError('');
     setConfirming(false);
     setProblem('');
+    setLabelProblem('');
     try {
       const q = new URLSearchParams({ url: link });
       const s = stage ?? got?.data.stage?.id ?? store.toornament?.stageId;
@@ -139,13 +146,34 @@ export function ToornamentImport({ store, event }: { store: Store; event: Tourna
   const notYet = missing.filter((m) => !m.entry.toornament);
   const markedMissing = missing.filter((m) => m.entry.toornament);
   const leaving = missing.filter((m) => m.player && !m.kept);
+  // Toornament's match numbers this store's bracket doesn't carry yet — offered even with matches under way.
+  const unlabelled = bracket && store.day.matches.length ? labelsToAdd(store.day.matches, bracket.nodes) : 0;
+  const otherPairing = unlabelled > 0 && !!plan?.pairs && !sameFirstRound(store.day.matches, plan.pairs);
+  const precheckCtx = (): CommandContext => ({ commandId: 'hq-precheck', now: new Date().toISOString(), actor: { principal: sync.principal ?? 'super', name: sync.name ?? 'HQ', role: 'super' }, event });
+
+  const addLabels = () => {
+    if (!bracket) return;
+    setLabelProblem('');
+    const cmd: Command = { type: 'bracket.label', base: dayVersion(store), toornament: bracket.nodes };
+    try {
+      applyCommand(store, cmd, precheckCtx());
+    } catch (e) {
+      return setLabelProblem(e instanceof Error ? e.message : String(e));
+    }
+    try {
+      setLabelId(sendCommand(store.id, cmd));
+    } catch (e) {
+      return setLabelProblem(`Couldn’t queue this on the device: ${(e as Error).message}`);
+    }
+    toast('Toornament match numbers added');
+  };
 
   const use = () => {
     if (!plan || !data) return;
     setConfirming(false);
     setProblem('');
     const cmd: Command = loadCommand(store, plan);
-    const ctx: CommandContext = { commandId: 'hq-precheck', now: new Date().toISOString(), actor: { principal: sync.principal ?? 'super', name: sync.name ?? 'HQ', role: 'super' }, event };
+    const ctx = precheckCtx();
     try {
       applyCommand(store, cmd, ctx); // the same check the server makes, so a refusal shows here at once
     } catch (e) {
@@ -383,9 +411,35 @@ export function ToornamentImport({ store, event }: { store: Store; event: Tourna
                 </button>
               </div>
             ))}
+
+          {unlabelled > 0 && (
+            <div className="tn-labels">
+              <p className="hint">
+                {store.day.matches.some((m) => m.toornament) ? 'Some matches here have no Toornament match number, or another one.' : 'The matches here have no Toornament match numbers yet.'} Adding them changes nothing else: players, slots and results stay as they are.
+                {otherPairing && ' Toornament’s first round is not the one in this bracket now — the numbers go by position in the bracket, so check they line up.'}
+              </p>
+              <div className="row">
+                <button className="btn" onClick={addLabels}>
+                  Add Toornament match numbers
+                </button>
+              </div>
+              {labelProblem && <p className="tn-error">{labelProblem}</p>}
+            </div>
+          )}
         </div>
       )}
 
+      {labelId && (
+        <p className={cx('tn-sent', labelSent && (labelSent.state === 'failed' || labelSent.state === 'conflict') && 'bad')}>
+          {!labelSent
+            ? 'Done — the matches show their Toornament numbers.'
+            : labelSent.state === 'failed' || labelSent.state === 'conflict'
+              ? `Refused: ${labelSent.error ?? 'no reason given'}`
+              : sync.connection === 'offline'
+                ? 'Saved on this device — it’s sent when you’re back online.'
+                : 'Sending…'}
+        </p>
+      )}
       {sentId && (
         <p className={cx('tn-sent', sent && (sent.state === 'failed' || sent.state === 'conflict') && 'bad')}>
           {!sent

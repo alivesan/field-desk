@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { matchNo } from '../lib/bracket.ts';
+import { matchTitle } from '../lib/bracket.ts';
 import type { WinnerInput } from '../lib/command-types.ts';
 import type { MatchDay, WinnerDetails } from '../lib/types.ts';
 import { FIELD_LABEL, finalResult, missingFields, winnersState } from '../lib/winnerInput.ts';
@@ -66,7 +66,7 @@ export function WinnersBanner({
   if (ws.kind === 'none') return null;
   const w = day.winners;
   const name = (id: string) => names[id] ?? 'Unknown player';
-  const matchLabel = result ? `M${matchNo(result.match, day.matches)}` : 'the final';
+  const matchLabel = result ? matchTitle(result.match, day.matches) : 'the final';
   const need = (d: WinnerDetails) => {
     const m = missingFields(d);
     return m.length ? m.map((f) => FIELD_LABEL[f]) : null;
