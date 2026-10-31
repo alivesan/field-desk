@@ -7,7 +7,7 @@
  *   bracket.load / bracket.reset / bracket.place — destructive: `base` must equal the current day version,
  *     so a device that hasn't seen the latest bracket can't replace, wipe or re-slot it.
  *     bracket.place with `swap` moves a player who already has a first-round slot: the two slots trade occupants.
- *   stations.set / match.start / match.finish / match.undo / players.onspot / onspot.mark / onspot.remove / winners.set / winners.clear —
+ *   stations.set / match.start / match.finish / match.undo / players.onspot / players.edit / onspot.mark / onspot.remove / winners.set / winners.clear —
  *     `base` is informational only.
  *     These are checked against the *current* state (station free, players checked in and
  *     not busy, match in the right status, nothing downstream started), which is the real
@@ -40,6 +40,8 @@ export const TOURNAMENT_COMMANDS: Record<string, Role[]> = {
   'players.onspot': ['super', 'admin'],
   'onspot.mark': ['super'],
   'onspot.remove': ['super'], // HQ deletes registrations (test data, mistakes)
+  // Correcting a player: HQ changes name, in-game name and number; the desk only gives a player who has none a number (and sets the in-game name).
+  'players.edit': ['super', 'admin'],
   // The admin collects the winner's and runner-up's details after the final; HQ may correct them.
   'winners.set': ['super', 'admin'],
   'winners.clear': ['super'], // the only way to remove them: test data, or details saved for a final that was later reset
@@ -102,6 +104,9 @@ export function tournamentCommand(store: Store, cmd: Command, ctx: CommandContex
       break;
     case 'players.onspot':
       next = onSpot(day, cmd, ctx);
+      break;
+    case 'players.edit':
+      next = editPlayer(day, cmd, ctx);
       break;
     case 'onspot.mark':
       next = markOnSpot(day, cmd, ctx);
@@ -333,6 +338,75 @@ function onSpot(day: MatchDay, cmd: Extract<Command, { type: 'players.onspot' }>
     checkInSource: { ...day.checkInSource, [id]: 'staff' },
     onSpot: [...record, entry],
   };
+}
+
+/**
+ * players.edit: HQ corrects a player's name, in-game name or number. The desk (admins, store teams) may
+ * only give a player who has no number one, and set the in-game name — the server has every number, so
+ * "has none" is judged on its state. Id, seed, check-in and the bracket are untouched, so it works at any
+ * time. A player's on-the-spot registration follows the edit, so a later Toornament import that brings the
+ * walk-in back has the new details. Nothing to change = the same day (no version bump).
+ */
+function editPlayer(day: MatchDay, cmd: Extract<Command, { type: 'players.edit' }>, ctx: CommandContext): MatchDay {
+  const old = day.players.find((p) => p.id === cmd.playerId);
+  if (!old) throw conflict('That player isn’t on the list any more — the list changed on another device.');
+  const hq = ctx.actor.role === 'super';
+  const out: Player = { ...old };
+  const changed: { name?: string; phone?: string; ign?: string } = {}; // '' = removed
+
+  if (cmd.name !== undefined) {
+    if (typeof cmd.name !== 'string') throw invalid('The name should be text.');
+    const name = cmd.name.replace(/\s+/g, ' ').trim();
+    if (!name) throw invalid('Type the player’s name.');
+    if (name.length > MAX_NAME) throw invalid(`Keep the name to ${MAX_NAME} characters.`);
+    if (name !== old.name) {
+      if (!hq) throw new CommandError('forbidden', 'Only HQ can rename a player.');
+      const same = day.players.find((p) => p.id !== old.id && nameKey(p.name) === nameKey(name));
+      if (same) throw conflict(`${same.name} is already on the list — a name can only be there once.`);
+      out.name = changed.name = name;
+    }
+  }
+  if (cmd.phone !== undefined) {
+    if (typeof cmd.phone !== 'string') throw invalid('The phone number should be text.');
+    const typed = cmd.phone.trim();
+    if (typed && !isPhone(typed)) throw invalid('That phone number doesn’t look right — type 8–15 digits, or leave it empty to remove it.');
+    const phone = typed ? normalizePhone(typed) : '';
+    if (phone !== (old.phone ?? '')) {
+      if (!hq && (old.phone || old.phoneEnd)) throw new CommandError('forbidden', 'Only HQ can change a number that’s already on the list.');
+      const other = phone ? day.players.find((p) => p.id !== old.id && p.phone === phone) : undefined;
+      if (other) throw conflict(`That number is already on the list as ${other.name}.`);
+      if (phone) out.phone = phone;
+      else delete out.phone;
+      changed.phone = phone;
+    }
+  }
+  if (cmd.ign !== undefined) {
+    if (typeof cmd.ign !== 'string') throw invalid('The in-game name should be text.');
+    const ign = cleanIgn(cmd.ign);
+    if (ign.length > MAX_IGN) throw invalid(`Keep the in-game name to ${MAX_IGN} characters.`);
+    if (ign !== (old.ign ?? '')) {
+      if (ign) out.ign = ign;
+      else delete out.ign;
+      changed.ign = ign;
+    }
+  }
+  if (!Object.keys(changed).length) return day;
+
+  const onSpot = day.onSpot?.map((e) => {
+    if (onSpotPlayer(day.players, e)?.id !== old.id) return e;
+    const entry: OnSpotEntry = { ...e };
+    if (changed.name !== undefined) entry.name = changed.name;
+    if (changed.phone !== undefined) {
+      if (changed.phone) entry.phone = changed.phone;
+      else delete entry.phone;
+    }
+    if (changed.ign !== undefined) {
+      if (changed.ign) entry.ign = changed.ign;
+      else delete entry.ign;
+    }
+    return entry;
+  });
+  return { ...day, players: day.players.map((p) => (p === old ? out : p)), ...(onSpot ? { onSpot } : {}) };
 }
 
 /** onspot.mark: HQ has (done) or hasn't yet (not done) put this walk-in on Toornament. */

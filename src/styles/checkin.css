@@ -591,6 +591,14 @@ ul.roster .roster-row .pmain:focus-visible .pname {
   margin-top: 10px;
   font-size: 17px;
 }
+.sheet-edit .field input {
+  font-size: 18px;
+  min-height: 48px;
+  border-bottom-color: var(--ink-2);
+}
+.sheet-edit .onspot-msg {
+  margin-top: 4px;
+}
 
 /* ---------- check-in: progress strip, and the row that just flipped to "Here" ---------- */
 
