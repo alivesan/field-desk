@@ -44,18 +44,13 @@ const bracketPathOf = (v: unknown) => (typeof v === 'string' && /^\/b\/[A-Za-z0-
 
 /** The way on to the live bracket, under a checked-in player's name. */
 function FollowBracket({ path }: { path: string }) {
+  if (!path) return null; // HQ turned this store's public bracket off
   return (
     <div className="ci-follow">
-      {path ? (
-        <a className="btn accent block ci-btn" href={path}>
-          Follow the live bracket
-        </a>
-      ) : (
-        <button className="btn block ci-btn" disabled>
-          Follow the live bracket
-        </button>
-      )}
-      <p className="ci-help">{path ? 'Results and who plays next, live. It goes live here once the bracket is officially out.' : 'The bracket shows here once it’s out.'}</p>
+      <a className="btn accent block ci-btn" href={path}>
+        Follow the live bracket
+      </a>
+      <p className="ci-help">Results and who plays next, live. It goes live here once the bracket is officially out.</p>
     </div>
   );
 }
