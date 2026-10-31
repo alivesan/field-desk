@@ -126,6 +126,21 @@
 .wn-reset {
   margin-top: 16px;
 }
+.wn-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 16px;
+}
+.wn-actions .wn-reset {
+  margin-top: 0;
+}
+.wn-actions .btn,
+.wn-actions .wn-reset .btn {
+  min-height: 44px;
+  padding: 0 16px;
+  font-size: 14px;
+}
 .wn-reset .btn {
   min-height: 34px;
   padding: 0 12px;
@@ -278,7 +293,7 @@
     grid-area: places;
     margin-top: 0;
   }
-  .wn-store > .wn-reset {
+  .wn-store > .wn-actions {
     grid-area: reset;
     margin-top: 4px;
   }
@@ -312,8 +327,18 @@
   justify-content: flex-start;
   gap: 10px;
 }
-.wn-place .chip {
+.wn-place .chip,
+.wn-tag {
   margin-left: auto;
+}
+.wn-tag + .chip {
+  margin-left: 0;
+}
+.wn-tag {
+  font: 500 10px/1.3 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.7;
 }
 .wn-rank {
   font: 400 38px/0.8 var(--serif);

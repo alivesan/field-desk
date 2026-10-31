@@ -91,11 +91,13 @@ export type WinnersState =
   | { kind: 'none' } // no bracket, or the final isn't played and nothing saved
   | { kind: 'collect'; result: FinalResult } // final done, nothing saved yet
   | { kind: 'saved'; result: FinalResult; missing: boolean } // saved and matching the final; missing = a real name or phone is still empty
+  | { kind: 'manual'; missing: boolean } // HQ typed them (winners.manual): not tied to the bracket, so never stale
   | { kind: 'stale' }; // saved, but the final was undone or has other players now
 
 export function winnersState(day: MatchDay): WinnersState {
   const result = finalResult(day.matches);
   const w = day.winners;
+  if (w?.manual) return { kind: 'manual', missing: !detailsComplete(w) };
   if (!w) return result ? { kind: 'collect', result } : { kind: 'none' };
   if (!result || result.winner !== w.winner.playerId || result.runnerUp !== w.runnerUp.playerId) return { kind: 'stale' };
   return { kind: 'saved', result, missing: !detailsComplete(w) };

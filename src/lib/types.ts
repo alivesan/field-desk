@@ -120,14 +120,15 @@ export interface MatchDay {
 export interface Winners {
   winner: WinnerDetails;
   runnerUp: WinnerDetails;
-  finalMatchId: string; // the final these were taken from
+  finalMatchId: string; // the final these were taken from ('' for a manual record)
+  manual?: true; // typed by HQ, not collected from the bracket: no final, and playerId is '' unless HQ picked someone from the list
   at: string; // ISO, first saved
   updatedAt: string; // ISO, last saved
   by: string; // who saved them last (admin's or HQ's name)
 }
 
 export interface WinnerDetails {
-  playerId: string; // from the final (winner / loser)
+  playerId: string; // from the final (winner / loser); '' when HQ typed them by hand
   realName: string; // full legal name for the prize ('' = not given yet)
   ign?: string;
   phone?: string; // normalized digits

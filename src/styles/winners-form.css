@@ -270,3 +270,12 @@
     animation: none;
   }
 }
+
+/* HQ's hand-entry form: pick someone from the player list */
+.wf-pick {
+  margin-top: 10px;
+}
+.wf .field select {
+  font-size: 18px;
+  min-height: 48px;
+}

@@ -7,7 +7,7 @@
  *   bracket.load / bracket.reset / bracket.place — destructive: `base` must equal the current day version,
  *     so a device that hasn't seen the latest bracket can't replace, wipe or re-slot it.
  *     bracket.place with `swap` moves a player who already has a first-round slot: the two slots trade occupants.
- *   stations.set / match.start / match.finish / match.undo / players.onspot / players.edit / onspot.mark / onspot.remove / winners.set / winners.clear —
+ *   stations.set / match.start / match.finish / match.undo / players.onspot / players.edit / onspot.mark / onspot.remove / winners.set / winners.manual / winners.clear —
  *     `base` is informational only.
  *     These are checked against the *current* state (station free, players checked in and
  *     not busy, match in the right status, nothing downstream started), which is the real
@@ -44,6 +44,7 @@ export const TOURNAMENT_COMMANDS: Record<string, Role[]> = {
   'players.edit': ['super', 'admin'],
   // The admin collects the winner's and runner-up's details after the final; HQ may correct them.
   'winners.set': ['super', 'admin'],
+  'winners.manual': ['super'], // HQ types them for a store whose bracket ran elsewhere (Toornament) — no final needed
   'winners.clear': ['super'], // the only way to remove them: test data, or details saved for a final that was later reset
 };
 
@@ -116,6 +117,9 @@ export function tournamentCommand(store: Store, cmd: Command, ctx: CommandContex
       break;
     case 'winners.set':
       next = setWinners(day, cmd, ctx);
+      break;
+    case 'winners.manual':
+      next = manualWinners(day, cmd, ctx);
       break;
     case 'winners.clear':
       next = clearWinners(day);
@@ -457,6 +461,7 @@ function removeOnSpot(day: MatchDay, cmd: Extract<Command, { type: 'onspot.remov
  * no longer matches is flagged (winnersState), not deleted.
  */
 function setWinners(day: MatchDay, cmd: Extract<Command, { type: 'winners.set' }>, ctx: CommandContext): MatchDay {
+  if (day.winners?.manual && ctx.actor.role !== 'super') throw conflict('HQ entered this store’s winners by hand — ask HQ to change them.');
   const final = finalOf(day.matches);
   const result = finalResult(day.matches);
   if (!final || !result) throw conflict('Record the final first — the winner and runner-up come from its result.');
@@ -467,6 +472,24 @@ function setWinners(day: MatchDay, cmd: Extract<Command, { type: 'winners.set' }
   const winner: WinnerDetails = { playerId: result.winner, ...w.value };
   const runnerUp: WinnerDetails = { playerId: result.runnerUp, ...r.value };
   const winners: Winners = { winner, runnerUp, finalMatchId: final.id, at: day.winners?.at ?? ctx.now, updatedAt: ctx.now, by: ctx.actor.name };
+  return { ...day, winners };
+}
+
+/* ---------- winners.manual ---------- */
+
+/**
+ * winners.manual: HQ types the winner and runner-up for a store whose bracket ran elsewhere, so nothing
+ * is checked against the bracket (finalMatchId and playerId stay ''). The winner needs a real name; the
+ * runner-up may be left empty. Saving again updates (`at` keeps the first time). `base` is informational.
+ * The desk can’t overwrite a manual record with winners.set; HQ can (it then comes from the bracket).
+ */
+function manualWinners(day: MatchDay, cmd: Extract<Command, { type: 'winners.manual' }>, ctx: CommandContext): MatchDay {
+  const w = cleanWinnerInput(cmd.winner, 'Winner');
+  if (!w.ok) throw invalid(w.error);
+  if (!w.value.realName) throw invalid('Type the winner’s name.');
+  const r = cleanWinnerInput(cmd.runnerUp, 'Runner-up');
+  if (!r.ok) throw invalid(r.error);
+  const winners: Winners = { winner: { playerId: '', ...w.value }, runnerUp: { playerId: '', ...r.value }, finalMatchId: '', manual: true, at: day.winners?.at ?? ctx.now, updatedAt: ctx.now, by: ctx.actor.name };
   return { ...day, winners };
 }
 

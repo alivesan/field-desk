@@ -46,7 +46,8 @@ export interface WinnerRow {
   listName: string; // the player-list name of who won / lost the final ('' when unknown)
   savedAt: string; // ISO, last saved ('' = nothing saved)
   savedBy: string;
-  note: string; // mismatch: what no longer fits
+  manual: boolean; // HQ typed these (winners.manual), not collected from the bracket
+  note: string; // mismatch: what no longer fits; manual: 'Entered by HQ'
 }
 
 type Person = Pick<WinnerRow, 'realName' | 'ign' | 'phone' | 'email' | 'instagram'>;
@@ -86,11 +87,16 @@ export function storeWinnerRows(store: Store, event: { id: string; name: string;
       listName: player?.name ?? '',
       savedAt: '',
       savedBy: '',
+      manual: !!winners?.manual,
       note: '',
     };
 
     if (winners && details) {
       Object.assign(row, saved(details), { savedAt: winners.updatedAt, savedBy: winners.by });
+      if (winners.manual) {
+        const missing = missingFields(row);
+        return { ...row, status: missing.length ? 'partial' : 'complete', missing, note: 'Entered by HQ' };
+      }
       // Saved against a final that is no longer the bracket's: say so rather than trust it.
       const who = place === 'Winner' ? 'winner' : 'runner-up';
       const why = !result ? 'The bracket has no finished final now.' : winners.finalMatchId !== result.match.id ? 'The final is a different match now.' : details.playerId !== playerId ? `The ${who} is a different player now.` : '';
@@ -119,7 +125,7 @@ export function winnerRows(state: Pick<AppState, 'events' | 'stores'>, opts: { e
 
 export interface WinnerSummary {
   stores: number;
-  played: number; // stores whose final has been played
+  played: number; // stores with a winner: the final has been played, or HQ typed them
   full: number; // stores where both winner and runner-up are complete
   check: number; // stores with a record that no longer matches the bracket
 }
@@ -130,7 +136,7 @@ export function summarize(rows: WinnerRow[]): WinnerSummary {
   const stores = [...by.values()];
   return {
     stores: stores.length,
-    played: stores.filter((s) => s[0].finalDone).length,
+    played: stores.filter((s) => s[0].finalDone || s[0].manual).length,
     full: stores.filter((s) => s.every((r) => r.status === 'complete')).length,
     check: stores.filter((s) => s.some((r) => r.status === 'mismatch')).length,
   };
@@ -138,7 +144,7 @@ export function summarize(rows: WinnerRow[]): WinnerSummary {
 
 /* ---------- CSV ---------- */
 
-export const CSV_HEADER = ['Campaign', 'Store', 'City', 'State', 'Event date (yyyy-mm-dd)', 'Place', 'Real name', 'In-game name', 'Phone', 'Email', 'Instagram (@handle)', 'Status', 'Saved at', 'Saved by'];
+export const CSV_HEADER = ['Campaign', 'Store', 'City', 'State', 'Event date (yyyy-mm-dd)', 'Place', 'Real name', 'In-game name', 'Phone', 'Email', 'Instagram (@handle)', 'Status', 'Saved at', 'Saved by', 'Source'];
 
 /** The status as the CSV says it — the label, and for a partial one what's still missing. */
 export const statusText = (r: Pick<WinnerRow, 'status' | 'missing'>) => (r.status === 'partial' ? `Partial — missing ${r.missing.map((f) => FIELD_LABEL[f]).join(', ')}` : STATUS_LABEL[r.status]);
@@ -149,6 +155,6 @@ export const statusText = (r: Pick<WinnerRow, 'status' | 'missing'>) => (r.statu
  * spreadsheet, and the guard would turn it into a visible apostrophe.
  */
 export function winnersCsv(rows: WinnerRow[]): string {
-  const body = rows.map((r) => [r.campaign, r.store, r.city, r.state, r.date, r.place, r.realName, r.ign, prettyPhone(r.phone), r.email, r.instagram, statusText(r), localStamp(r.savedAt), r.savedBy]);
+  const body = rows.map((r) => [r.campaign, r.store, r.city, r.state, r.date, r.place, r.realName, r.ign, prettyPhone(r.phone), r.email, r.instagram, statusText(r), localStamp(r.savedAt), r.savedBy, r.manual ? 'By hand' : 'Bracket']);
   return '﻿' + [CSV_HEADER, ...body].map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
 }
