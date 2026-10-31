@@ -80,6 +80,7 @@ export interface Player {
   phone?: string; // normalized digits (normalizePhone) — how a player finds themselves at QR check-in
   ign?: string; // in-game name / gamertag from HQ's list (cleanIgn, ≤ 40) — shown to staff, searchable; never part of the id
   phoneEnd?: string; // admins only: last 4 digits while the player isn't checked in — the server sends this instead of `phone` (never stored)
+  toornamentId?: string; // the Toornament participant id (digits, ≤ 24), kept by bracket.load when the name is matched or added from Toornament — what a result job names the player by (docs/toornament-jobs.md)
 }
 
 export interface Match {
@@ -193,6 +194,8 @@ export interface ToornamentSource {
   by?: string; // principal ('system:toornament' = the auto-check)
   loadId?: string; // id of the bracket.load that built the current bracket: its matches' ids start with it (how the auto-check tells a Toornament bracket from one built by hand)
   auto?: ToornamentAuto; // the server's 5-minute check on the event day (server/toornament-auto.ts)
+  tournamentName?: string; // the tournament's name on Toornament, as of the last use of its bracket — what a result job tells the worker to expect
+  sync?: { on: boolean }; // HQ: send finished / undone matches to Toornament as jobs (off unless on — docs/toornament-jobs.md)
 }
 
 export type ToornamentAutoResult = 'waiting' | 'not-placed' | 'applied' | 'skipped-underway' | 'skipped-manual' | 'error';

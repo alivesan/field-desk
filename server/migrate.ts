@@ -47,12 +47,45 @@ export function schemaVersion(db: DatabaseSync): number {
   return tableExists(db, 'docs') ? 1 : 0;
 }
 
+/**
+ * The Toornament result queue (docs/toornament-jobs.md): one row per job, `payload` immutable. A table, not a doc, so the
+ * bot's churn stays off the SSE stream. Times are epoch milliseconds (like the other tables); `history` is a JSON list of
+ * { at (ISO), state, code, attempt, workerId? }. tournament_id / stage_id repeat the payload's, for the worker's scope.
+ * Created like the steam_otp_keys table: IF NOT EXISTS, no schema_version bump (an older build simply never reads it).
+ */
+export const TOORNAMENT_JOBS_DDL = `
+  CREATE TABLE IF NOT EXISTS toornament_jobs (
+    id TEXT PRIMARY KEY,
+    store_id TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('pending', 'claimed', 'done', 'failed', 'needs-human', 'cancelled')),
+    payload TEXT NOT NULL,
+    payload_hash TEXT NOT NULL,
+    tournament_id TEXT NOT NULL,
+    stage_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    attempt INTEGER NOT NULL DEFAULT 0,
+    claim_token TEXT,
+    worker_id TEXT,
+    lease_until INTEGER,
+    checkpoint_at INTEGER,
+    next_attempt_at INTEGER,
+    code TEXT,
+    history TEXT NOT NULL DEFAULT '[]',
+    UNIQUE (store_id, entity_id, revision));
+  CREATE INDEX IF NOT EXISTS toornament_jobs_state ON toornament_jobs (state, created_at);
+  CREATE INDEX IF NOT EXISTS toornament_jobs_store ON toornament_jobs (store_id, entity_id);
+`;
+
 function base(db: DatabaseSync) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS docs (kind TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (kind, id));
     CREATE TABLE IF NOT EXISTS batches (id TEXT PRIMARY KEY, seq INTEGER NOT NULL, at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);
   `);
+  db.exec(TOORNAMENT_JOBS_DDL);
 }
 
 /** Photo ids referenced by a document: every list under a key ending in "photos", at any depth. */

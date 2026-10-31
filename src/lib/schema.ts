@@ -281,6 +281,8 @@ function validateStore(c: C, s: Rec, ctx: ValidationContext) {
     c.optTime(t.appliedAt, 'toornament.appliedAt');
     c.optStr(t.by, 'toornament.by', 100);
     c.optStr(t.loadId, 'toornament.loadId', 64);
+    c.optStr(t.tournamentName, 'toornament.tournamentName', 200);
+    if (t.sync !== undefined && c.obj(t.sync, 'toornament.sync')) c.bool(t.sync.on, 'toornament.sync.on');
     if (t.auto !== undefined && c.obj(t.auto, 'toornament.auto')) {
       const a = t.auto;
       c.bool(a.enabled, 'toornament.auto.enabled');
@@ -436,6 +438,7 @@ function validateDay(c: C, d: unknown, path: string) {
     c.num(p.seed, `${pp}.seed`, 0, 100000);
     if (p.phone !== undefined && (typeof p.phone !== 'string' || !PHONE_DIGITS.test(p.phone))) c.bad(`${pp}.phone`, 'must be 6–15 digits');
     c.optStr(p.ign, `${pp}.ign`, MAX_IGN);
+    if (p.toornamentId !== undefined && (typeof p.toornamentId !== 'string' || !/^\d{1,24}$/.test(p.toornamentId))) c.bad(`${pp}.toornamentId`, 'must be a Toornament participant id (digits)');
     if (p.phoneEnd !== undefined && (typeof p.phoneEnd !== 'string' || !/^\d{4}$/.test(p.phoneEnd))) c.bad(`${pp}.phoneEnd`, 'must be 4 digits');
   }
 

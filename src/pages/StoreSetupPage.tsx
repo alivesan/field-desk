@@ -10,6 +10,7 @@ import { cx, fmtDate } from '../lib/util.ts';
 import { askConfirm, Chip, NotFound, NumberField, PageHead, Shell, toast } from '../components/ui.tsx';
 import { EmptyCard } from '../components/flair.tsx';
 import { AutoCheck, ToornamentImport } from '../components/ToornamentImport.tsx';
+import { SendResults } from '../components/ToornamentQueue.tsx';
 import { RosterImport } from '../components/RosterImport.tsx';
 import { PlayerEditForm, type PlayerEdit } from '../components/PlayerEditForm.tsx';
 import { Sheet } from '../components/Sheet.tsx';
@@ -479,6 +480,7 @@ function BracketStep({ store, event, onBack }: { store: Store; event: Tournament
         <Chip tone={played || live ? 'accent' : 'ok'}>{played || live ? `${played} played · ${live} live` : 'Not started'}</Chip>
       </div>
       <AutoCheck store={store} event={event} />
+      <SendResults store={store} />
       <BracketChart day={day} />
       {day.winners && (
         <p className="hint">

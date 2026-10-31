@@ -7,6 +7,7 @@ import { AUTO_EVERY_MIN, autoFinished, autoLine, loadCommand, planFor } from '..
 import type { Store, TournamentEvent } from '../lib/types.ts';
 import { ago, cx } from '../lib/util.ts';
 import { useMarkOnSpot } from './OnSpotList.tsx';
+import { SendResults } from './ToornamentQueue.tsx';
 import { toast, useNow } from './ui.tsx';
 import '../styles/toornament.css';
 import '../styles/onspot.css';
@@ -194,6 +195,7 @@ export function ToornamentImport({ store, event }: { store: Store; event: Tourna
       if (!s.toornament) return;
       s.toornament.stageId = data.stage?.id;
       s.toornament.stageName = data.stage?.name;
+      s.toornament.tournamentName = data.tournament.name.slice(0, 200);
       s.toornament.appliedAt = at;
       s.toornament.by = sync.principal ?? 'super';
       s.toornament.loadId = id; // the bracket's match ids start with it — how the auto-check knows this one came from Toornament
@@ -233,6 +235,7 @@ export function ToornamentImport({ store, event }: { store: Store; event: Tourna
       </div>
 
       {link && !editing && <AutoCheck store={store} event={event} />}
+      {link && !editing && <SendResults store={store} />}
 
       {editing && (
         <div className="tn-edit">

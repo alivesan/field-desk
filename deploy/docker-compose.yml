@@ -14,6 +14,8 @@ services:
       FD_STEAM_API_KEY: ${FD_STEAM_API_KEY:-}
       FD_STEAM_WEBHOOK_URL: ${FD_STEAM_WEBHOOK_URL:-}
       FD_STEAM_WEBHOOK_SECRET: ${FD_STEAM_WEBHOOK_SECRET:-}
+      # Toornament result worker, from deploy/.env — empty = its routes answer 503. See docs/toornament-jobs.md.
+      FD_TOORNAMENT_JOBS_KEY: ${FD_TOORNAMENT_JOBS_KEY:-}
     volumes:
       - field-desk-data:/data # the database and every proof photo — back this up
 

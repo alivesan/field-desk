@@ -260,6 +260,8 @@ export interface StageBracket {
   mode: 'pairs' | 'seeded';
   /** Names in seed order. For 'pairs', the seed a slot would have in a standard bracket of that size. */
   players: string[];
+  /** Toornament's participant id of each of `players`, same order ('pairs' only — the seeded fallbacks have none). What bracket.load keeps as Player.toornamentId. */
+  playerIds?: string[];
   /** First-round pairings by name, null = BYE ('pairs' only). Length 1, 2, 4, 8… */
   pairs: [string | null, string | null][] | null;
   /** Why it's 'seeded' / can't be used, in HQ's words. Absent when the pairings are usable as they are. */
@@ -397,11 +399,12 @@ export function bracketFromNodes(nodeItems: unknown[], registered: ToornamentPar
   for (let i = 0; i < slots.length; i += 2) pairs.push([slots[i] ? nameOf.get(slots[i]!)! : null, slots[i + 1] ? nameOf.get(slots[i + 1]!)! : null]);
   // Seed = the slot's seed in a standard bracket of this size, so 02 Seeding shows Toornament's order.
   const order = seedOrder(slots.length);
-  const players = slots
+  const seeded = slots
     .map((p, i) => ({ p, seed: order[i] }))
     .filter((x) => x.p)
-    .sort((a, b) => a.seed - b.seed)
-    .map((x) => nameOf.get(x.p!)!);
+    .sort((a, b) => a.seed - b.seed);
+  const players = seeded.map((x) => nameOf.get(x.p!)!);
+  const playerIds = seeded.map((x) => x.p!.id);
 
   const empty = pairs.findIndex(([a, b]) => !a && !b);
   if (empty >= 0) {
@@ -419,7 +422,7 @@ export function bracketFromNodes(nodeItems: unknown[], registered: ToornamentPar
   const registeredOnly = registered.filter((r) => !slots.some((s) => s?.id === r.id));
   if (registeredOnly.length) notes.push(`${registeredOnly.length} registered on Toornament but not in this stage: ${registeredOnly.slice(0, 8).map((p) => p.name).join(', ')}${registeredOnly.length > 8 ? '…' : ''}. They aren’t added.`);
   if (stage && stage.status === 'pending' && stage.number > 1 && slots.some((s) => !s)) notes.push('Some slots are still empty. If they’re filled from an earlier stage, Refresh once that stage is finished.');
-  return { mode: 'pairs', players, pairs, notes, played, nodes: refs.sort((a, b) => a.round - b.round || a.index - b.index) };
+  return { mode: 'pairs', players, playerIds, pairs, notes, played, nodes: refs.sort((a, b) => a.round - b.round || a.index - b.index) };
 }
 
 /** Placed participants in bracket order (first round first), for the seeded fallback. */
@@ -483,7 +486,7 @@ export interface ImportPlan {
  * list would draw them into the bracket) those still on the list stay on it, after the bracket's
  * players and in no pairing.
  */
-export function planImport(bracket: Pick<StageBracket, 'players' | 'pairs'> & { nodes?: MatchNode[] }, existing: Player[], opts: { onSpot?: OnSpotEntry[]; keepOutside?: boolean } = {}): ImportPlan {
+export function planImport(bracket: Pick<StageBracket, 'players' | 'pairs'> & { nodes?: MatchNode[]; playerIds?: string[] }, existing: Player[], opts: { onSpot?: OnSpotEntry[]; keepOutside?: boolean } = {}): ImportPlan {
   const onSpot = opts.onSpot ?? [];
   const ids = new Set(existing.map((p) => p.id));
   // Registrations whose player isn't on the list any more: matchable, after everyone who is.
@@ -547,12 +550,19 @@ export function planImport(bracket: Pick<StageBracket, 'players' | 'pairs'> & { 
       found.set(i, twin);
       byBase.add(i);
     });
+  // Toornament's participant id for this slot (what a result job names the player by): digits only, and always the fresh one, never an earlier import's.
+  const participantId = (i: number) => {
+    const t = bracket.playerIds?.[i];
+    return typeof t === 'string' && TOORNAMENT_ID.test(t) ? t : undefined;
+  };
   const players = bracket.players.map((name, i): Player => {
     const old = found.get(i);
     if (old) {
       const p: Player = { id: old.id, name: byBase.has(i) ? name.replace(/\s+/g, ' ').trim() : old.name, seed: i + 1 };
       if (old.phone) p.phone = old.phone;
       if (old.ign) p.ign = old.ign;
+      const tid = participantId(i);
+      if (tid) p.toornamentId = tid;
       matched.push(p);
       idByName.set(name, p.id);
       return p;
@@ -561,6 +571,8 @@ export function planImport(bracket: Pick<StageBracket, 'players' | 'pairs'> & { 
     if (ids.has(id)) id = playerIdFor(undefined, `${name} (toornament)`); // a hash clash with another player's id
     ids.add(id);
     const p: Player = { id, name: name.replace(/\s+/g, ' ').trim(), seed: i + 1 };
+    const tid = participantId(i);
+    if (tid) p.toornamentId = tid;
     added.push(p);
     idByName.set(name, id);
     return p;

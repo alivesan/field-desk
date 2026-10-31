@@ -23,6 +23,9 @@ import { createPublicLimiter, DEFAULT_PUBLIC_LIMITS, selfCheckIn, storeByBracket
 import { fetchRoster, RosterFetchError, type RosterFetchOptions } from './roster-fetch.ts';
 import { createPrinter } from './print.ts';
 import { fetchToornament } from './toornament-fetch.ts';
+import { canonical } from './canonical.ts';
+import { createJobStore } from './toornament-jobs.ts';
+import { checkAck, checkCheckpoint, checkClaim, checkIdentity, toornamentWorkerConfig, workerBearerMatches, WORKER_BODY_MAX, type ToornamentWorkerOptions } from './toornament-worker.ts';
 import { createToornamentAuto, type ToornamentAutoOptions } from './toornament-auto.ts';
 import { lanOrigins, listensOnAll } from './lan.ts';
 import { bearerMatches, createKeyStore, createOtpRequests, otpFingerprint, steamOtpConfig, type OtpWho, type SteamOtpOptions } from './steam-otp.ts';
@@ -68,6 +71,12 @@ export { ADMIN_CODE };
  *   GET  /api/roster/fetch?url=<https link>   HQ only: { url, contentType, text, fetchedAt } (server/roster-fetch.ts)
  *   GET  /api/toornament/fetch?url=<toornament link>&stage=<stageId>   HQ only: tournament, stages,
  *        participants, the stage's first round (server/toornament-fetch.ts, src/lib/toornament.ts)
+ *   GET  /api/toornament/jobs[?storeId=]   HQ only: { jobs } — the Toornament result queue, newest first, at most 300: id, storeId, entityId,
+ *        revision, kind, state, attempt, code, createdAt, updatedAt, history, toornamentLabel, participants (names), desired
+ *        ({ outcome, winnerName }) — nothing else from the payload (server/toornament-jobs.ts viewOf, src/lib/toornament-queue.ts)
+ *   POST /api/toornament/jobs/:id/resolve  { action: "manual" | "retry" }   HQ only: a job in needs-human / failed (else 409
+ *        conflict) → done (resolved-by-hq: it was fixed on Toornament by hand) or pending (retry-by-hq: attempts back to 0, the
+ *        next claim is a recovery one); one transaction, the history says by: "hq" -> { ok, job }
  *   GET  /api/print/sheet?url=<Google Sheets link>&year=<yyyy>   HQ only: the creatives sheet read into
  *        tabs → blocks → Drive files with their real names (PrintSheetParse, src/lib/print.ts; server/print.ts)
  *   GET  /api/print/file/:storeId/:kind[?inline=1]   HQ, or that store's team / admin: one print file from Google
@@ -85,6 +94,13 @@ export { ADMIN_CODE };
  * { error, message }; sessions are not accepted there and its key is accepted nowhere else:
  *   GET  /api/v1/steam/accounts   scope steam-accounts:read   the accounts and who holds each now (never a code)
  *   POST /api/v1/steam/otp        scope steam-otp:write       { accountUsername?, accountEmail?, code, receivedAt, requestId? }
+ *
+ * The Toornament browser worker (server/toornament-worker.ts, server/toornament-jobs.ts, docs/toornament-jobs.md) has its own
+ * bearer key (FD_TOORNAMENT_JOBS_KEY, scope toornament-jobs:write) and the same error shape; no other credential is accepted there:
+ *   POST /api/v1/toornament/worker/v1/jobs/claim       { workerId, scopes: [{ tournamentId, stageId }] } -> null | { job, claimToken, attempt, recoveryRequired }
+ *   POST /api/v1/toornament/worker/v1/jobs/heartbeat   { jobId, payloadHash, revision, claimToken, workerId } -> { ok, leaseUntil }   409 = not your claim
+ *   POST /api/v1/toornament/worker/v1/jobs/checkpoint  the same + phase: "before-save" -> { ok }
+ *   POST /api/v1/toornament/worker/v1/jobs/ack         the same + status: done | failed | needs-human | retry, code, nextAttemptAt?, observedRemoteIds? -> { ok, state, code }
  *
  * Public — no session, for players at the venue (server/public.ts has the limits):
  *   GET  /api/public/checkin/:token   { store, campaign, date, open, bracketPath? } — nothing about players; bracketPath ("/b/<token>") only while the store's public bracket is on
@@ -133,6 +149,8 @@ export interface ApiOptions {
   toornamentAuto?: ToornamentAutoOptions;
   /** The Steam OTP automation (FD_STEAM_API_KEY, FD_STEAM_WEBHOOK_URL, FD_STEAM_WEBHOOK_SECRET); the environment fills what is left out. */
   steam?: SteamOtpOptions;
+  /** The Toornament browser worker (FD_TOORNAMENT_JOBS_KEY); the environment fills what is left out. */
+  toornamentWorker?: ToornamentWorkerOptions;
   /** How often open event streams are pinged and their sessions re-checked. Default 20 s. */
   streamCheckMs?: number;
   /** Clock, for tests. */
@@ -184,15 +202,7 @@ const envNum = (name: string) => {
   return v !== undefined && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : undefined;
 };
 
-/** JSON with object keys sorted — equal values give equal text. */
-export function canonical(v: unknown): string {
-  if (Array.isArray(v)) return `[${v.map((x) => (x === undefined ? 'null' : canonical(x))).join(',')}]`;
-  if (v && typeof v === 'object') {
-    const keys = Object.keys(v).filter((k) => (v as Record<string, unknown>)[k] !== undefined).sort();
-    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`).join(',')}}`;
-  }
-  return JSON.stringify(v) ?? 'null';
-}
+export { canonical };
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
 class HttpError extends Error {
@@ -252,6 +262,8 @@ export function createApi(opts: ApiOptions) {
   const findBatch = db.prepare('SELECT seq, hash FROM batches WHERE id = ?');
   const addBatch = db.prepare('INSERT INTO batches (id, seq, at, hash) VALUES (?, ?, ?, ?)');
 
+  const toornamentJobs = createJobStore(db, now, log, (storeId) => docs.stores[storeId]?.toornament?.sync?.on === true);
+  const workerCfg = toornamentWorkerConfig(opts.toornamentWorker ?? {});
   const sessions = createSessions(db, now);
   sessions.prune();
   const photos = createPhotoStore(db, path.join(dataDir, 'photos'), now);
@@ -462,6 +474,15 @@ export function createApi(opts: ApiOptions) {
     otpKeys.prune();
   }, 3600000);
   pruner.unref();
+  // A claim whose worker went quiet is given back every minute (and by every worker call, first thing).
+  const leaseSweeper = setInterval(() => {
+    try {
+      toornamentJobs.expireLeases();
+    } catch (e) {
+      log('error', 'toornament-lease-sweep-failed', { errorName: e instanceof Error ? e.name : 'unknown' });
+    }
+  }, 60000);
+  leaseSweeper.unref();
 
   /** A retry of something already committed returns its seq; reusing an id for a different payload is refused. */
   function seen(key: string, hash: string) {
@@ -513,8 +534,11 @@ export function createApi(opts: ApiOptions) {
     if (problems.length) throw new HttpError(400, 'invalid', problems.length === 1 ? problems[0] : `${problems.length} problems — first: ${problems[0]}`, { problems: problems.slice(0, 50) });
   }
 
-  /** Writes the touched documents and the dedupe record in one transaction, then publishes. */
-  function commit(key: string, hash: string, work: Docs, touched: Map<string, [DocKind, string]>, id: string, ops: Op[]) {
+  /**
+   * Writes the touched documents and the dedupe record in one transaction, then publishes. `extra` writes more rows in the same
+   * transaction (a command's Toornament job): if it throws, nothing is committed.
+   */
+  function commit(key: string, hash: string, work: Docs, touched: Map<string, [DocKind, string]>, id: string, ops: Op[], extra?: () => void) {
     db.exec('BEGIN IMMEDIATE');
     try {
       for (const [k, docId] of touched.values()) {
@@ -524,6 +548,7 @@ export function createApi(opts: ApiOptions) {
       }
       setMeta.run('seq', String(seq + 1));
       addBatch.run(key, seq + 1, now(), hash);
+      extra?.();
       db.exec('COMMIT');
     } catch (e) {
       db.exec('ROLLBACK');
@@ -620,7 +645,8 @@ export function createApi(opts: ApiOptions) {
     work.stores[storeId] = next;
     check(work, touched, false);
     const ops = diffDocs({ events: {}, stores: { [storeId]: store }, admins: {}, accounts: {} }, { events: {}, stores: { [storeId]: next }, admins: {}, accounts: {} });
-    return commit(`cmd:${id}`, hash, work, touched, id, ops);
+    // A finished or undone match makes its Toornament job (and a replaced bracket cancels the old ones) in the same transaction.
+    return commit(`cmd:${id}`, hash, work, touched, id, ops, () => toornamentJobs.onCommand({ before: store, after: next, cmd, commandId: id, now: ctx.now }));
   }
 
   /** A server-made change to a store's Toornament record (the auto-check's status): validated and committed like a batch, so every client hears of it. */
@@ -764,6 +790,8 @@ export function createApi(opts: ApiOptions) {
       if (host === null || host !== own) return send(res, 403, { code: 'forbidden', error: 'Cross-origin request refused' });
     }
 
+    // The Toornament browser worker: its own key (the Steam key is no use here), the Steam routes' error shape.
+    if (url.pathname.startsWith('/api/v1/toornament/')) return toornamentWorkerApi(req, res, url);
     // The Steam OTP automation: its own key and error shape; a session cookie means nothing here.
     if (url.pathname.startsWith('/api/v1/')) return steamApi(req, res, url);
 
@@ -1006,6 +1034,22 @@ export function createApi(opts: ApiOptions) {
       }
     }
 
+    // HQ's Toornament to-do (docs/toornament-jobs.md, "HQ"): the result queue, and settling a job that needs a person.
+    if (route === 'GET /api/toornament/jobs') {
+      if (who.role !== 'super') return send(res, 403, { code: 'forbidden', error: 'HQ only' });
+      const storeId = url.searchParams.get('storeId') || undefined;
+      return send(res, 200, { jobs: toornamentJobs.list(storeId) });
+    }
+    const resolveRoute = req.method === 'POST' ? url.pathname.match(/^\/api\/toornament\/jobs\/([\w-]{1,64})\/resolve$/) : null;
+    if (resolveRoute) {
+      if (who.role !== 'super') return send(res, 403, { code: 'forbidden', error: 'HQ only' });
+      const body = await readJson(req, 4096);
+      if (body?.action !== 'manual' && body?.action !== 'retry') throw new HttpError(400, 'bad-request', 'action must be "manual" or "retry"');
+      const r = toornamentJobs.resolve(resolveRoute[1], body.action, 'hq');
+      if (!r.ok) return send(res, r.status, { code: r.code, error: r.status === 404 ? 'No such job.' : 'That job is not waiting for a person any more — refresh the page.' });
+      return send(res, 200, { ok: true, job: r.job });
+    }
+
     if (route === 'GET /api/print/sheet') {
       if (who.role !== 'super') return send(res, 403, { code: 'forbidden', error: 'HQ only' });
       const year = Number(url.searchParams.get('year'));
@@ -1107,6 +1151,72 @@ export function createApi(opts: ApiOptions) {
       }
       // Only the kind of failure: an error's own message can quote the request (a JSON parse error does).
       log('error', 'steam-otp-failed', { errorName: e instanceof Error ? e.name : 'unknown' });
+      if (res.headersSent) {
+        res.destroy();
+        return true;
+      }
+      return steamFail(res, 500, 'internal_error', 'Something went wrong on the server.');
+    }
+  }
+
+  /* ---------- the Toornament browser worker (docs/toornament-jobs.md, "The worker's routes") ---------- */
+
+  /**
+   * POST /api/v1/toornament/worker/v1/jobs/{claim,heartbeat,checkpoint,ack}. Bearer key FD_TOORNAMENT_JOBS_KEY (scope
+   * toornament-jobs:write), the error shape { error, message } of the Steam routes. 409 = this claim is not (or no longer)
+   * the worker's; the answers are JSON (the client reads every one).
+   */
+  async function toornamentWorkerApi(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
+    try {
+      const m = /^\/api\/v1\/toornament\/worker\/v1\/jobs\/(claim|heartbeat|checkpoint|ack)$/.exec(url.pathname);
+      if (!m) return steamFail(res, 404, 'not_found', 'No such route.');
+      if (!workerCfg.apiKey) return steamFail(res, 503, 'not_configured', 'The Toornament worker API isn’t set up on this server.');
+      // The worker's key is the only thing accepted here: not a cookie, not a session, not the Steam key.
+      if (!workerBearerMatches(req.headers.authorization, workerCfg.apiKey)) return steamFail(res, 401, 'unauthorized', 'A valid API key is needed.');
+      if (req.method !== 'POST') {
+        res.setHeader('Allow', 'POST');
+        return steamFail(res, 405, 'method_not_allowed', 'That method isn’t allowed on this route.');
+      }
+      const raw = await readRaw(req, WORKER_BODY_MAX);
+      let body: unknown;
+      try {
+        body = safeParse(raw.toString('utf8'));
+      } catch {
+        return steamFail(res, 400, 'invalid_body', 'Send a JSON body.');
+      }
+      const refuse = (r: { status: number; code: string }) => steamFail(res, r.status, r.code, r.status === 404 ? 'No such job.' : 'This claim is not the worker’s current claim of the job.');
+      switch (m[1]) {
+        case 'claim': {
+          const c = checkClaim(body);
+          if (!c.ok) return steamFail(res, 400, 'invalid_body', c.message);
+          return send(res, 200, toornamentJobs.claim(c.value.workerId, c.value.scopes)); // null when nothing is claimable
+        }
+        case 'heartbeat': {
+          const c = checkIdentity(body);
+          if (!c.ok) return steamFail(res, 400, 'invalid_body', c.message);
+          const r = toornamentJobs.heartbeat(c.value);
+          return r.ok ? send(res, 200, { ok: true, leaseUntil: new Date(r.leaseUntil).toISOString() }) : refuse(r);
+        }
+        case 'checkpoint': {
+          const c = checkCheckpoint(body);
+          if (!c.ok) return steamFail(res, 400, 'invalid_body', c.message);
+          const r = toornamentJobs.checkpoint(c.value);
+          return r.ok ? send(res, 200, { ok: true }) : refuse(r);
+        }
+        default: {
+          const c = checkAck(body);
+          if (!c.ok) return steamFail(res, 400, 'invalid_body', c.message);
+          const r = toornamentJobs.ack(c.value.id, c.value.ack);
+          return r.ok ? send(res, 200, { ok: true, state: r.state, code: r.code }) : refuse(r);
+        }
+      }
+    } catch (e) {
+      if (e instanceof HttpError && e.status === 413) {
+        res.setHeader('Connection', 'close');
+        return steamFail(res, 413, 'body_too_large', 'The body is over 16 KB.');
+      }
+      // Only the kind of failure: an error's own message can quote the request.
+      log('error', 'toornament-worker-failed', { errorName: e instanceof Error ? e.name : 'unknown' });
       if (res.headersSent) {
         res.destroy();
         return true;
@@ -1412,12 +1522,15 @@ export function createApi(opts: ApiOptions) {
     },
     /** The Toornament auto-check: tick() looks at every store that is due right now (the timer calls it; tests call it with a fake clock). */
     toornamentAuto,
+    /** The Toornament result queue (server/toornament-jobs.ts): the job rows, for the worker's routes, HQ's page and tests. */
+    toornamentJobs,
     /** Stops timers, ends event streams, closes the database and releases the data-dir lock. */
     close() {
       toornamentAuto.stop();
       otpRequests.close();
       clearInterval(ticker);
       clearInterval(pruner);
+      clearInterval(leaseSweeper);
       for (const res of streams.keys()) res.end();
       streams.clear();
       try {
