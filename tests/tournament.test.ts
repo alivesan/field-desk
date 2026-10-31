@@ -721,3 +721,90 @@ test('validateCommand: bracket.place shape', () => {
   ])
     assert.throws(() => validateCommand(bad), CommandError);
 });
+
+/* ---------- Toornament match numbers (bracket.load { toornament }) ---------- */
+
+// slotted()'s shape: M1 p1·p2, M2 p3·BYE, M3 p4·p5, M4 p6·BYE, then M5, M6 and the final M7.
+const TN = [
+  { round: 0, index: 0, id: '9001', label: '1.1.1.1' },
+  { round: 0, index: 1, id: '9002', label: '1.1.1.2' }, // a "To be determined" first-round match Toornament auto-completed: our bye
+  { round: 0, index: 2, id: '9003', label: '1.1.1.3' },
+  { round: 1, index: 0, id: '9011', label: '1.1.2.1' },
+  { round: 1, index: 1, id: '9012', label: '1.1.2.2' },
+  { round: 2, index: 0, id: '9021', label: '1.1.3.1' }, // (0, 3) is a plain bye with no Toornament match
+];
+const tnOf = (s: Store) => s.day.matches.map((x) => `${x.round}:${x.index}=${x.toornament?.label ?? '-'}`);
+function fromToornament(): Store {
+  const pairs: [string | null, string | null][] = [['p1', 'p2'], ['p3', null], ['p4', 'p5'], ['p6', null]];
+  return checkAll(run(emptyStore(4), { type: 'bracket.load', base: 0, players: players(6), pairs, stations: 4, toornament: TN }));
+}
+
+test('bracket.load { toornament }: each match gets the id and label of the Toornament match at its position', () => {
+  const s = fromToornament();
+  assert.deepEqual(tnOf(s), ['0:0=1.1.1.1', '0:1=1.1.1.2', '0:2=1.1.1.3', '0:3=-', '1:0=1.1.2.1', '1:1=1.1.2.2', '2:0=1.1.3.1']);
+  assert.deepEqual(m(s, 1, 0).toornament, { id: '9011', label: '1.1.2.1' });
+  assert.deepEqual(Object.keys(m(s, 0, 0).toornament!), ['id', 'label']);
+  // Without the field (or with an empty list) nothing is added.
+  const plain = run(emptyStore(4), { type: 'bracket.load', base: 0, players: players(4), toornament: [] });
+  assert.ok(plain.day.matches.every((x) => !('toornament' in x)));
+  // A position the bracket doesn't have is a mistake, not silently dropped.
+  rejects(() => run(emptyStore(4), { type: 'bracket.load', base: 0, players: players(4), toornament: [{ round: 3, index: 0, id: '1', label: '1.1.1.1' }] }), 'invalid', /Toornament match numbers don’t fit/);
+});
+
+test('Toornament match numbers stay with the match through place, swap, start, finish and undo; the same bracket from the desk or after a reset has none', () => {
+  const s = fromToornament();
+  const walk = run(s, onspot('Walk In'), ctx());
+  // a walk-in takes the empty slot of the auto-completed match: still that Toornament match
+  const placed = run(walk, place(walk, m(walk, 0, 1).id, 'b', walkId(walk)));
+  assert.equal(m(placed, 0, 1).toornament?.label, '1.1.1.2');
+  // a swap rebuilds both first-round matches: each keeps its own number
+  const swapped = run(placed, place(placed, m(placed, 0, 0).id, 'a', 'p4', { swap: true }));
+  assert.deepEqual([m(swapped, 0, 0).a, m(swapped, 0, 2).a], ['p4', 'p1']);
+  assert.deepEqual(tnOf(swapped), tnOf(placed));
+  // a match played, its follow-on re-resolved, then undone
+  const live = run(swapped, { type: 'match.start', base: dayVersion(swapped), matchId: m(swapped, 0, 0).id, station: 1 });
+  const done = run(live, { type: 'match.finish', base: dayVersion(live), matchId: m(live, 0, 0).id, winner: 'p4', score: '2-0' });
+  assert.equal(m(done, 1, 0).a, 'p4');
+  assert.deepEqual(tnOf(done), tnOf(placed));
+  const undone = run(done, { type: 'match.undo', base: dayVersion(done), matchId: m(done, 0, 0).id });
+  assert.equal(m(undone, 1, 0).a, null);
+  assert.deepEqual(tnOf(undone), tnOf(placed));
+  // a hand-built bracket, and a reset, have none
+  const reset = run(undone, { type: 'bracket.reset', base: dayVersion(undone) });
+  assert.equal(reset.day.matches.length, 0);
+  const rebuilt = run(reset, { type: 'bracket.build', base: dayVersion(reset) });
+  assert.ok(rebuilt.day.matches.length > 0 && rebuilt.day.matches.every((x) => !x.toornament));
+  const byHand = run(emptyStore(), { type: 'players.set', base: 0, players: players(4) });
+  assert.ok(run(byHand, { type: 'bracket.build', base: dayVersion(byHand) }).day.matches.every((x) => !x.toornament));
+});
+
+test('validateCommand: bracket.load toornament shape', () => {
+  const ok = { round: 0, index: 1, id: '2100883953429577737', label: '1.1.2.1' };
+  const load = (toornament: unknown) => ({ type: 'bracket.load', base: 0, players: players(2), toornament });
+  assert.equal(validateCommand(load([ok])).type, 'bracket.load');
+  assert.equal(validateCommand(load([])).type, 'bracket.load');
+  assert.equal(validateCommand({ type: 'bracket.load', base: 0, players: players(2) }).type, 'bracket.load');
+  assert.equal(validateCommand(load(Array.from({ length: 512 }, () => ok))).type, 'bracket.load');
+  for (const bad of [
+    'x',
+    {},
+    null,
+    Array.from({ length: 513 }, () => ok),
+    [null],
+    [[]],
+    [{ ...ok, round: -1 }],
+    [{ ...ok, round: 1.5 }],
+    [{ ...ok, index: '0' }],
+    [{ ...ok, index: -1 }],
+    [{ ...ok, id: '' }],
+    [{ ...ok, id: 'x'.repeat(65) }],
+    [{ ...ok, id: 7 }],
+    [{ ...ok, label: '1.1.2' }],
+    [{ ...ok, label: '1.1.2.1.1' }],
+    [{ ...ok, label: '#1.1.2.1' }],
+    [{ ...ok, label: 'a.b.c.d' }],
+    [{ ...ok, label: 7 }],
+    [{ round: 0, index: 0, id: '1' }],
+  ])
+    assert.throws(() => validateCommand(load(bad)), CommandError, JSON.stringify(bad).slice(0, 60));
+});

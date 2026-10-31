@@ -25,6 +25,11 @@
  * stage bigger than its field) can't be expressed here (BYE vs BYE); that is reported, with the
  * placed players offered as a seeded list instead. The 3rd-place match ('lb') is left out.
  *
+ * Toornament's organizer names every match "#<stage>.<group>.<round>.<match>" (stage number, group
+ * number, round number, match number within the round — e.g. #1.1.2.1). The same walk that places
+ * the players records which Toornament match sits at each Field Desk position (StageBracket.nodes),
+ * so every match here can say which Toornament match it is, by id and by that label.
+ *
  * Node-loadable: no browser APIs, explicit .ts imports only.
  */
 import type { OnSpotEntry, Player, Store } from './types.ts';
@@ -265,12 +270,24 @@ export interface StageBracket {
   notes: string[];
   /** Matches Toornament already has results for. They are not copied: matches are run here. */
   played: number;
+  /** 'pairs' only: the Toornament match at each Field Desk match position (empty otherwise, and where the stage number is unknown). */
+  nodes: MatchNode[];
+}
+
+/** Where one Toornament match sits in the bracket built from `pairs`: round 0 = first round, index = position in the round. */
+export interface MatchNode {
+  round: number;
+  index: number;
+  id: string; // Toornament's bracket node (match) id
+  label: string; // "<stage>.<group>.<round>.<match>", as in the organizer's "Match #1.1.2.1" (without the #)
 }
 
 interface Node {
   id: string;
   branch: string;
   group: string;
+  groupNumber: number; // 0 = not given
+  stage: number; // 0 = not given
   round: number;
   number: number; // the match's number within its round — Toornament draws a round top to bottom by it
   status: string;
@@ -282,6 +299,8 @@ function readNodes(items: unknown[]): Node[] {
     id: str(n.id),
     branch: str(n.branch) || 'wb',
     group: idOf(n.group),
+    groupNumber: isObj(n.group) && typeof n.group.number === 'number' ? n.group.number : 0,
+    stage: isObj(n.stage) && typeof n.stage.number === 'number' ? n.stage.number : 0,
     round: isObj(n.round) && typeof n.round.number === 'number' ? n.round.number : 0,
     number: typeof n.number === 'number' ? n.number : 0,
     status: str(n.status),
@@ -299,7 +318,7 @@ function readNodes(items: unknown[]): Node[] {
 const seededFrom = (names: string[], problem: string, why: StageBracket['why'], notes: string[], played: number): StageBracket => {
   const u = uniqueNames(names);
   if (u.renamed.length) notes.push(renamedNote(u.renamed));
-  return { mode: 'seeded', players: u.names, pairs: null, problem, why, notes, played };
+  return { mode: 'seeded', players: u.names, pairs: null, problem, why, notes, played, nodes: [] };
 };
 const renamedNote = (names: string[]) => `${names.map((n) => `“${n}”`).join(', ')} ${names.length === 1 ? 'appears' : 'appear'} more than once on Toornament — the repeats are numbered “(2)”. Rename them there if they’re different people.`;
 
@@ -332,27 +351,33 @@ export function bracketFromNodes(nodeItems: unknown[], registered: ToornamentPar
   // readNodes), so first-round match i here is the i-th match from the top on Toornament's page
   // and each later match is fed by matches 2i and 2i+1 of the round before, as Toornament's is.
   // A node in round r covers 2^r first-round slots; a player placed straight into round r
-  // (Toornament skips bye matches) fills the first slot of their half.
+  // (Toornament skips bye matches) fills the first slot of their half. A node whose slots start
+  // at `start` is Field Desk match (round r-1, index start / 2^r) — the position buildBracket
+  // gives those pairs; a slot with no node of its own (a placed player's bye) maps to nothing.
+  const stageNo = stage?.number || (wb.find((n) => n.stage)?.stage ?? 0);
+  const groupNo = wb[0].groupNumber || 1; // one group only (checked above): a bare id means group 1
   let shape = '';
   const visited = new Set<string>();
-  const expand = (n: Node, round: number): (ToornamentParticipant | null)[] => {
+  const refs: MatchNode[] = [];
+  const expand = (n: Node, round: number, start: number): (ToornamentParticipant | null)[] => {
     if (visited.has(n.id) || n.round !== round || round < 1 || round > 9) return (shape ||= 'loop'), [];
     visited.add(n.id);
     const opps = n.opponents;
     if (opps.length !== 2) return (shape ||= 'not-duel'), [];
+    if (stageNo && n.id && n.number > 0) refs.push({ round: round - 1, index: Math.floor(start / 2 ** round), id: n.id, label: `${stageNo}.${n.groupNumber || groupNo}.${round}.${n.number}` });
     const half = 2 ** (round - 1);
-    return opps.flatMap((o) => {
+    return opps.flatMap((o, k) => {
       if (o.sourceType === 'winner') {
         const child = byId.get(o.sourceNode);
         if (!child) return (shape ||= 'missing'), [];
-        return expand(child, round - 1);
+        return expand(child, round - 1, start + k * half);
       }
       if (o.sourceType !== 'none') return (shape ||= o.sourceType), [];
       return [o.participant, ...Array<null>(half - 1).fill(null)];
     });
   };
   const root = roots[0];
-  const slots = expand(root, root.round);
+  const slots = expand(root, root.round, 0);
   if (shape || !isPow2(slots.length) || slots.length < 2 || visited.size !== wb.length) return fallback('Toornament’s bracket for this stage has a shape Field Desk can’t copy.', 'unusable');
 
   const placedCount = slots.filter(Boolean).length;
@@ -361,7 +386,7 @@ export function bracketFromNodes(nodeItems: unknown[], registered: ToornamentPar
     return fallback(`Nobody is placed in this stage on Toornament yet.${later}`, 'unplaced');
   }
   if (placedCount < 2) return fallback('Only one player is placed in this stage on Toornament.', 'unplaced');
-  if (placedCount > MAX_PLAYERS) return { mode: 'seeded', players: [], pairs: null, problem: `${placedCount} players — Field Desk brackets hold up to ${MAX_PLAYERS}.`, why: 'unusable', notes, played };
+  if (placedCount > MAX_PLAYERS) return { mode: 'seeded', players: [], pairs: null, problem: `${placedCount} players — Field Desk brackets hold up to ${MAX_PLAYERS}.`, why: 'unusable', notes, played, nodes: [] };
 
   const u = uniqueNames(slots.filter((p): p is ToornamentParticipant => !!p).map((p) => p.name));
   if (u.renamed.length) notes.push(renamedNote(u.renamed));
@@ -388,12 +413,13 @@ export function bracketFromNodes(nodeItems: unknown[], registered: ToornamentPar
       why: 'unusable',
       notes,
       played,
+      nodes: [],
     };
   }
   const registeredOnly = registered.filter((r) => !slots.some((s) => s?.id === r.id));
   if (registeredOnly.length) notes.push(`${registeredOnly.length} registered on Toornament but not in this stage: ${registeredOnly.slice(0, 8).map((p) => p.name).join(', ')}${registeredOnly.length > 8 ? '…' : ''}. They aren’t added.`);
   if (stage && stage.status === 'pending' && stage.number > 1 && slots.some((s) => !s)) notes.push('Some slots are still empty. If they’re filled from an earlier stage, Refresh once that stage is finished.');
-  return { mode: 'pairs', players, pairs, notes, played };
+  return { mode: 'pairs', players, pairs, notes, played, nodes: refs.sort((a, b) => a.round - b.round || a.index - b.index) };
 }
 
 /** Placed participants in bracket order (first round first), for the seeded fallback. */
@@ -429,6 +455,7 @@ export interface ToornamentFetch {
 export interface ImportPlan {
   players: Player[]; // the store's new roster, seed order (then any walk-ins kept outside the bracket)
   pairs: [string | null, string | null][] | null; // by player id
+  nodes: MatchNode[]; // the Toornament match at each position of those pairs (empty when there are no pairs)
   matched: Player[]; // already on the store's list (or a walk-in's registration) — id, phone and check-in kept
   added: Player[]; // new from Toornament — no phone, so they check in at the desk
   dropped: Player[]; // on the store's list but not in Toornament's bracket — removed (walk-ins: see onSpotMissing)
@@ -456,7 +483,7 @@ export interface ImportPlan {
  * list would draw them into the bracket) those still on the list stay on it, after the bracket's
  * players and in no pairing.
  */
-export function planImport(bracket: Pick<StageBracket, 'players' | 'pairs'>, existing: Player[], opts: { onSpot?: OnSpotEntry[]; keepOutside?: boolean } = {}): ImportPlan {
+export function planImport(bracket: Pick<StageBracket, 'players' | 'pairs'> & { nodes?: MatchNode[] }, existing: Player[], opts: { onSpot?: OnSpotEntry[]; keepOutside?: boolean } = {}): ImportPlan {
   const onSpot = opts.onSpot ?? [];
   const ids = new Set(existing.map((p) => p.id));
   // Registrations whose player isn't on the list any more: matchable, after everyone who is.
@@ -554,7 +581,7 @@ export function planImport(bracket: Pick<StageBracket, 'players' | 'pairs'>, exi
     else if (now || !entry.toornament) onSpotMissing.push({ entry, player: now, kept: keep && !!now });
   }
   for (const m of onSpotMissing) if (m.kept && !players.some((p) => p.id === m.player!.id)) players.push({ ...m.player!, seed: players.length + 1 });
-  return { players, pairs, matched, added, dropped: existing.filter((p) => !used.has(p.id) && !walkIns.has(p.id)), onSpotFound, onSpotMissing };
+  return { players, pairs, nodes: pairs ? (bracket.nodes ?? []) : [], matched, added, dropped: existing.filter((p) => !used.has(p.id) && !walkIns.has(p.id)), onSpotFound, onSpotMissing };
 }
 
 /** True once a real match has been called or played (bracket.load / players.set are refused then). */

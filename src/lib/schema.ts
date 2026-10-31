@@ -508,6 +508,11 @@ function validateDay(c: C, d: unknown, path: string) {
     c.optStr(m.score, `${mp}.score`, 200);
     c.optTime(m.startedAt, `${mp}.startedAt`);
     c.optTime(m.endedAt, `${mp}.endedAt`);
+    if (m.toornament !== undefined && c.obj(m.toornament, `${mp}.toornament`)) {
+      const t = m.toornament;
+      if (c.str(t.id, `${mp}.toornament.id`, 64) && !(t.id as string).length) c.bad(`${mp}.toornament.id`, 'must not be empty');
+      if (c.str(t.label, `${mp}.toornament.label`, 40) && !/^\d+(\.\d+){3}$/.test(t.label as string)) c.bad(`${mp}.toornament.label`, 'must look like 1.1.2.1 (stage.group.round.match)');
+    }
 
     if (m.status === 'live') {
       if (!m.a || !m.b) c.bad(mp, 'a live match needs both players');

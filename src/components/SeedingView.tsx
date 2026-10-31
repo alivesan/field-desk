@@ -82,11 +82,12 @@ export function SeedingView({ day, cmds }: { day: MatchDay; cmds: MatchCmds }) {
   return (
     <section className="seeding">
       <p className="deck">First-round slots. Change any slot whose match hasn’t been played — the bracket updates for everyone. Make the same change on Toornament.</p>
-      <ol className="seeding-list">
+      <ol className={cx('seeding-list', matches.some((m) => m.toornament) && 'has-tno')}>
         {matches.map((m) => (
           <li key={m.id} className="seeding-match">
             <span className="seeding-no">
               M{matchNo(m, day.matches)}
+              {m.toornament && <small className="tno">#{m.toornament.label}</small>}
               {m.bye && <small>Bye</small>}
             </span>
             <div className="seeding-slots">

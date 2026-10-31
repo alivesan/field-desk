@@ -32,8 +32,12 @@ const blank = (id: string, round: number, index: number, a: string | null, b: st
   score: '',
 });
 
-/** The same match, back to "not played": no winner, station, times, score or walkover. */
-export const reopened = (m: Match): Match => blank(m.id, m.round, m.index, m.a, m.b);
+/** The same match, back to "not played": no winner, station, times, score or walkover. It is still the same Toornament match (`toornament`), whoever plays it. */
+export const reopened = (m: Match): Match => {
+  const r = blank(m.id, m.round, m.index, m.a, m.b);
+  if (m.toornament) r.toornament = m.toornament;
+  return r;
+};
 
 /* ---------- pasting the bracket in ---------- */
 

@@ -17,7 +17,7 @@ export type Role = 'super' | 'admin';
 
 export type Command =
   // tournament (src/lib/tournament.ts)
-  | { type: 'bracket.load'; base: number; players: Player[]; pairs?: [string | null, string | null][] | null; stations?: number }
+  | { type: 'bracket.load'; base: number; players: Player[]; pairs?: [string | null, string | null][] | null; stations?: number; toornament?: { round: number; index: number; id: string; label: string }[] } // toornament: the Toornament match at those positions of the bracket (src/lib/toornament.ts)
   | { type: 'bracket.reset'; base: number } // clears the bracket (matches) only — players and check-ins stay
   | { type: 'players.set'; base: number; players: Player[] } // replace the roster (0–256); clears an unstarted bracket
   | { type: 'players.seed'; base: number; order: string[] } // every player id, in seed order; clears an unstarted bracket

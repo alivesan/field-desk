@@ -96,6 +96,7 @@ export interface Match {
   score: string;
   startedAt?: string;
   endedAt?: string;
+  toornament?: { id: string; label: string }; // the Toornament match this is: its node id and "stage.group.round.match" (#1.1.2.1) — only in a bracket loaded from Toornament
 }
 
 export interface MatchDay {

@@ -253,7 +253,14 @@ function load(day: MatchDay, version: number, cmd: Extract<Command, { type: 'bra
   const clean = cleanPlayers(cmd.players, 2);
   const stations = cmd.stations ?? day.stations;
   if (!Number.isInteger(stations) || stations < 1 || stations > 64) throw invalid('Stations must be a whole number 1–64.');
-  return { ...day, ...keptCheckIns(day, clean), players: clean, matches: buildBracket(clean, checkedPairs(clean, cmd.pairs, (p) => isWalkIn(day, p)), ctx.commandId), stations };
+  const matches = buildBracket(clean, checkedPairs(clean, cmd.pairs, (p) => isWalkIn(day, p)), ctx.commandId);
+  // Which Toornament match each one is (bracket.load from Toornament only; a hand-built bracket has none).
+  for (const t of cmd.toornament ?? []) {
+    const m = matches.find((x) => x.round === t.round && x.index === t.index);
+    if (!m) throw invalid('The Toornament match numbers don’t fit this bracket — refresh the Toornament page and try again.');
+    m.toornament = { id: t.id, label: t.label };
+  }
+  return { ...day, ...keptCheckIns(day, clean), players: clean, matches, stations };
 }
 
 /* ---------- on-the-spot registration ---------- */

@@ -123,7 +123,7 @@ export function loadedByHq(store: Store, at: Date, tz: string = EVENT_TZ): boole
 /** Would the server take this bracket.load? Used to keep walk-ins on the list outside Toornament's pairings, where that's accepted. */
 function loadTakes(store: Store, event: TournamentEvent, plan: ImportPlan) {
   try {
-    applyCommand(store, { type: 'bracket.load', base: dayVersion(store), players: plan.players, pairs: plan.pairs }, { commandId: 'hq-probe', now: new Date().toISOString(), actor: { principal: 'super', name: 'HQ', role: 'super' }, event });
+    applyCommand(store, loadCommand(store, plan), { commandId: 'hq-probe', now: new Date().toISOString(), actor: { principal: 'super', name: 'HQ', role: 'super' }, event });
     return true;
   } catch {
     return false;
@@ -143,7 +143,7 @@ export function planFor(bracket: StageBracket, store: Store, event: TournamentEv
   return loadTakes(store, event, kept) ? kept : plain;
 }
 
-export const loadCommand = (store: Store, plan: ImportPlan): Extract<Command, { type: 'bracket.load' }> => ({ type: 'bracket.load', base: dayVersion(store), players: plan.players, pairs: plan.pairs });
+export const loadCommand = (store: Store, plan: ImportPlan): Extract<Command, { type: 'bracket.load' }> => ({ type: 'bracket.load', base: dayVersion(store), players: plan.players, pairs: plan.pairs, ...(plan.nodes.length ? { toornament: plan.nodes } : {}) });
 
 /* ---------- HQ's line ---------- */
 

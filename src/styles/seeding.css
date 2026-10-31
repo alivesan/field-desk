@@ -34,6 +34,14 @@
   font: 500 12px/1 var(--mono);
   color: var(--muted);
 }
+.has-tno .seeding-match {
+  grid-template-columns: 56px 1fr;
+}
+.seeding-no .tno {
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: none;
+}
 .seeding-no small {
   font-size: 10px;
   letter-spacing: 0.08em;

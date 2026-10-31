@@ -161,3 +161,15 @@ test('normalizeStore: upgrades a legacy store to a valid current one, idempotent
   normalizeStore(broken);
   assert.deepEqual(validateDocument('stores', broken, ctx()), []);
 });
+
+test('schema: a match may say which Toornament match it is; the label and id are checked', () => {
+  const ok = { id: '2100883953429577737', label: '1.1.2.1' };
+  const check = (toornament: unknown) => validateDocument('stores', store({ day: day({ matches: [match('m1', 'p1', 'p2', { toornament })] }) }), ctx());
+  assert.deepEqual(check(ok), []);
+  assert.deepEqual(check(undefined), []);
+  has(check({ ...ok, label: '1.2.1' }), /toornament\.label: must look like/);
+  has(check({ ...ok, label: 'M5' }), /toornament\.label: must look like/);
+  has(check({ ...ok, id: '' }), /toornament\.id: must not be empty/);
+  has(check({ ...ok, id: 5 }), /toornament\.id: must be text/);
+  has(check('1.1.2.1'), /toornament: must be an object/);
+});

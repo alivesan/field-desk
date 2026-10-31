@@ -486,7 +486,10 @@ function BracketChart({ day }: { day: MatchDay }) {
               {list.map((m) => (
                 <div key={m.id} className={cx('bmatch', m.status, m.bye && 'bye')}>
                   <div className="bmatch-top">
-                    <span>M{matchNo(m, day.matches)}</span>
+                    <span>
+                      M{matchNo(m, day.matches)}
+                      {m.toornament && <small className="tno"> · #{m.toornament.label}</small>}
+                    </span>
                     {m.status === 'live' && <Chip tone="accent">Stn {m.station}</Chip>}
                     {m.score && <span>{m.score}</span>}
                   </div>
