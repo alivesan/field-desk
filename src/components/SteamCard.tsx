@@ -67,10 +67,13 @@ export function OtpCode({ code, expiresAt, now }: { code: string; expiresAt: str
   );
 }
 
+/** How long a lookup waits before Try again shows (a new lookup replaces the old one; the server caps them per store). */
+const RETRY_AFTER_MS = 30000;
+
 /**
  * The Steam Guard code on a store's card. The server only sends a code the card may show (see cardOtp): the code while it
  * lasts, with Logged in and Check for new code when a team signs in on several PCs; "Waiting for a new Steam email…"
- * after a lookup was started; the Get code button when the server can ask; and the plain "call HQ" line whenever there
+ * after a lookup was started (with Try again, a fresh lookup, once it has waited half a minute); the Get code button when the server can ask; and the plain "call HQ" line whenever there
  * is no code. A code the team has moved past is hidden here at once, without waiting for the server's word.
  * `brief` (the folded strip) keeps only the button, the waiting line or the code — no hints, no call-HQ line.
  */
@@ -142,7 +145,20 @@ function OtpBlock({ storeId, login, hqPhone, compact, brief }: { storeId: string
           <p className="sc-wait" role="status">
             Waiting for a new Steam email… ({clock(now - Date.parse(waiting))})
           </p>
-          {!brief && <p className="sc-hint">Start the Steam sign-in on the PC — Steam only emails a code when a PC signs in.</p>}
+          {now - Date.parse(waiting) >= RETRY_AFTER_MS && (
+            <div className="sc-actions">
+              <button type="button" className="btn ghost" disabled={busy} onClick={() => void request()}>
+                {busy ? 'Asking…' : 'Try again'}
+              </button>
+            </div>
+          )}
+          {!brief && (
+            <p className="sc-hint">
+              {now - Date.parse(waiting) >= RETRY_AFTER_MS
+                ? 'No code yet? Start the Steam sign-in on the PC again, then press Try again — it looks for the newest Steam email.'
+                : 'Start the Steam sign-in on the PC — Steam only emails a code when a PC signs in.'}
+            </p>
+          )}
         </>
       )}
       {!live && !waiting && login.otpRequest && (
