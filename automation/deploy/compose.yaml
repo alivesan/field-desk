@@ -20,6 +20,7 @@ services:
     image: n8nio/n8n:2.44.6
     restart: unless-stopped
     ports:
+      - "127.0.0.1:5678:5678"
       - "${PRIVATE_IP:?Set PRIVATE_IP in .env}:5678:5678"
     environment:
       TZ: Asia/Kolkata
@@ -27,8 +28,10 @@ services:
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?Set N8N_ENCRYPTION_KEY in .env}
       N8N_HOST: ${N8N_DOMAIN:?Set N8N_DOMAIN in .env}
       N8N_PROTOCOL: https
+      N8N_SECURE_COOKIE: "true"
       N8N_PORT: "5678"
       N8N_PROXY_HOPS: "1"
+      N8N_PUSH_BACKEND: sse
       N8N_WEBHOOK_URL: https://${N8N_DOMAIN:?Set N8N_DOMAIN in .env}/
       N8N_EDITOR_BASE_URL: https://${N8N_DOMAIN:?Set N8N_DOMAIN in .env}/
       EXECUTIONS_DATA_SAVE_ON_SUCCESS: none

@@ -25,12 +25,13 @@ const server = createServer(async (req, res) => {
     let result;
     if (req.method === 'GET' && url.pathname === '/due') result = await service.due(url.searchParams.get('mailbox'));
     else if (req.method === 'GET' && url.pathname === '/issues') result = await service.issues();
-    else if (req.method === 'POST' && ['/process','/webhook'].includes(url.pathname)) {
+    else if (req.method === 'POST' && ['/process','/process-batch','/webhook'].includes(url.pathname)) {
       const chunks = []; let size = 0;
-      for await (const chunk of req) { size += chunk.length; if (size > 1_000_000) { reply(413, { error: 'body_too_large' }); req.destroy(); return; } chunks.push(chunk); }
+      const limit = url.pathname === '/process-batch' ? 16_000_000 : 1_000_000;
+      for await (const chunk of req) { size += chunk.length; if (size > limit) { reply(413, { error: 'body_too_large' }); req.destroy(); return; } chunks.push(chunk); }
       const raw = Buffer.concat(chunks);
       if (url.pathname === '/webhook') result = await service.webhook(raw, req.headers['x-fielddesk-signature']);
-      else { let input; try { input = JSON.parse(raw); } catch { return reply(400, { error: 'invalid_json' }); } result = await service.process(input); }
+      else { let input; try { input = JSON.parse(raw); } catch { return reply(400, { error: 'invalid_json' }); } result = await (url.pathname === '/process-batch' ? service.processBatch(input) : service.process(input)); }
     } else return reply(404, { error: 'not_found' });
     reply(result.status, result.body);
   } catch { reply(500, { error: 'internal_error' }); }

@@ -14,6 +14,28 @@ function message({ from = 'Relay <relay@example.com>', auth = 'mx.google.com; dm
   ], body: { data: Buffer.from(body).toString('base64url') } } };
 }
 const parse = (input, trustedForwarders = ['relay@example.com']) => parseEmail(normalize('gmail', input), now, { trustedForwarders });
+const quote = input => {
+  input.payload.body.data = Buffer.from(Buffer.from(input.payload.body.data, 'base64url').toString('utf8').split('\n').map(line => `> ${line}`).join('\n')).toString('base64url');
+  return input;
+};
+
+test('quoted forwarded headers and standalone code use the same normalized text', () => {
+  const parsed = parse(quote(message({ content: 'Dear store_alpha,\nA1B2C' })));
+  assert.equal(parsed.code, 'A1B2C');
+  assert.equal(parsed.username, 'store_alpha');
+});
+
+test('code labels accept capitalization without accepting lowercase code payloads', () => {
+  assert.equal(parse(message({ content: 'Dear store_alpha,\nYour Steam Guard Code IS: A1B2C' })).code, 'A1B2C');
+  for (const code of ['a1b2c', 'A1b2C']) {
+    assert.throws(() => parse(message({ content: `Dear store_alpha,\nYour Steam Guard Code IS: ${code}` })), /ambiguous_or_missing_code/);
+    assert.throws(() => parse(quote(message({ content: `Dear store_alpha,\n${code}` }))), /ambiguous_or_missing_code/);
+  }
+});
+
+test('different quoted codes remain ambiguous', () => {
+  assert.throws(() => parse(quote(message({ content: 'Dear store_alpha,\nA1B2C\nD3E4F' }))), /ambiguous_or_missing_code/);
+});
 
 test('trusted central Gmail forward delivers the original Steam code and account name', () => {
   const parsed = parse(message());
@@ -36,6 +58,21 @@ test('forwarder allowlist and authoritative top-level authentication are mandato
   assert.throws(() => parse(message({ auth: 'mx.bad.test; dmarc=pass header.from=example.com' })));
   assert.throws(() => parse(message({ extraHeaders: [head('Authentication-Results', 'mx.google.com; dmarc=pass header.from=example.com')] })));
   assert.throws(() => parse(message({ originalFrom: 'Attacker <attacker@example.com>' })));
+});
+
+test('validated redirect chain without Steam authentication does not authorize delivery', () => {
+  const redirected = message({
+    from: 'Steam <noreply@steampowered.com>',
+    auth: 'mx.google.com; dkim=pass header.d=hotmail.com; arc=pass; spf=pass; dmarc=fail header.from=steampowered.com',
+    extraHeaders: [
+      head('ARC-Authentication-Results', 'i=1; mx.microsoft.com; spf=none; dmarc=none; dkim=none; arc=none'),
+      head('ARC-Seal', 'i=1; d=microsoft.com; cv=none'),
+      head('ARC-Message-Signature', 'i=1; d=microsoft.com; h=from:date:subject'),
+      head('ARC-Authentication-Results', 'i=2; mx.google.com; arc=pass; dmarc=fail header.from=steampowered.com'),
+      head('ARC-Seal', 'i=2; d=google.com; cv=pass'),
+    ],
+  });
+  assert.throws(() => parse(redirected), /sender_auth_unverified/);
 });
 
 test('old or future original and provider dates cannot refresh a forwarded code', () => {

@@ -5,6 +5,8 @@ services:
       FIELD_DESK_BASE_URL: http://mock:8790/api/v1
   mock:
     image: node:24-alpine
+    ports:
+      - "127.0.0.1:8790:8790"
     restart: unless-stopped
     working_dir: /app
     command: ["node", "/app/mock/server.mjs"]
