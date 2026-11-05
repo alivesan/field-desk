@@ -166,7 +166,7 @@ test('the poster is the print kit\'s poster file', () => {
   assert.equal(posterOf(st('x', { print: { ...kit, files: [kit.files[0]] } })), undefined);
 });
 
-test('the page lists this weekend only, by campaign; next weekend (it joins on Monday), later and past stores are left out', () => {
+test('the page lists every coming weekend, nearest first and by campaign; past stores are left out', () => {
   const e1 = ev({ name: 'Zulu Cup' });
   const e2 = fixtureEvent('e2', { name: 'Alpha Cup', date: '2026-10-31', games: ['Tekken 8'] }) as unknown as TournamentEvent;
   const e3 = fixtureEvent('e3', { name: 'Later Cup', date: '2026-11-14' }) as unknown as TournamentEvent;
@@ -179,13 +179,21 @@ test('the page lists this weekend only, by campaign; next weekend (it joins on M
     fixtureStore('e', 'e3', null, { name: 'E' }) as unknown as Store,
   ];
   const w = marketingWeekends({ events: { e1, e2, e3 }, stores: Object.fromEntries(stores.map((s) => [s.id, s])) }, TODAY);
-  assert.deepEqual(w.map((x) => [x.when, x.title, x.label]), [['this', 'This weekend', 'Sat 31 Oct – Sun 1 Nov']]);
+  assert.deepEqual(w.map((x) => [x.when, x.title, x.label, x.storeCount]), [
+    ['this', 'This weekend', 'Sat 31 Oct – Sun 1 Nov', 2],
+    ['next', 'Next weekend', 'Sat 7 – Sun 8 Nov', 2],
+    ['later', 'Later', 'Sat 14 – Sun 15 Nov', 1],
+  ]);
   assert.deepEqual(w[0].campaigns.map((c) => [c.event.name, c.stores.map((s) => s.id)]), [['Alpha Cup', ['c']], ['Zulu Cup', ['a']]]);
-  // on the Monday, next weekend's stores are this weekend's
+  assert.deepEqual(w[1].campaigns.map((c) => [c.event.name, c.stores.map((s) => s.id)]), [['Alpha Cup', ['d']], ['Zulu Cup', ['b']]]);
+  assert.deepEqual(w[2].campaigns.map((c) => [c.event.name, c.stores.map((s) => s.id)]), [['Later Cup', ['e']]]);
+  // on the Monday, each moves up one
   const monday = marketingWeekends({ events: { e1, e2, e3 }, stores: Object.fromEntries(stores.map((s) => [s.id, s])) }, '2026-11-02');
-  assert.deepEqual(monday.map((x) => x.label), ['Sat 7 – Sun 8 Nov']);
-  assert.deepEqual(monday[0].campaigns.map((c) => [c.event.name, c.stores.map((s) => s.id)]), [['Alpha Cup', ['d']], ['Zulu Cup', ['b']]]);
-  assert.deepEqual(marketingWeekends({ events: { e3 }, stores: { e: stores[5] } }, TODAY), []);
+  assert.deepEqual(monday.map((x) => [x.title, x.label]), [['This weekend', 'Sat 7 – Sun 8 Nov'], ['Next weekend', 'Sat 14 – Sun 15 Nov']]);
+  // a coming weekday reads as a week; everything past leaves nothing
+  const weekday = st('wed', { date: '2026-11-04' });
+  assert.deepEqual(marketingWeekends({ events: { e1 }, stores: { wed: weekday } }, TODAY).map((x) => x.title), ['Next week']);
+  assert.deepEqual(marketingWeekends({ events: { e1, e3 }, stores: { past: stores[2], e: stores[5] } }, '2026-11-16'), []);
 });
 
 test('the players\' message the night before: the owner\'s template, with the bracket page, the rules and the admin to call', () => {

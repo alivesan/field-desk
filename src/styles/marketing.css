@@ -1,8 +1,42 @@
 /*
  * Marketing: HQ's page (#/marketing, pages/MarketingPage.tsx) — the Discord post and the WhatsApp promos
- * of this weekend's and next weekend's campaigns. Weekend headings reuse .hs / .hs-head (desk.css);
+ * of any coming weekend's campaigns. Weekend headings reuse .hs / .hs-head (desk.css);
  * the poster thumbnail is .pf-thumb (print.css). Tokens come from base.css.
  */
+
+/* ---------- which weekend ---------- */
+
+.mk-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 28px;
+}
+.mk-pick {
+  appearance: none;
+  display: grid;
+  gap: 4px;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid var(--rule);
+  background: transparent;
+  color: var(--ink);
+  font: 500 14px/1.2 var(--sans);
+  text-align: left;
+  cursor: pointer;
+}
+.mk-pick span {
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 400;
+}
+.mk-pick.on {
+  background: var(--ink);
+  color: var(--paper);
+}
+.mk-pick.on span {
+  color: inherit;
+}
 
 .mk-camp {
   margin: 0 0 40px;

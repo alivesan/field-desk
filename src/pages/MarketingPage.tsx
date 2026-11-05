@@ -48,12 +48,14 @@ function tidy(m: EventMarketing): EventMarketing {
   return out;
 }
 
-/** HQ: this weekend's and next weekend's tournaments as a Discord post per campaign and a WhatsApp promo per store. Field admins never get here (App.tsx). */
+/** HQ: any coming weekend's tournaments (this one first) as a Discord post per campaign and a WhatsApp promo per store. Field admins never get here (App.tsx). */
 export function MarketingPage() {
   const events = useApp((s) => s.events);
   const stores = useApp((s) => s.stores);
   const today = todayLocal();
   const weekends = useMemo(() => marketingWeekends({ events, stores }, today), [events, stores, today]);
+  const [picked, setPicked] = useState('');
+  const shown = weekends.find((w) => w.weekend.sat === picked) ?? weekends[0]; // the nearest, also once the picked one has passed
 
   // What HQ is typing, per campaign: the previews follow it at once and it is saved to the campaign a moment after the last key.
   const [drafts, setDrafts] = useState<Drafts>({});
@@ -88,21 +90,33 @@ export function MarketingPage() {
   return (
     <Shell crumbs={[{ label: 'Campaigns', href: '#/' }, { label: 'Marketing' }]}>
       <i className="hq-wide" hidden />
-      <PageHead kicker="HQ" title="Marketing." deck="This weekend’s tournaments, written out for Discord, WhatsApp and the players. Copy the Discord post, send each store its promo with the poster, and the night before, send each store’s players their message. Next weekend shows up here on Monday." />
-      {weekends.length === 0 ? (
-        <EmptyCard mark="team" title="No tournaments this weekend." hint="Stores playing this weekend show up here; next weekend’s join on Monday." />
+      <PageHead kicker="HQ" title="Marketing." deck="Coming tournaments, written out for Discord, WhatsApp and the players. Pick the weekend, copy the Discord post, send each store its promo with the poster, and the night before, send each store’s players their message." />
+      {!shown ? (
+        <EmptyCard mark="team" title="No tournaments coming up." hint="Stores with an event day from today on show up here." />
       ) : (
-        weekends.map((w) => (
-          <section key={w.when} className="hs mk-weekend" aria-label={w.title}>
+        <>
+          {weekends.length > 1 && (
+            <div className="mk-picker" role="group" aria-label="Which weekend">
+              {weekends.map((w) => (
+                <button key={w.weekend.sat} type="button" className={cx('mk-pick', w === shown && 'on')} aria-pressed={w === shown} onClick={() => setPicked(w.weekend.sat)}>
+                  <b>{w.label}</b>
+                  <span>
+                    {w.title} · {w.storeCount} {w.storeCount === 1 ? 'store' : 'stores'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          <section key={shown.weekend.sat} className="hs mk-weekend" aria-label={shown.title}>
             <header className="hs-head">
-              <h2>{w.title}</h2>
-              <span className="label">{w.label}</span>
+              <h2>{shown.title}</h2>
+              <span className="label">{shown.label}</span>
             </header>
-            {w.campaigns.map((c) => (
+            {shown.campaigns.map((c) => (
               <Campaign key={c.event.id} event={c.event} stores={c.stores} opts={optsOf(c.event)} onEdit={(f, v) => edit(c.event, f, v)} />
             ))}
           </section>
-        ))
+        </>
       )}
     </Shell>
   );

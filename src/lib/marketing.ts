@@ -207,43 +207,50 @@ export interface MarketingCampaign {
 }
 
 export interface MarketingWeekend {
-  when: 'this';
-  /** "This weekend" / "This week" */
+  when: 'this' | 'next' | 'later';
+  /** "This weekend" / "This week" / "Next weekend" / "Next week" / "Later" */
   title: string;
   /** "Sat 7 – Sun 8 Nov" */
   label: string;
   weekend: Weekend;
   campaigns: MarketingCampaign[];
+  /** How many stores play that weekend, across its campaigns. */
+  storeCount: number;
 }
 
 /**
- * The campaigns with stores playing this weekend (or what is left of this week), grouped by campaign (by name). Next weekend's
- * stores join on the Monday, when it becomes "this" — by then HQ has their links in. Later and past stores are left out.
+ * Every weekend (or week) from now on with stores playing, nearest first: what is left of this week, the next one, then later ones,
+ * each grouped by campaign (by name). A week with no stores isn't listed; past stores are left out.
  * `today` is passed in (yyyy-mm-dd), so nothing here reads a clock.
  */
 export function marketingWeekends(state: { events: Record<string, TournamentEvent>; stores: Record<string, Store> }, today: string): MarketingWeekend[] {
-  const out: MarketingWeekend[] = [];
-  for (const when of ['this'] as const) {
-    const rows = Object.values(state.stores)
-      .filter((s) => state.events[s.eventId] && storeWhen(dayOf(s, state.events[s.eventId]), today) === when)
-      .sort((a, b) => dayOf(a, state.events[a.eventId]).localeCompare(dayOf(b, state.events[b.eventId])) || city(a).localeCompare(city(b)) || a.name.localeCompare(b.name));
-    if (!rows.length) continue;
+  const day = (s: Store) => dayOf(s, state.events[s.eventId]);
+  const rows = Object.values(state.stores)
+    .filter((s) => state.events[s.eventId] && storeWhen(day(s), today) !== 'past')
+    .sort((a, b) => day(a).localeCompare(day(b)) || city(a).localeCompare(city(b)) || a.name.localeCompare(b.name));
+  const weeks = new Map<string, Store[]>();
+  for (const s of rows) {
+    const sat = weekendOf(day(s)).sat;
+    weeks.set(sat, [...(weeks.get(sat) ?? []), s]);
+  }
+  return [...weeks.values()].map((week) => {
     const campaigns: MarketingCampaign[] = [];
-    for (const s of rows) {
+    for (const s of week) {
       const found = campaigns.find((c) => c.event.id === s.eventId);
       if (found) found.stores.push(s);
       else campaigns.push({ event: state.events[s.eventId], stores: [s] });
     }
     campaigns.sort((a, b) => a.event.name.localeCompare(b.event.name));
-    const first = dayOf(rows[0], state.events[rows[0].eventId]);
-    const weekend = weekendOf(first);
-    out.push({
+    const when = storeWhen(day(week[0]), today) as MarketingWeekend['when'];
+    const span = week.every((s) => [0, 6].includes(weekdayOf(day(s)))) ? 'weekend' : 'week';
+    const weekend = weekendOf(day(week[0]));
+    return {
       when,
-      title: rows.every((s) => [0, 6].includes(weekdayOf(dayOf(s, state.events[s.eventId])))) ? 'This weekend' : 'This week',
+      title: when === 'this' ? `This ${span}` : when === 'next' ? `Next ${span}` : 'Later',
       label: weekendShort(weekend),
       weekend,
       campaigns,
-    });
-  }
-  return out;
+      storeCount: week.length,
+    };
+  });
 }
