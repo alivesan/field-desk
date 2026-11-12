@@ -28,4 +28,4 @@ Four source mailboxes will forward Steam mail to one central Gmail account. Thei
 
 ## Deferred tournament work
 
-Workflow A/B are not implemented. Before those phases agree result source/origin IDs, revisions/conflict rules, participant ID mappings, structured scores, complete undo payloads, final/completion detection, and reopening after an undo. Toornament browser automation is a separate future feasibility test, not part of this release.
+Workflow A/B are not deployed. Phase 2 organizer-browser feasibility was tested on the owner-approved Kochi tournament, and an automation-only worker prototype runs against an in-memory mock queue. Field Desk still needs to agree and implement source/origin IDs, durable revisions/conflict rules, participant and match ID mappings, structured scores, complete undo payloads, final/completion detection, and reopening after an undo. See [toornament/JOB-CONTRACT.md](toornament/JOB-CONTRACT.md) for the concrete proposed queue contract and the participant-add blocker. No production Toornament worker is active.
