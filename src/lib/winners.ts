@@ -142,6 +142,56 @@ export function summarize(rows: WinnerRow[]): WinnerSummary {
   };
 }
 
+/* ---------- repeat winners ---------- */
+
+/** One person who placed at more than one store, and where. */
+export interface RepeatWinner {
+  name: string;
+  ign: string;
+  phone: string;
+  wins: number;
+  runnerUps: number;
+  /** Their placings, oldest first. */
+  places: Pick<WinnerRow, 'place' | 'eventId' | 'campaign' | 'storeId' | 'store' | 'city' | 'date'>[];
+}
+
+const nameKey = (name: string) => name.normalize('NFKD').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+const phoneKey = (phone: string) => phone.replace(/\D/g, '').slice(-10);
+
+/**
+ * People who won or came second at two or more stores. The same phone number is the same person; a placing with no number joins
+ * the one person with a number and the same name (never a guess between two), else others with that name and no number. Two
+ * people with one name but different numbers stay apart. Most wins first, then most placings, then the latest.
+ */
+export function repeatWinners(rows: WinnerRow[]): RepeatWinner[] {
+  const placed = rows.filter((r) => r.status !== 'no-final' && (r.realName || r.listName));
+  const groups = new Map<string, WinnerRow[]>();
+  const add = (key: string, r: WinnerRow) => groups.set(key, [...(groups.get(key) ?? []), r]);
+  for (const r of placed) if (phoneKey(r.phone).length >= 6) add(`p:${phoneKey(r.phone)}`, r);
+  for (const r of placed) {
+    if (phoneKey(r.phone).length >= 6) continue;
+    const name = nameKey(r.realName || r.listName);
+    if (!name) continue;
+    const withNumber = [...groups.entries()].filter(([k, g]) => k.startsWith('p:') && g.some((x) => nameKey(x.realName || x.listName) === name));
+    add(withNumber.length === 1 ? withNumber[0][0] : `n:${name}`, r);
+  }
+  const out: RepeatWinner[] = [];
+  for (const g of groups.values()) {
+    if (new Set(g.map((r) => r.storeId)).size < 2) continue;
+    const places = [...g].sort((a, b) => a.date.localeCompare(b.date) || a.store.localeCompare(b.store));
+    const latest = places[places.length - 1];
+    out.push({
+      name: latest.realName || latest.listName,
+      ign: [...places].reverse().find((r) => r.ign)?.ign ?? '',
+      phone: places.find((r) => r.phone)?.phone ?? '',
+      wins: g.filter((r) => r.place === 'Winner').length,
+      runnerUps: g.filter((r) => r.place === 'Runner-up').length,
+      places: places.map(({ place, eventId, campaign, storeId, store, city, date }) => ({ place, eventId, campaign, storeId, store, city, date })),
+    });
+  }
+  return out.sort((a, b) => b.wins - a.wins || b.places.length - a.places.length || b.places[b.places.length - 1].date.localeCompare(a.places[a.places.length - 1].date) || a.name.localeCompare(b.name));
+}
+
 /* ---------- CSV ---------- */
 
 export const CSV_HEADER = ['Campaign', 'Store', 'City', 'State', 'Event date (yyyy-mm-dd)', 'Place', 'Real name', 'In-game name', 'Phone', 'Email', 'Instagram (@handle)', 'Status', 'Saved at', 'Saved by', 'Source'];

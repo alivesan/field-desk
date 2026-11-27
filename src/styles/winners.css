@@ -414,3 +414,138 @@
 .wn-person.first .wn-note.bad {
   border-left-color: #ff8d77;
 }
+
+/* ---------- repeat winners (folded, bottom of the page) ---------- */
+
+.rw {
+  margin: 48px 0 8px;
+  border-top: 1px solid var(--ink);
+}
+.rw > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  padding: 16px 0;
+  cursor: pointer;
+  list-style: none;
+}
+.rw > summary::-webkit-details-marker {
+  display: none;
+}
+.rw > summary::before {
+  content: '+';
+  width: 16px;
+  font: 500 18px/1 var(--mono);
+  color: var(--accent);
+}
+.rw[open] > summary::before {
+  content: '−';
+}
+.rw-title {
+  font: 400 26px/1.1 var(--serif);
+  letter-spacing: -0.015em;
+}
+.rw-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rw-card {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 6px 14px;
+  padding: 18px 0 20px;
+  border-bottom: 1px solid var(--rule);
+  animation: rw-in 360ms var(--ease-out, ease-out) both;
+  animation-delay: calc(min(var(--i, 0), 12) * 40ms);
+}
+@keyframes rw-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rw-card {
+    animation: none;
+  }
+}
+.rw-rank {
+  grid-row: span 2;
+  font: 400 40px/0.9 var(--serif);
+  color: var(--accent);
+}
+.rw-card:nth-child(n + 4) .rw-rank {
+  color: var(--ink-2);
+}
+.rw-who h3 {
+  margin: 0;
+  font-size: 22px;
+  overflow-wrap: anywhere;
+}
+.rw-tally {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+}
+.rw-tally b {
+  margin-left: 8px;
+  font: 500 12px/1.3 var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.rw-pip {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--ink-2);
+}
+.rw-pip.win {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.rw-pip.second {
+  background: var(--paper-2);
+}
+.rw-pip.none {
+  border-style: dashed;
+  border-color: var(--rule);
+}
+.rw-places {
+  grid-column: 2;
+  display: grid;
+  gap: 6px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.rw-places li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  font-size: 14px;
+}
+.rw-places a {
+  color: var(--ink);
+}
+.rw-places span {
+  font-size: 13px;
+  color: var(--muted);
+}
+@media (min-width: 900px) {
+  .rw-card {
+    grid-template-columns: 56px minmax(220px, 320px) minmax(0, 1fr);
+    gap: 8px 32px;
+  }
+  .rw-rank {
+    grid-row: auto;
+  }
+  .rw-places {
+    grid-column: 3;
+    margin: 0;
+  }
+}
