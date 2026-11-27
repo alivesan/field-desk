@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { conflictMessage, inUse, steamAvailability, steamConflicts, steamLoginFor, steamUses, storeWeekend, weekFilterKey, weekendPhrase } from '../src/lib/steam.ts';
+import { conflictMessage, inUse, steamAvailability, steamBoard, steamConflicts, steamLoginFor, steamUses, storeWeekend, weekFilterKey, weekendPhrase } from '../src/lib/steam.ts';
 import { shortStoreName } from '../src/lib/teams.ts';
 import type { SteamAccount, SteamPurpose, Store, TournamentEvent } from '../src/lib/types.ts';
 import { fixtureEvent, fixtureStore } from './helpers/server.ts';
@@ -102,6 +102,36 @@ test('where an account is assigned, earliest day first; in use means playing in 
   assert.equal(inUse(w, 'x', '2026-10-31'), false, 'that weekend it is only downloading');
   assert.equal(inUse(w, 'x', null), true);
   assert.equal(inUse(w, 'nope', null), false);
+});
+
+test('the board: every account × this, next and later weekends — clashes, shared IDs, free, and stores with no ID', () => {
+  const w = world([
+    { id: 'old', date: '2026-10-17', steam: ['x', 'play'] }, // last week: not on the board
+    { id: 'a', date: SAT, steam: ['x', 'play'] },
+    { id: 'b', date: '2026-10-25', steam: ['x', 'play'] }, // same weekend, also playing: a clash
+    { id: 'c', date: SAT, steam: ['y', 'play'] },
+    { id: 'd', date: '2026-10-25', steam: ['y', 'download'] }, // one play + one download: shared, not a clash
+    { id: 'e', date: '2026-10-31', steam: ['x', 'download'] },
+    { id: 'f', date: '2026-10-31' }, // next weekend, no ID
+    { id: 'g', date: '2026-11-21', steam: ['z', 'play'] }, // a later weekend joins the board
+    { id: 'h', date: SAT, steam: ['gone', 'play'] }, // its account was deleted: counts as no ID
+  ]);
+  const accounts = { x: acct('x', { label: 'ROG 01' }), y: acct('y', { label: 'ROG 02' }), z: acct('z', { label: 'ROG 03' }) };
+  const b = steamBoard(w, accounts, '2026-10-22');
+  assert.deepEqual(b.weeks, ['2026-10-24', '2026-10-31', '2026-11-21']);
+  const cell = (id: string, week: string) => b.rows.find((r) => r.account.id === id)!.cells[week];
+  assert.equal(cell('x', SAT).status, 'clash');
+  assert.deepEqual(cell('x', SAT).uses.map((u) => u.store.id), ['a', 'b']);
+  assert.equal(cell('y', SAT).status, 'shared');
+  assert.equal(cell('x', '2026-10-31').status, 'one');
+  assert.equal(cell('z', SAT).status, 'free');
+  assert.equal(cell('z', '2026-11-21').status, 'one');
+  assert.deepEqual(b.rows.map((r) => r.account.label), ['ROG 01', 'ROG 02', 'ROG 03']);
+  assert.deepEqual(names(b.unassigned[SAT]), ['h']);
+  assert.deepEqual(names(b.unassigned['2026-10-31']), ['f']);
+  // with nothing coming, this and next weekend still show; at most maxWeeks columns
+  assert.deepEqual(steamBoard(world([]), accounts, '2026-10-22').weeks, ['2026-10-24', '2026-10-31']);
+  assert.equal(steamBoard(w, accounts, '2026-10-22', 2).weeks.length, 2);
 });
 
 test('the weekend filter: this weekend, next weekend, all — from any day of the week', () => {

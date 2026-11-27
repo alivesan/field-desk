@@ -114,6 +114,53 @@ export function inUse(world: World, accountId: string, week: string | null): boo
   return steamUses(world, accountId).some((u) => u.purpose === 'play' && (week === null || u.week === week));
 }
 
+/**
+ * One account in one weekend on the board: who has it, and whether that is a problem —
+ *   'clash'  — two or more stores play with it (only one PC can be online with it);
+ *   'shared' — two or more stores have it, at most one playing (fine for downloads, but worth seeing at a glance).
+ */
+export interface BoardCell {
+  uses: SteamUse[];
+  status: 'free' | 'one' | 'shared' | 'clash';
+}
+
+export interface SteamBoard {
+  /** The weekends shown (their Saturdays): this one, the next, then later ones with stores or assignments, at most `maxWeeks`. */
+  weeks: string[];
+  rows: { account: SteamAccount; cells: Record<string, BoardCell> }[];
+  /** Stores playing in each weekend that have no account yet. */
+  unassigned: Record<string, Store[]>;
+}
+
+/** Every account × every coming weekend, for HQ to see at a glance which IDs are taken where (SteamPage). `today` is yyyy-mm-dd. */
+export function steamBoard(world: World, accounts: Record<string, SteamAccount>, today: string, maxWeeks = 4): SteamBoard {
+  const now = weekKeyOf(today);
+  const dated = Object.values(world.stores).flatMap((store) => {
+    const week = storeWeekend(world, store);
+    return week && week >= now ? [{ store, week }] : [];
+  });
+  const later = [...new Set(dated.map((d) => d.week))].filter((w) => w > addDaysLocal(now, 7)).sort();
+  const weeks = [now, addDaysLocal(now, 7), ...later].slice(0, Math.max(2, maxWeeks));
+  const rows = sortedAccounts(accounts).map((account) => {
+    const uses = steamUses(world, account.id);
+    const cells: Record<string, BoardCell> = {};
+    for (const w of weeks) {
+      const here = uses.filter((u) => u.week === w);
+      const plays = here.filter((u) => u.purpose === 'play').length;
+      cells[w] = { uses: here, status: plays > 1 ? 'clash' : here.length > 1 ? 'shared' : here.length ? 'one' : 'free' };
+    }
+    return { account, cells };
+  });
+  const unassigned: Record<string, Store[]> = {};
+  for (const w of weeks) {
+    unassigned[w] = dated
+      .filter((d) => d.week === w && !(d.store.steam && accounts[d.store.steam.accountId]))
+      .map((d) => d.store)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+  return { weeks, rows, unassigned };
+}
+
 /** How long a Steam Guard code lives, counted from when Steam sent the e-mail. */
 export const OTP_TTL_MS = 10 * 60 * 1000;
 
