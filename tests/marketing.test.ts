@@ -6,6 +6,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  adminOf,
+  DEFAULT_TEMPLATES,
+  fillTemplate,
+  unknownPlaceholders,
   campaignIssues,
   defaultDiscordClosing,
   defaultDiscordIntro,
@@ -22,6 +26,7 @@ import {
   playerMessage,
   posterOf,
   storeIssues,
+  MARKETING_MAX,
   TEKKEN_RULES,
   whatsappPromo,
 } from '../src/lib/marketing.ts';
@@ -227,7 +232,9 @@ test('the players\' message the night before: the owner\'s template, with the br
       'Team La-eGamers',
     ].join('\n'),
   );
-  assert.ok(TEKKEN_RULES.startsWith('– Format: Single Elimination until Semis\n') && TEKKEN_RULES.endsWith('– winners of event from one city cant participate in other cities'));
+  assert.ok(TEKKEN_RULES.startsWith('– Format: 1v1 single elimination') && TEKKEN_RULES.endsWith('– Winner reports the score to the admin'));
+  assert.ok(TEKKEN_RULES.split('\n').every((l) => l.startsWith('– ')));
+  assert.ok(TEKKEN_RULES.length <= MARKETING_MAX.rules);
   assert.deepEqual(playerIssues(store, admins), []);
 
   // HQ's own line and rules win; another game has no stock rules
@@ -246,11 +253,49 @@ test('the players\' message the night before: the owner\'s template, with the br
   assert.ok(playerMessage(tekken, st('x', { adminId: 'gone', admin: 'Old Name' }), admins).includes('Admin contact: Old Name - [Admin phone missing]'));
 });
 
+test("HQ's own templates: placeholders filled per store, unknown ones kept as typed and listed, the stock one when empty", () => {
+  const admins: Record<string, Admin> = { ad1: { id: 'ad1', name: 'Rhea', phone: '+91 98765 43210', code: 'K7Q2', createdAt: '2026-10-01T00:00:00.000Z' } };
+  const store = st('Mumbai Alpha', { adminId: 'ad1', admin: 'Rhea', date: '2026-11-14' });
+  const own = { ...SET, playerTemplate: 'Hi from {store}, {city} on {date}!\nCall {adminName} ({adminPhone}). {oops}', whatsappTemplate: '*{city}* {prizePool} {register}' };
+  assert.equal(playerMessage(ev(), store, admins, own), 'Hi from ASUS ROG Exclusive Store — Mumbai Alpha, Mumbai on Saturday, 14 November 2026!\nCall Rhea (+91 98765 43210). {oops}');
+  assert.equal(whatsappPromo(ev(), store, own), '*Mumbai* 10,000 https://play.toornament.com/en_GB/tournaments/Mumbai Alpha/');
+  assert.deepEqual(unknownPlaceholders('player', own.playerTemplate), ['oops']);
+  assert.deepEqual(unknownPlaceholders('player', DEFAULT_TEMPLATES.player), []);
+  assert.deepEqual(unknownPlaceholders('discord', DEFAULT_TEMPLATES.discord), []);
+  assert.deepEqual(unknownPlaceholders('whatsapp', DEFAULT_TEMPLATES.whatsapp), []);
+  // a whitespace-only template is the stock one; a value that itself has {braces} is not filled again
+  assert.equal(playerMessage(ev(), store, admins, { ...SET, playerTemplate: '  ' }), playerMessage(ev(), store, admins, SET));
+  assert.equal(fillTemplate('{a} {b}', { a: '{b}', b: 'x' }), '{b} x');
+  // the Discord post: {days} is the per-day store list
+  assert.match(discordPost(ev(), [store], { ...SET, discordTemplate: 'Top\n{days}\nEnd' }), /^Top\n## Saturday, 14 November\n\n\*\*Mumbai — .*\nEnd$/s);
+  // rules are only missing when the players' template uses them
+  const other = ev({ games: ['Valorant'] });
+  assert.deepEqual(campaignIssues(other, {}), ['No rules']);
+  assert.deepEqual(campaignIssues(other, { playerTemplate: 'No rules here' }), []);
+});
+
+test("the admin in the players' message: typed on the store card first, never someone else's number", () => {
+  const admins: Record<string, Admin> = { ad1: { id: 'ad1', name: 'Rhea', phone: '+91 98765 43210', code: 'K7Q2', createdAt: '2026-10-01T00:00:00.000Z' } };
+  const base = st('x', { adminId: 'ad1', admin: 'Rhea', toornament: { url: 'https://play.toornament.com/en_GB/tournaments/123456/' } });
+  assert.deepEqual(adminOf(base, admins), { name: 'Rhea', phone: '+91 98765 43210' });
+  assert.deepEqual(adminOf({ ...base, playerContact: { name: ' Kabir ', phone: '+91 90000 00001' } }, admins), { name: 'Kabir', phone: '+91 90000 00001' });
+  assert.deepEqual(adminOf({ ...base, playerContact: { name: 'Kabir' } }, admins), { name: 'Kabir', phone: '' });
+  assert.deepEqual(adminOf({ ...base, playerContact: { phone: '+91 90000 00002' } }, admins), { name: 'Rhea', phone: '+91 90000 00002' });
+  assert.match(playerMessage(ev(), { ...base, playerContact: { name: 'Kabir' } }, admins), /Admin contact: Kabir - \[Admin phone missing\]/);
+  assert.deepEqual(playerIssues({ ...base, playerContact: { name: 'Kabir' } }, admins), ['No admin phone']);
+  const store = (playerContact: unknown) => validateDocument('stores', { ...(base as object), playerContact });
+  assert.deepEqual(store({ name: 'Kabir', phone: '+91 90000 00001' }), []);
+  assert.match(store({ name: 5 }).join(), /playerContact\.name/);
+  assert.match(store({ phone: '9'.repeat(41) }).join(), /playerContact\.phone/);
+});
+
 test('marketing is checked: known text fields only, with sizes and an https invite', () => {
   const doc = (marketing: unknown) => validateDocument('events', { ...(ev() as object), marketing });
   assert.deepEqual(doc(SET), []);
   assert.deepEqual(doc({}), []);
   assert.deepEqual(doc({ discordInvite: 'https://discord.gg/abc' }), []);
+  assert.deepEqual(doc({ playerTemplate: 'Call {adminName}', whatsappTemplate: 'x', discordTemplate: '{days}' }), []);
+  assert.match(doc({ playerTemplate: 'x'.repeat(4001) }).join(), /marketing\.playerTemplate/);
   assert.match(doc({ foo: 'x' }).join(), /marketing\.foo/);
   assert.match(doc({ prizePool: 5 }).join(), /marketing\.prizePool/);
   assert.match(doc({ prizePool: 'x'.repeat(41) }).join(), /marketing\.prizePool/);

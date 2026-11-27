@@ -254,6 +254,10 @@ function validateStore(c: C, s: Rec, ctx: ValidationContext) {
     c.bad('adminId', `admin ${s.adminId} doesn’t exist`);
   }
   c.str(s.admin, 'admin', 200);
+  if (s.playerContact !== undefined && c.obj(s.playerContact, 'playerContact')) {
+    c.optStr(s.playerContact.name, 'playerContact.name', 200);
+    c.optStr(s.playerContact.phone, 'playerContact.phone', 40);
+  }
   c.geoOrNull(s.pin, 'pin');
   validateRecce(c, s.recce, 'recce');
   validateDay(c, s.day, 'day');
