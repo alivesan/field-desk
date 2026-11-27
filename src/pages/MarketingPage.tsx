@@ -47,12 +47,12 @@ const FIELDS = Object.keys(MARKETING_MAX) as (keyof EventMarketing)[];
 
 const STOCK = new Map<keyof EventMarketing, string>(Object.entries(TEMPLATE_FIELD).map(([kind, field]) => [field, DEFAULT_TEMPLATES[kind as TemplateKind]]));
 
-/** What is kept on the campaign: trimmed, and nothing for an empty box or a template left as the stock one. */
-function tidy(m: EventMarketing): EventMarketing {
+/** What is kept on the campaign: trimmed, and nothing for an empty box or a template / the rules left as the stock ones. */
+function tidy(m: EventMarketing, event: Pick<TournamentEvent, 'games' | 'name'>): EventMarketing {
   const out: EventMarketing = {};
   for (const k of FIELDS) {
     const v = (m[k] ?? '').trim();
-    if (v && v !== STOCK.get(k)) out[k] = v;
+    if (v && v !== (k === 'rules' ? defaultRules(gameName(event)) : STOCK.get(k))) out[k] = v;
   }
   return out;
 }
@@ -80,7 +80,7 @@ export function MarketingPage() {
       for (const [id, draft] of todo) {
         const e = d.events[id];
         if (!e) continue;
-        const next = tidy(draft);
+        const next = tidy(draft, e);
         if (sameJson(next, e.marketing ?? {})) continue;
         if (Object.keys(next).length) e.marketing = next;
         else delete e.marketing;
@@ -159,6 +159,8 @@ function Campaign({ event, stores, opts, onEdit }: { event: TournamentEvent; sto
         </div>
       </details>
 
+      <RulesBlock game={game} rules={opts.rules ?? ''} issues={issues} onEdit={(v) => onEdit('rules', v)} />
+
       <section className="mk-block" aria-label={`Discord post for ${event.name}`}>
         <header className="mk-block-head">
           <h4>
@@ -204,15 +206,10 @@ function Campaign({ event, stores, opts, onEdit }: { event: TournamentEvent; sto
             <b>3</b> Players — the night before
           </h4>
           <span className="label">one per store, to its registered players</span>
-          {issues.map((i) => (
-            <Chip key={i} tone="warn">
-              {i}
-            </Chip>
-          ))}
         </header>
-        <TemplateEditor kind="player" opts={opts} onEdit={onEdit} open={issues.length > 0}>
+        <TemplateEditor kind="player" opts={opts} onEdit={onEdit}>
           <Field label="Line under the date — {intro}" value={opts.playerIntro ?? ''} onChange={(v) => onEdit('playerIntro', v)} placeholder={defaultPlayerIntro(game)} />
-          <Field label="Tournament rules — {rules}" multiline value={opts.rules ?? ''} onChange={(v) => onEdit('rules', v)} placeholder={defaultRules(game) || 'One rule per line, e.g. – Format: Single Elimination'} />
+          <p className="mk-note">The rules are in Tournament rules, above.</p>
         </TemplateEditor>
         <ul className="mk-stores">
           {stores.map((s) => (
@@ -312,6 +309,48 @@ function StoreCard({ event, store, caption, short }: { event: TournamentEvent; s
         )}
       </div>
     </li>
+  );
+}
+
+/**
+ * The campaign's rules, in view and editable: the stock rules for its game shown as text (a Tekken campaign starts with the
+ * owner's Tekken rules). tidy() saves them only once they differ from those — so a better stock list reaches campaigns nobody edited.
+ */
+function RulesBlock({ game, rules, issues, onEdit }: { game: string; rules: string; issues: string[]; onEdit: (value: string) => void }) {
+  const stock = defaultRules(game);
+  const value = rules || stock;
+  const custom = !!rules.trim() && rules.trim() !== stock;
+  return (
+    <section className="mk-block" aria-label={`Tournament rules for ${game}`}>
+      <header className="mk-block-head">
+        <h4>Tournament rules</h4>
+        <span className="label">{game} · in the players’ message as {'{rules}'}</span>
+        {custom && <Chip tone="muted">Your own</Chip>}
+        {issues.map((i) => (
+          <Chip key={i} tone="warn">
+            {i}
+          </Chip>
+        ))}
+        <button type="button" className="btn ghost" disabled={!value.trim()} onClick={() => void copyText(value.trim(), 'Rules')}>
+          Copy
+        </button>
+      </header>
+      <label className="field mk-rules">
+        <span className="label">One rule per line — edit them here for this campaign</span>
+        <textarea
+          className="mk-template-box"
+          value={value}
+          rows={Math.min(22, Math.max(5, value.split('\n').length + 1))}
+          placeholder="One rule per line, e.g. – Format: Single Elimination"
+          onChange={(e) => onEdit(e.target.value)}
+        />
+      </label>
+      {custom && stock && (
+        <button type="button" className="link" onClick={() => onEdit('')}>
+          Back to the stock {game} rules
+        </button>
+      )}
+    </section>
   );
 }
 

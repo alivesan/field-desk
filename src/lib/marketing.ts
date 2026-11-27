@@ -84,8 +84,8 @@ const STORE = [
 
 /** The {placeholders} each template understands, with what they become — the page lists them for HQ. */
 export const PLACEHOLDERS: Record<TemplateKind, { key: string; what: string }[]> = {
-  discord: [...COMMON, { key: 'intro', what: 'the Discord intro' }, { key: 'days', what: 'each day’s stores with their links' }, { key: 'closing', what: 'the Discord closing' }, { key: 'discordInvite', what: 'Discord invite' }],
-  whatsapp: [...COMMON, ...STORE, { key: 'intro', what: 'the WhatsApp paragraph' }, { key: 'register', what: 'Toornament link' }, { key: 'discordInvite', what: 'Discord invite' }],
+  discord: [...COMMON, { key: 'intro', what: 'the Discord intro' }, { key: 'days', what: 'each day’s stores with their links' }, { key: 'closing', what: 'the Discord closing' }, { key: 'discordInvite', what: 'Discord invite' }, { key: 'rules', what: 'the rules' }],
+  whatsapp: [...COMMON, ...STORE, { key: 'intro', what: 'the WhatsApp paragraph' }, { key: 'register', what: 'Toornament link' }, { key: 'discordInvite', what: 'Discord invite' }, { key: 'rules', what: 'the rules' }],
   player: [...COMMON, ...STORE, { key: 'intro', what: 'the line under the date' }, { key: 'bracket', what: 'Toornament bracket page' }, { key: 'rules', what: 'the rules' }, { key: 'adminName', what: 'admin to call' }, { key: 'adminPhone', what: 'their number' }],
 };
 
@@ -135,18 +135,28 @@ export const defaultWhatsappIntro = (game: string) =>
   `ROG Showdown is coming to your city! Join the ${game} tournament at your nearest ROG store, play on gaming PCs and compete for the prize pool. Entry is free, so bring your squad and register now!`;
 export const defaultPlayerIntro = (game: string) => `Your ${game} tournament is on tomorrow — here’s everything you need.`;
 
-/** The owner's Tekken 8 rules, as sent to players. */
+/**
+ * The owner's Tekken 8 rules, as sent to players: their format (2 rounds a game; semis and final best of 3 games), checked
+ * against the Tekken World Tour 2026 and Evo rules for what in-store events usually leave out (pauses, faults, draws, lateness).
+ */
 export const TEKKEN_RULES = [
-  '– Format: Single Elimination until Semis',
-  '– Match format: 1v1, First to 3 Rounds (BO1 Set) in all rounds until Semifinals',
-  '– Semifinals & Finals: Best of 3 Sets (First to 2 Games), each game First to 3 Rounds',
-  '– Game Mode: Tournament/Versus',
-  '– Stage: Random select every game; loser can change character and request random stage',
-  '– Winner must keep character, loser can switch',
-  '– Only preset costumes allowed (no customs)',
-  '– Controller - Game play | ARCADE stick allowed if your opponent allows',
-  '– No Keyboard Play',
-  '– winners of event from one city cant participate in other cities',
+  '– Format: 1v1 single elimination – lose once and you’re out',
+  '– Qualifiers (all rounds before semis): 1 game, first to win 2 rounds',
+  '– Semifinals & Final: best of 3 games (first to win 2 games); each game is first to 2 rounds',
+  '– Settings: Versus mode, latest patch, 60-second rounds, everything else default (Heat & Rage on)',
+  '– Stage: random every game',
+  '– Winner keeps their character; loser may change character and re-roll the stage',
+  '– Want a secret pick for game 1? Tell the admin your character before select',
+  '– Preset costumes only – no custom outfits',
+  '– Gamepad by default; arcade stick only if your opponent agrees. No external keyboards, no turbo/macro buttons',
+  '– Check your buttons before game 1 – after that, no complaints about settings',
+  '– Pausing mid-game, even by accident, loses you that round',
+  '– PC/game/controller fault you didn’t cause: call the admin, replay from the same score',
+  '– Game ends in a draw (double KO / time-out): replay it with the same characters',
+  '– Be at your station within 5 minutes of your name being called, or you forfeit',
+  '– No coaching during a game; no abuse, rage-quitting or rough handling of store gear',
+  '– Winners of one city’s event can’t play in another city’s',
+  '– Winner reports the score to the admin',
 ].join('\n');
 
 /** The rules a campaign starts with: the Tekken rules for a Tekken campaign; none for another game (HQ types them). */
@@ -184,9 +194,10 @@ export function marketingText(event: Pick<TournamentEvent, 'games' | 'name'>, op
   };
 }
 
-/** What is still missing about the campaign itself, in words for the screen: only the rules can be (a game without stock rules, when the players' template uses them). */
+/** What is still missing about the campaign itself, in words for the screen: only the rules can be (a game without stock rules, when a template uses them). */
 export function campaignIssues(event: Pick<TournamentEvent, 'games' | 'name'>, opts: EventMarketing = {}) {
-  return [!text(opts.rules) && !defaultRules(gameName(event)) && templateOf('player', opts).includes('{rules}') && 'No rules'].filter(Boolean) as string[];
+  const used = (['player', 'whatsapp', 'discord'] as const).some((k) => templateOf(k, opts).includes('{rules}'));
+  return [!text(opts.rules) && !defaultRules(gameName(event)) && used && 'No rules'].filter(Boolean) as string[];
 }
 
 /** What is still missing about one store, in words for the screen. */
@@ -213,7 +224,7 @@ export function discordPost(event: TournamentEvent, stores: Store[], opts: Event
     const blocks = days.get(d)!.map((s) => [`**${city(s)} — ${s.name}**`, `Register: <${register(s)}>`, `Gmap: <${gmap(s)}>`].join('\n'));
     return [`## ${longDay(d)}`, ...blocks].join('\n\n');
   });
-  return fillTemplate(templateOf('discord', opts), { ...common(event, m), intro: m.discordIntro, days: sections.join('\n\n'), closing: m.discordClosing, discordInvite: m.discordInvite });
+  return fillTemplate(templateOf('discord', opts), { ...common(event, m), intro: m.discordIntro, days: sections.join('\n\n'), closing: m.discordClosing, discordInvite: m.discordInvite, rules: m.rules });
 }
 
 const common = (event: Pick<TournamentEvent, 'games' | 'name'>, m: MarketingText) => ({ game: gameName(event), prizePool: m.prizePool, reportingTime: m.reportingTime, firstMatch: m.firstMatch });
@@ -222,7 +233,7 @@ const storeValues = (event: TournamentEvent, s: Store) => ({ city: city(s), stor
 /** The WhatsApp promo for one store (sent with its poster). */
 export function whatsappPromo(event: TournamentEvent, store: Store, opts: EventMarketing = event.marketing ?? {}) {
   const m = marketingText(event, opts);
-  return fillTemplate(templateOf('whatsapp', opts), { ...common(event, m), ...storeValues(event, store), intro: m.whatsappIntro, register: register(store), discordInvite: m.discordInvite });
+  return fillTemplate(templateOf('whatsapp', opts), { ...common(event, m), ...storeValues(event, store), intro: m.whatsappIntro, register: register(store), discordInvite: m.discordInvite, rules: m.rules });
 }
 
 /** The store's bracket on Toornament (the /stages/ page, not the registration page), or a marker. */

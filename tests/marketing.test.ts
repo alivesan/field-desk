@@ -26,6 +26,7 @@ import {
   playerMessage,
   posterOf,
   storeIssues,
+  MARKETING_MAX,
   TEKKEN_RULES,
   whatsappPromo,
 } from '../src/lib/marketing.ts';
@@ -231,7 +232,9 @@ test('the players\' message the night before: the owner\'s template, with the br
       'Team La-eGamers',
     ].join('\n'),
   );
-  assert.ok(TEKKEN_RULES.startsWith('– Format: Single Elimination until Semis\n') && TEKKEN_RULES.endsWith('– winners of event from one city cant participate in other cities'));
+  assert.ok(TEKKEN_RULES.startsWith('– Format: 1v1 single elimination') && TEKKEN_RULES.endsWith('– Winner reports the score to the admin'));
+  assert.ok(TEKKEN_RULES.split('\n').every((l) => l.startsWith('– ')));
+  assert.ok(TEKKEN_RULES.length <= MARKETING_MAX.rules);
   assert.deepEqual(playerIssues(store, admins), []);
 
   // HQ's own line and rules win; another game has no stock rules

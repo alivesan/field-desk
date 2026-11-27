@@ -127,6 +127,9 @@
 .mk-ph span {
   color: var(--ink-2);
 }
+.mk-rules {
+  margin-bottom: 8px;
+}
 .mk-contact {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-bottom: 4px;
