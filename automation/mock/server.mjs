@@ -6,8 +6,8 @@ const FUTURE_ALLOWANCE = 30 * 1000;
 const MAX_BODY_BYTES = 16 * 1024;
 
 export const ACCOUNTS = Object.freeze([
-  Object.freeze({ username: 'store_alpha', email: 'login-alpha@example.invalid', assignedStoreId: 'store-alpha', purpose: 'Steam login OTP demo' }),
-  Object.freeze({ username: 'store_beta', email: 'login-beta@example.invalid', assignedStoreId: 'store-beta', purpose: 'Steam login OTP demo' }),
+  Object.freeze({ username: 'store_alpha', email: 'login-alpha@example.invalid', assignedStoreId: 'store-alpha', eligibleStoreIds: ['store-alpha'], holders: [{ storeId: 'store-alpha', storeName: 'Store Alpha', purpose: 'play', date: '2026-10-31' }], purpose: 'Steam login OTP demo' }),
+  Object.freeze({ username: 'store_beta', email: 'login-beta@example.invalid', assignedStoreId: 'store-beta', eligibleStoreIds: ['store-beta'], holders: [{ storeId: 'store-beta', storeName: 'Store Beta', purpose: 'play', date: '2026-10-31' }], purpose: 'Steam login OTP demo' }),
 ]);
 
 function json(response, status, body) {
@@ -45,11 +45,11 @@ function readJson(request) {
   });
 }
 
-function identifyAccount(body) {
+function identifyAccount(body, accounts) {
   const { accountUsername, accountEmail } = body;
   if (typeof accountUsername !== 'string' && typeof accountEmail !== 'string') return null;
-  const byUsername = accountUsername === undefined ? null : ACCOUNTS.find((account) => account.username === accountUsername);
-  const byEmail = accountEmail === undefined ? null : ACCOUNTS.find((account) => account.email === accountEmail);
+  const byUsername = accountUsername === undefined ? null : accounts.find((account) => account.username === accountUsername);
+  const byEmail = accountEmail === undefined ? null : accounts.find((account) => account.email === accountEmail);
   if (accountUsername !== undefined && !byUsername) return null;
   if (accountEmail !== undefined && !byEmail) return null;
   if (byUsername && byEmail && byUsername !== byEmail) return null;
@@ -61,8 +61,8 @@ function parseReceivedAt(value) {
   return Date.parse(value);
 }
 
-function renderStore(cards, now) {
-  const entries = ACCOUNTS.map((account) => {
+function renderStore(cards, now, accounts) {
+  const entries = accounts.map((account) => {
     const card = cards.get(account.username);
     const active = card && card.expiresAt > now;
     return `<article class="card"><h2>${escapeHtml(account.username)}</h2><p>${escapeHtml(account.email)}</p><p>Store: ${escapeHtml(account.assignedStoreId)}</p><p class="code">${active ? escapeHtml(card.code) : 'No active code'}</p>${active ? `<p>Expires: ${escapeHtml(new Date(card.expiresAt).toISOString())}</p>` : ''}</article>`;
@@ -71,10 +71,20 @@ function renderStore(cards, now) {
 }
 
 /** Create an in-memory demo server. Every instance has isolated card and idempotency state. */
-export function createServer({ apiKey = process.env.FD_API_KEY, now = () => Date.now() } = {}) {
+export function createServer({ apiKey = process.env.FD_API_KEY, now = () => Date.now(), accounts = ACCOUNTS, lookupStatus = () => 'unknown', lookupStore = () => undefined, isDisplayed } = {}) {
   if (typeof apiKey !== 'string' || apiKey.length === 0) throw new Error('FD_API_KEY is required');
   const cards = new Map();
   const idempotency = new Map();
+  const eligible = account => Array.isArray(account.eligibleStoreIds) ? [...new Set(account.eligibleStoreIds)] : account.assignedStoreId ? [account.assignedStoreId] : [];
+  const view = (result, body, account, currentTime) => {
+    const card = cards.get(account.username), holders = eligible(account);
+    const rawStatus = body.requestId === undefined ? undefined : lookupStatus(body.requestId, account.username);
+    const asked = body.requestId === undefined ? undefined : lookupStore(body.requestId, account.username) ?? (holders.length === 1 && rawStatus !== 'unknown' ? holders[0] : undefined);
+    const status = body.requestId === undefined ? undefined : asked && holders.includes(asked) ? rawStatus : 'unknown';
+    const shown = holders.filter(storeId => card && card.expiresAt > currentTime && card.receivedAt === Date.parse(result.receivedAt) && (isDisplayed ? isDisplayed(account.username, card.receivedAt, storeId) : !(storeId === asked && status === 'closed')));
+    return { ...result, eligibleStoreIds: holders, displayedStoreIds: shown, displayed: asked && holders.includes(asked) ? shown.includes(asked) : shown.length > 0,
+      ...(status ? { request: { id: body.requestId, status } } : {}) };
+  };
 
   return http.createServer(async (request, response) => {
     const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
@@ -82,10 +92,10 @@ export function createServer({ apiKey = process.env.FD_API_KEY, now = () => Date
     if (request.method === 'GET' && pathname === '/health') return json(response, 200, { ok: true });
     if (request.method === 'GET' && pathname === '/api/v1/steam/accounts') {
       if (request.headers.authorization !== `Bearer ${apiKey}`) return json(response, 401, { error: 'unauthorized' });
-      return json(response, 200, ACCOUNTS);
+      return json(response, 200, accounts);
     }
     if (request.method === 'GET' && pathname === '/mock/cards') {
-      const safeCards = ACCOUNTS.map((account) => {
+      const safeCards = accounts.map((account) => {
         const card = cards.get(account.username);
         return { accountUsername: account.username, accountEmail: account.email, assignedStoreId: account.assignedStoreId, active: Boolean(card && card.expiresAt > currentTime), receivedAt: card && card.expiresAt > currentTime ? new Date(card.receivedAt).toISOString() : null, expiresAt: card && card.expiresAt > currentTime ? new Date(card.expiresAt).toISOString() : null };
       });
@@ -93,7 +103,7 @@ export function createServer({ apiKey = process.env.FD_API_KEY, now = () => Date
     }
     if (request.method === 'GET' && pathname === '/mock/store') {
       response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'" });
-      return response.end(renderStore(cards, currentTime));
+      return response.end(renderStore(cards, currentTime, accounts));
     }
     if (request.method !== 'POST' || pathname !== '/api/v1/steam/otp') return json(response, 404, { error: 'not found' });
 
@@ -106,11 +116,12 @@ export function createServer({ apiKey = process.env.FD_API_KEY, now = () => Date
       return;
     }
     if (!body || typeof body !== 'object' || Array.isArray(body)) return json(response, 400, { error: 'invalid body' });
-    const account = identifyAccount(body);
+    if (body.requestId !== undefined && (typeof body.requestId !== 'string' || !/^[\x21-\x7e]{1,200}$/.test(body.requestId))) return json(response, 400, { error: 'invalid_request_id' });
+    const account = identifyAccount(body, accounts);
     if (!account) return json(response, 400, { error: 'unknown or ambiguous account' });
     if (typeof body.code !== 'string' || !/^[A-Z0-9]{5}$/.test(body.code)) return json(response, 400, { error: 'invalid code' });
     const receivedAt = parseReceivedAt(body.receivedAt);
-    if (!Number.isFinite(receivedAt) || receivedAt <= currentTime - TEN_MINUTES || receivedAt > currentTime + FUTURE_ALLOWANCE) return json(response, 400, { error: 'receivedAt outside allowed window' });
+    if (!Number.isFinite(receivedAt)) return json(response, 400, { error: 'invalid receivedAt' });
 
     for (const [key, value] of idempotency) if (value.expiresAt <= currentTime) idempotency.delete(key);
     const idempotencyKey = request.headers['idempotency-key'];
@@ -119,17 +130,19 @@ export function createServer({ apiKey = process.env.FD_API_KEY, now = () => Date
     if (idempotencyKey && idempotency.has(idempotencyKey)) {
       const previous = idempotency.get(idempotencyKey);
       if (previous.fingerprint !== fingerprint) return json(response, 409, { error: 'Idempotency-Key reused for different request' });
-      return json(response, 200, previous.result);
+      return json(response, 200, view({ ...previous.result, duplicate: true }, body, account, currentTime));
     }
+    if (receivedAt <= currentTime - TEN_MINUTES || receivedAt > currentTime + FUTURE_ALLOWANCE) return json(response, 400, { error: 'receivedAt outside allowed window' });
 
+    if (!eligible(account).length) return json(response, 409, { error: 'not_assigned' });
     const existing = cards.get(account.username);
     if (existing && receivedAt < existing.receivedAt) return json(response, 409, { error: 'older code cannot replace current code' });
     if (existing && receivedAt === existing.receivedAt && body.code !== existing.code) return json(response, 409, { error: 'conflicting code at same receivedAt' });
     const expiresAt = receivedAt + TEN_MINUTES;
     cards.set(account.username, { code: body.code, receivedAt, expiresAt });
-    const result = { ok: true, accountUsername: account.username, accountEmail: account.email, assignedStoreId: account.assignedStoreId, receivedAt: new Date(receivedAt).toISOString(), expiresAt: new Date(expiresAt).toISOString() };
-    if (idempotencyKey) idempotency.set(idempotencyKey, { fingerprint, result, expiresAt });
-    return json(response, 200, result);
+    const result = { ok: true, accountUsername: account.username, accountEmail: account.email, assignedStoreId: account.assignedStoreId ?? null, receivedAt: new Date(receivedAt).toISOString(), expiresAt: new Date(expiresAt).toISOString() };
+    if (idempotencyKey) idempotency.set(idempotencyKey, { fingerprint, result, expiresAt: currentTime + 48 * 3600_000 });
+    return json(response, 200, view(result, body, account, currentTime));
   });
 }
 

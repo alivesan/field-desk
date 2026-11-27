@@ -14,6 +14,21 @@ function gmail(overrides = {}) {
   body: { data: Buffer.from('Dear store_alpha,\nSteam Guard code is: A1B2C\n').toString('base64url') } }, ...overrides };
 }
 const accounts = [{ username: 'store_alpha', email: 'login-alpha@example.invalid', assignedStoreId: 'store-alpha' }, { username: 'store_beta', email: 'login-beta@example.invalid', assignedStoreId: 'store-beta' }];
+
+test('production blocks current and legacy mock demos before any API call', async t => {
+  const parent = new URL('../test-output/', import.meta.url); await mkdir(parent, { recursive: true });
+  const dir = await mkdtemp(new URL('fd-otp-production-guard-', parent)); t.after(() => rm(dir, { recursive: true, force: true }));
+  let requests = 0;
+  const service = await createService({ statePath: join(dir, 'state.json'), mailboxes: [{ id: 'central-gmail', provider: 'gmail' }], baseUrl: 'https://fieldesk.runs-at.dev/api/v1', apiKey: 'synthetic', webhookSecret: 'synthetic', now: () => instant,
+    fetchImpl: async url => { requests++; return url.endsWith('/steam/accounts') ? Response.json(accounts) : Response.json({ ok: true }); } });
+  for (const entry of [{ mockOnly: true, message: gmail() }, { message: gmail({ id: 'mock-demo-123' }) }, { message: gmail({ id: 'synthetic-demo' }) }]) {
+    const result = await service.process({ mailbox: 'central-gmail', provider: 'gmail', ...entry });
+    assert.equal(result.status, 400); assert.equal(result.body.status, 'mock_only_blocked');
+  }
+  assert.equal(requests, 0);
+  assert.equal((await service.process({ mailbox: 'central-gmail', provider: 'gmail', message: gmail() })).body.status, 'delivered');
+  assert.equal(requests, 2);
+});
 test('Gmail direct message maps only by explicit username', () => {
   assert.equal(parseEmail(normalize('gmail', gmail()), instant).code, 'A1B2C');
   assert.equal(matchAccount(parseEmail(normalize('gmail', gmail()), instant), accounts).username, 'store_alpha');
@@ -51,6 +66,7 @@ test('persistent dedupe, concurrent delivery, retry, no plaintext state, and boo
   fail = false; assert.equal((await service.process(retry)).body.markProcessed, true); assert.equal(posts, 2);
   const disk = await readFile(options.statePath, 'utf8'); for (const forbidden of ['A1B2C', 'Steam Guard', 'synthetic-secret']) assert.ok(!disk.includes(forbidden));
   const normal = (await service.due('central-gmail')).body; assert.equal(normal.due, true); assert.equal(normal.mode, 'normal'); assert.equal(typeof normal.query, 'string');
+  assert.match(normal.query, /-in:trash/); assert.doesNotMatch(normal.query, /in:inbox|is:unread/);
   clock += 15_000; assert.equal((await service.due('central-gmail')).body.due, false);
   const event = JSON.stringify({ id: 'request-one', type: 'steam.otp.requested', at: new Date(clock).toISOString(), accountUsername: 'store_alpha' });
   const signature = `sha256=${createHmac('sha256', options.webhookSecret).update(event).digest('hex')}`;

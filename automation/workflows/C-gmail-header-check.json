@@ -1,0 +1,278 @@
+{
+  "name": "CHECK ONLY - Gmail forwarding headers",
+  "active": false,
+  "nodes": [
+    {
+      "id": "check-only-manual-trigger",
+      "name": "CHECK ONLY - manual trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "list-up-to-five-recent-steam-messages",
+      "name": "List up to five recent Steam messages",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "newer_than:1d -in:trash from:noreply@steampowered.com"
+            },
+            {
+              "name": "maxResults",
+              "value": "5"
+            },
+            {
+              "name": "includeSpamTrash",
+              "value": "true"
+            },
+            {
+              "name": "fields",
+              "value": "messages/id"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Central Gmail mailbox"
+        }
+      }
+    },
+    {
+      "id": "any-messages-",
+      "name": "Any messages?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "boolean-check",
+              "leftValue": "={{ Array.isArray($json.messages) && $json.messages.length > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "one-header-check-per-message",
+      "name": "One header check per message",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "fieldToSplitOut": "messages",
+        "include": "noOtherFields",
+        "options": {}
+      }
+    },
+    {
+      "id": "get-authentication-metadata-only",
+      "name": "Get authentication metadata only",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ \"https://gmail.googleapis.com/gmail/v1/users/me/messages/\" + encodeURIComponent($json.id) + \"?metadataHeaders=Authentication-Results&metadataHeaders=ARC-Seal&metadataHeaders=ARC-Authentication-Results&metadataHeaders=ARC-Message-Signature&metadataHeaders=To&metadataHeaders=Date&metadataHeaders=From\" }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "format",
+              "value": "metadata"
+            },
+            {
+              "name": "fields",
+              "value": "labelIds,payload/headers"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Central Gmail mailbox"
+        }
+      }
+    },
+    {
+      "id": "safe-forwarding-header-flags",
+      "name": "Safe forwarding header flags",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "header-check-inSpam",
+              "name": "inSpam",
+              "value": "={{ Array.isArray($json.labelIds) && $json.labelIds.includes(\"SPAM\") }}",
+              "type": "boolean"
+            },
+            {
+              "id": "header-check-gmailVerifier",
+              "name": "gmailVerifier",
+              "value": "={{ ($json.payload?.headers || []).filter(h => String(h.name).toLowerCase() === \"authentication-results\").filter(h => /^\\s*mx\\.google\\.com\\s*;/i.test(String(h.value || \"\"))).length === 1 }}",
+              "type": "boolean"
+            },
+            {
+              "id": "header-check-dmarcPass",
+              "name": "dmarcPass",
+              "value": "={{ ($json.payload?.headers || []).filter(h => String(h.name).toLowerCase() === \"authentication-results\").filter(h => /^\\s*mx\\.google\\.com\\s*;/i.test(String(h.value || \"\"))).length === 1 && ($json.payload?.headers || []).filter(h => String(h.name).toLowerCase() === \"authentication-results\").filter(h => /^\\s*mx\\.google\\.com\\s*;/i.test(String(h.value || \"\"))).every(h => /\\bdmarc=pass\\b/i.test(String(h.value || \"\"))) }}",
+              "type": "boolean"
+            },
+            {
+              "id": "header-check-dmarcAlignedToSteam",
+              "name": "dmarcAlignedToSteam",
+              "value": "={{ ($json.payload?.headers || []).filter(h => String(h.name).toLowerCase() === \"authentication-results\").filter(h => /^\\s*mx\\.google\\.com\\s*;/i.test(String(h.value || \"\"))).length === 1 && ($json.payload?.headers || []).filter(h => String(h.name).toLowerCase() === \"authentication-results\").filter(h => /^\\s*mx\\.google\\.com\\s*;/i.test(String(h.value || \"\"))).every(h => /\\bdmarc=pass\\b[^;\\r\\n]*\\bheader\\.from=steampowered\\.com(?=[;\\s]|$)/i.test(String(h.value || \"\"))) }}",
+              "type": "boolean"
+            },
+            {
+              "id": "header-check-dkimPass",
+              "name": "dkimPass",
+              "value": "={{ ($json.payload?.headers || []).filter(h => String(h.name).toLowerCase() === \"authentication-results\").filter(h => /^\\s*mx\\.google\\.com\\s*;/i.test(String(h.value || \"\"))).length === 1 && ($json.payload?.headers || []).filter(h => String(h.name).toLowerCase() === \"authentication-results\").filter(h => /^\\s*mx\\.google\\.com\\s*;/i.test(String(h.value || \"\"))).every(h => /\\bdkim=pass\\b/i.test(String(h.value || \"\"))) }}",
+              "type": "boolean"
+            },
+            {
+              "id": "header-check-spfPass",
+              "name": "spfPass",
+              "value": "={{ ($json.payload?.headers || []).filter(h => String(h.name).toLowerCase() === \"authentication-results\").filter(h => /^\\s*mx\\.google\\.com\\s*;/i.test(String(h.value || \"\"))).length === 1 && ($json.payload?.headers || []).filter(h => String(h.name).toLowerCase() === \"authentication-results\").filter(h => /^\\s*mx\\.google\\.com\\s*;/i.test(String(h.value || \"\"))).every(h => /\\bspf=pass\\b/i.test(String(h.value || \"\"))) }}",
+              "type": "boolean"
+            },
+            {
+              "id": "header-check-arcPass",
+              "name": "arcPass",
+              "value": "={{ ($json.payload?.headers || []).filter(h => String(h.name).toLowerCase() === \"authentication-results\").filter(h => /^\\s*mx\\.google\\.com\\s*;/i.test(String(h.value || \"\"))).length === 1 && ($json.payload?.headers || []).filter(h => String(h.name).toLowerCase() === \"authentication-results\").filter(h => /^\\s*mx\\.google\\.com\\s*;/i.test(String(h.value || \"\"))).every(h => /\\barc=pass\\b/i.test(String(h.value || \"\"))) }}",
+              "type": "boolean"
+            },
+            {
+              "id": "header-check-authHeaderCount",
+              "name": "authHeaderCount",
+              "value": "={{ ($json.payload?.headers || []).filter(h => String(h.name).toLowerCase() === \"authentication-results\").length }}",
+              "type": "number"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "CHECK ONLY - manual trigger": {
+      "main": [
+        [
+          {
+            "node": "List up to five recent Steam messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List up to five recent Steam messages": {
+      "main": [
+        [
+          {
+            "node": "Any messages?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any messages?": {
+      "main": [
+        [
+          {
+            "node": "One header check per message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One header check per message": {
+      "main": [
+        [
+          {
+            "node": "Get authentication metadata only",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get authentication metadata only": {
+      "main": [
+        [
+          {
+            "node": "Safe forwarding header flags",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false
+  }
+}
