@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildBracket, resolve } from '../src/lib/bracket.ts';
 import { playerIdFor } from '../src/lib/phone.ts';
-import { storeWinnerRows, summarize, winnerRows, winnersCsv, CSV_HEADER } from '../src/lib/winners.ts';
+import { repeatWinners, storeWinnerRows, summarize, winnerRows, winnersCsv, CSV_HEADER, type WinnerRow } from '../src/lib/winners.ts';
 import type { Match, Player, Store, TournamentEvent, WinnerDetails, Winners } from '../src/lib/types.ts';
 import { fixtureStore } from './helpers/server.ts';
 
@@ -163,4 +163,31 @@ test('CSV: quoting and formula guard; unfinished stores are listed with their st
   assert.match(csv, /Open Store,Mumbai,,2026-10-24,Winner,,,,,,Final not played,,,Bracket\r\n/);
   assert.match(csv, /Partial — missing phone, email/);
   assert.equal(csv.split('\r\n').length, 1 + 6 + 1 - 0);
+});
+
+test('repeat winners: same phone is one person, a name without a number joins only an unambiguous match, one store never counts twice', () => {
+  const row = (storeId: string, date: string, place: 'Winner' | 'Runner-up', realName: string, phone = '', over: Partial<WinnerRow> = {}): WinnerRow =>
+    ({ eventId: 'e1', campaign: 'Campus Clash', storeId, store: `Store ${storeId}`, city: 'Mumbai', state: '', date, place, realName, ign: '', phone, email: '', instagram: '', status: 'complete', missing: [], finalDone: true, listName: '', savedAt: '', savedBy: '', manual: false, note: '', ...over }) as WinnerRow;
+  const rows = [
+    row('a', '2026-10-24', 'Winner', 'Asha Rao', '9820011111', { ign: 'AshaX' }),
+    row('b', '2026-10-31', 'Winner', 'ASHA  rao', '+91 98200 11111'), // same number, written differently
+    row('c', '2026-11-07', 'Runner-up', 'Asha Rao'), // no number: joins the one Asha with a number
+    row('a', '2026-10-24', 'Runner-up', 'Rohan Mehta', '9820022222'),
+    row('d', '2026-11-07', 'Winner', 'Rohan Mehta', '9820099999'), // same name, another number: someone else
+    row('e', '2026-11-14', 'Winner', 'Kabir', '', { realName: '', listName: 'Kabir' }), // no details saved: the list name
+    row('f', '2026-11-21', 'Runner-up', 'kabir'),
+    row('g', '2026-11-21', 'Winner', 'Nobody Yet', '', { status: 'no-final', finalDone: false }), // not played: ignored
+    row('h', '2026-11-28', 'Winner', 'Nobody Yet'),
+  ];
+  const people = repeatWinners(rows);
+  assert.deepEqual(people.map((p) => [p.name, p.wins, p.runnerUps, p.places.map((x) => x.storeId)]), [
+    ['Asha Rao', 2, 1, ['a', 'b', 'c']],
+    ['kabir', 1, 1, ['e', 'f']],
+  ]);
+  assert.equal(people[0].ign, 'AshaX');
+  assert.equal(people[0].phone, '9820011111');
+  assert.deepEqual(repeatWinners(rows.slice(3, 5)), [], 'two Rohans with different numbers are two people');
+  // a name with two different numbers is ambiguous: a number-less placing is never guessed into either
+  const two = [row('x', '2026-10-24', 'Winner', 'Sam', '9000000001'), row('y', '2026-10-31', 'Winner', 'Sam', '9000000002'), row('z', '2026-11-07', 'Winner', 'Sam')];
+  assert.deepEqual(repeatWinners(two), []);
 });

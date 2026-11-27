@@ -3,10 +3,10 @@ import { useApp } from '../lib/db.ts';
 import { dayVersion } from '../lib/commands.ts';
 import type { Store, TournamentEvent } from '../lib/types.ts';
 import { go } from '../lib/router.ts';
-import { campaignStoreNames, sharedPrefix } from '../lib/names.ts';
+import { campaignStoreNames, sharedPrefix, storeShortName } from '../lib/names.ts';
 import { prettyPhone } from '../lib/onspot.ts';
 import { FIELD_LABEL } from '../lib/winnerInput.ts';
-import { STATUS_LABEL, summarize, winnerRows, winnersCsv, type WinnerRow, type WinnerStatus } from '../lib/winners.ts';
+import { repeatWinners, STATUS_LABEL, summarize, winnerRows, winnersCsv, type RepeatWinner, type WinnerRow, type WinnerStatus } from '../lib/winners.ts';
 import { cx, downloadBlob, fmtDate, slug, todayLocal } from '../lib/util.ts';
 import { askConfirm, Chip, notify, PageHead, Shell, toast } from '../components/ui.tsx';
 import { CountUp, EmptyCard } from '../components/flair.tsx';
@@ -131,7 +131,76 @@ export function WinnersPage({ eventId }: { eventId?: string }) {
           </section>
         ))
       )}
+
+      <RepeatWinners rows={all} campaign={campaign ? events[campaign].name : ''} />
     </Shell>
+  );
+}
+
+/**
+ * HQ's own look at the data: people who placed at more than one store (same phone = same person), most wins first —
+ * folded away at the bottom of the page until opened.
+ */
+function RepeatWinners({ rows, campaign }: { rows: WinnerRow[]; campaign: string }) {
+  const people = useMemo(() => repeatWinners(rows), [rows]);
+  const top = people[0]?.places.length ?? 0;
+  return (
+    <details className="rw">
+      <summary>
+        <span className="rw-title">Repeat winners</span>
+        <span className="label">{people.length ? `${plural(people.length, 'person', 'people')} placed at more than one store` : 'Nobody has placed twice yet'}{campaign ? ` · ${campaign}` : ' · all campaigns'}</span>
+      </summary>
+      {people.length === 0 ? (
+        <p className="hint">Anyone who wins or comes second at two or more stores shows up here — matched by phone number, else by name.</p>
+      ) : (
+        <ol className="rw-list">
+          {people.map((p, i) => (
+            <RepeatCard key={`${p.phone}-${p.name}-${i}`} person={p} rank={i + 1} top={top} />
+          ))}
+        </ol>
+      )}
+    </details>
+  );
+}
+
+function RepeatCard({ person: p, rank, top }: { person: RepeatWinner; rank: number; top: number }) {
+  const stores = useApp((s) => s.stores);
+  const short = (id: string) => {
+    const st = stores[id];
+    return st ? storeShortName(st.name, campaignStoreNames(Object.values(stores), st.eventId)) : '';
+  };
+  return (
+    <li className="rw-card" style={{ ['--i' as string]: rank - 1 }}>
+      <div className="rw-rank">{rank}</div>
+      <div className="rw-who">
+        <h3>{p.name}</h3>
+        <span className="label">{[p.ign && `“${p.ign}”`, p.phone && prettyPhone(p.phone)].filter(Boolean).join(' · ')}</span>
+        <div className="rw-tally" aria-label={`${plural(p.wins, 'win')}, ${plural(p.runnerUps, 'runner-up finish', 'runner-up finishes')}`}>
+          {[...Array(p.wins).fill('win'), ...Array(p.runnerUps).fill('second')].map((k: string, i) => (
+            <i key={i} className={cx('rw-pip', k)} />
+          ))}
+          {Array.from({ length: Math.max(0, top - p.places.length) }, (_, i) => (
+            <i key={`e${i}`} className="rw-pip none" />
+          ))}
+          <b>
+            {p.wins > 0 && plural(p.wins, 'win')}
+            {p.wins > 0 && p.runnerUps > 0 && ' · '}
+            {p.runnerUps > 0 && `${p.runnerUps} × runner-up`}
+          </b>
+        </div>
+      </div>
+      <ul className="rw-places">
+        {p.places.map((x) => (
+          <li key={`${x.storeId}-${x.place}`}>
+            <Chip tone={x.place === 'Winner' ? 'accent' : 'muted'}>{x.place}</Chip>
+            <a href={`#/event/${x.eventId}`}>{short(x.storeId) || x.store}</a>
+            <span>
+              {[x.city, fmtDate(x.date, { weekday: 'short', day: 'numeric', month: 'short' })].filter(Boolean).join(' · ')}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </li>
   );
 }
 
