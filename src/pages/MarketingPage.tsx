@@ -1,8 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { update, useApp } from '../lib/db.ts';
-import type { Admin, EventMarketing, Store, TournamentEvent } from '../lib/types.ts';
+import type { Admin, EventMarketing, PlayerContact, Store, TournamentEvent } from '../lib/types.ts';
 import {
+  adminOf,
   campaignIssues,
+  DEFAULT_TEMPLATES,
+  PLACEHOLDERS,
+  TEMPLATE_FIELD,
+  templateOf,
+  unknownPlaceholders,
+  type TemplateKind,
   defaultDiscordClosing,
   defaultDiscordIntro,
   defaultPlayerIntro,
@@ -38,12 +45,14 @@ import '../styles/marketing.css';
 type Drafts = Record<string, EventMarketing>;
 const FIELDS = Object.keys(MARKETING_MAX) as (keyof EventMarketing)[];
 
-/** What is kept on the campaign: trimmed, and nothing for an empty box. */
+const STOCK = new Map<keyof EventMarketing, string>(Object.entries(TEMPLATE_FIELD).map(([kind, field]) => [field, DEFAULT_TEMPLATES[kind as TemplateKind]]));
+
+/** What is kept on the campaign: trimmed, and nothing for an empty box or a template left as the stock one. */
 function tidy(m: EventMarketing): EventMarketing {
   const out: EventMarketing = {};
   for (const k of FIELDS) {
     const v = (m[k] ?? '').trim();
-    if (v) out[k] = v;
+    if (v && v !== STOCK.get(k)) out[k] = v;
   }
   return out;
 }
@@ -138,28 +147,15 @@ function Campaign({ event, stores, opts, onEdit }: { event: TournamentEvent; sto
         </span>
       </header>
 
-      <details className="mk-settings" open={issues.length > 0}>
-        <summary>
-          Prize pool, times and texts
-          {issues.map((i) => (
-            <Chip key={i} tone="warn">
-              {i}
-            </Chip>
-          ))}
-        </summary>
+      <details className="mk-settings">
+        <summary>Prize pool and times</summary>
         <div className="card mk-form">
           <div className="mk-grid">
             <Field label="Prize pool (₹)" value={opts.prizePool ?? ''} onChange={(v) => onEdit('prizePool', v)} placeholder={PRIZE_POOL} />
             <Field label="Reporting time" value={opts.reportingTime ?? ''} onChange={(v) => onEdit('reportingTime', v)} placeholder={REPORTING_TIME} />
             <Field label="First match" value={opts.firstMatch ?? ''} onChange={(v) => onEdit('firstMatch', v)} placeholder={FIRST_MATCH} />
           </div>
-          <Field label="Discord intro" multiline value={opts.discordIntro ?? ''} onChange={(v) => onEdit('discordIntro', v)} placeholder={defaultDiscordIntro(game)} />
-          <Field label="Discord closing" multiline value={opts.discordClosing ?? ''} onChange={(v) => onEdit('discordClosing', v)} placeholder={defaultDiscordClosing(game)} />
-          <Field label="WhatsApp promo paragraph" multiline value={opts.whatsappIntro ?? ''} onChange={(v) => onEdit('whatsappIntro', v)} placeholder={defaultWhatsappIntro(game)} />
-          <Field label="Discord invite (WhatsApp)" value={opts.discordInvite ?? ''} onChange={(v) => onEdit('discordInvite', v)} placeholder={DISCORD_INVITE} />
-          <Field label="Players’ message: line under the date" value={opts.playerIntro ?? ''} onChange={(v) => onEdit('playerIntro', v)} placeholder={defaultPlayerIntro(game)} />
-          <Field label="Tournament rules (players’ message)" multiline value={opts.rules ?? ''} onChange={(v) => onEdit('rules', v)} placeholder={defaultRules(game) || 'One rule per line, e.g. – Format: Single Elimination'} />
-          <p className="mk-note">An empty box uses the grey text. Saved on the campaign a moment after you stop typing.</p>
+          <p className="mk-note">An empty box uses the grey text. Saved on the campaign a moment after you stop typing; all three messages use them.</p>
         </div>
       </details>
 
@@ -175,6 +171,10 @@ function Campaign({ event, stores, opts, onEdit }: { event: TournamentEvent; sto
             Copy
           </button>
         </header>
+        <TemplateEditor kind="discord" opts={opts} onEdit={onEdit}>
+          <Field label="Discord intro — {intro}" multiline value={opts.discordIntro ?? ''} onChange={(v) => onEdit('discordIntro', v)} placeholder={defaultDiscordIntro(game)} />
+          <Field label="Discord closing — {closing}" multiline value={opts.discordClosing ?? ''} onChange={(v) => onEdit('discordClosing', v)} placeholder={defaultDiscordClosing(game)} />
+        </TemplateEditor>
         {post.length > DISCORD_LIMIT && <p className="mk-warn">Discord refuses a message over {DISCORD_LIMIT} characters — shorten the intro or closing, or post it in two parts.</p>}
         {stores.some((s) => storeIssues(s).length > 0) && <p className="mk-warn">Some stores are missing links — the post shows them as [… missing]; the store cards below say which.</p>}
         <pre className="mk-pre">{post}</pre>
@@ -187,6 +187,10 @@ function Campaign({ event, stores, opts, onEdit }: { event: TournamentEvent; sto
           </h4>
           <span className="label">one per store, with its poster</span>
         </header>
+        <TemplateEditor kind="whatsapp" opts={opts} onEdit={onEdit}>
+          <Field label="WhatsApp paragraph — {intro}" multiline value={opts.whatsappIntro ?? ''} onChange={(v) => onEdit('whatsappIntro', v)} placeholder={defaultWhatsappIntro(game)} />
+          <Field label="Discord invite — {discordInvite}" value={opts.discordInvite ?? ''} onChange={(v) => onEdit('discordInvite', v)} placeholder={DISCORD_INVITE} />
+        </TemplateEditor>
         <ul className="mk-stores">
           {stores.map((s) => (
             <StoreCard key={s.id} event={event} store={s} caption={whatsappPromo(event, s, opts)} short={storeShortName(s.name, names)} />
@@ -200,10 +204,19 @@ function Campaign({ event, stores, opts, onEdit }: { event: TournamentEvent; sto
             <b>3</b> Players — the night before
           </h4>
           <span className="label">one per store, to its registered players</span>
+          {issues.map((i) => (
+            <Chip key={i} tone="warn">
+              {i}
+            </Chip>
+          ))}
         </header>
+        <TemplateEditor kind="player" opts={opts} onEdit={onEdit} open={issues.length > 0}>
+          <Field label="Line under the date — {intro}" value={opts.playerIntro ?? ''} onChange={(v) => onEdit('playerIntro', v)} placeholder={defaultPlayerIntro(game)} />
+          <Field label="Tournament rules — {rules}" multiline value={opts.rules ?? ''} onChange={(v) => onEdit('rules', v)} placeholder={defaultRules(game) || 'One rule per line, e.g. – Format: Single Elimination'} />
+        </TemplateEditor>
         <ul className="mk-stores">
           {stores.map((s) => (
-            <PlayerCard key={s.id} event={event} store={s} admins={admins} message={playerMessage(event, s, admins, opts)} short={storeShortName(s.name, names)} />
+            <PlayerCard key={s.id} event={event} store={s} admins={admins} opts={opts} short={storeShortName(s.name, names)} />
           ))}
         </ul>
       </section>
@@ -302,9 +315,94 @@ function StoreCard({ event, store, caption, short }: { event: TournamentEvent; s
   );
 }
 
-/** One store's night-before message to its players: the text and a Copy. */
-function PlayerCard({ event, store, admins, message, short }: { event: TournamentEvent; store: Store; admins: Record<string, Admin>; message: string; short: string }) {
-  const issues = playerIssues(store, admins);
+/** A block's "Edit template": its texts, then the whole layout with the {placeholders} it understands (tap one to put it at the cursor). */
+function TemplateEditor({ kind, opts, onEdit, open, children }: { kind: TemplateKind; opts: EventMarketing; onEdit: (field: keyof EventMarketing, value: string) => void; open?: boolean; children: ReactNode }) {
+  const field = TEMPLATE_FIELD[kind];
+  const value = opts[field] || DEFAULT_TEMPLATES[kind]; // emptied → the stock one again
+  const custom = templateOf(kind, opts) !== DEFAULT_TEMPLATES[kind];
+  const unknown = unknownPlaceholders(kind, value);
+  const box = useRef<HTMLTextAreaElement>(null);
+  const caret = useRef<number | null>(null); // where the cursor goes once an inserted placeholder is in the box
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (caret.current === null || !el) return;
+    el.focus();
+    el.setSelectionRange(caret.current, caret.current);
+    caret.current = null;
+  }, [value]);
+  const insert = (key: string) => {
+    const el = box.current;
+    const [a, b] = el ? [el.selectionStart, el.selectionEnd] : [value.length, value.length];
+    const tag = `{${key}}`;
+    caret.current = a + tag.length;
+    onEdit(field, value.slice(0, a) + tag + value.slice(b));
+  };
+  return (
+    <details className="mk-settings mk-template" open={open}>
+      <summary>
+        Edit template
+        {custom && <Chip tone="muted">Your own</Chip>}
+        {unknown.length > 0 && <Chip tone="warn">Check {unknown.map((k) => `{${k}}`).join(' ')}</Chip>}
+      </summary>
+      <div className="card mk-form">
+        {children}
+        <label className="field">
+          <span className="label">Template</span>
+          <textarea ref={box} className="mk-template-box" value={value} rows={Math.min(24, value.split('\n').length + 2)} spellCheck={false} onChange={(e) => onEdit(field, e.target.value)} />
+        </label>
+        {unknown.length > 0 && <p className="mk-warn">{unknown.map((k) => `{${k}}`).join(', ')} isn’t a placeholder here — it’s sent as typed. Check the spelling against the list below.</p>}
+        <p className="mk-note">Tap a placeholder to put it where the cursor is. Everything else is sent exactly as typed — *bold* for WhatsApp, **bold** for Discord.</p>
+        <ul className="mk-phs">
+          {PLACEHOLDERS[kind].map((p) => (
+            <li key={p.key}>
+              <button type="button" className="mk-ph" onClick={() => insert(p.key)}>
+                <code>{`{${p.key}}`}</code> <span>{p.what}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        {custom && (
+          <button type="button" className="link" onClick={() => onEdit(field, '')}>
+            Back to the stock template
+          </button>
+        )}
+      </div>
+    </details>
+  );
+}
+
+const trimmed = (c: PlayerContact): PlayerContact => {
+  const out: PlayerContact = {};
+  if (c.name?.trim()) out.name = c.name.trim();
+  if (c.phone?.trim()) out.phone = c.phone.trim();
+  return out;
+};
+
+/** One store's night-before message to its players: who to call (typed here, else the assigned admin), the text and a Copy. */
+function PlayerCard({ event, store, admins, opts, short }: { event: TournamentEvent; store: Store; admins: Record<string, Admin>; opts: EventMarketing; short: string }) {
+  // What HQ is typing: the message follows at once; saved on the store a moment after the last key, and when leaving the page.
+  const [contact, setContact] = useState<PlayerContact>(store.playerContact ?? {});
+  const saveRef = useRef(() => {});
+  saveRef.current = () => {
+    const next = trimmed(contact);
+    if (sameJson(next, store.playerContact ?? {})) return;
+    update((d) => {
+      const s = d.stores[store.id];
+      if (!s) return;
+      if (Object.keys(next).length) s.playerContact = next;
+      else delete s.playerContact;
+    });
+  };
+  useEffect(() => {
+    const t = setTimeout(() => saveRef.current(), 700);
+    return () => clearTimeout(t);
+  }, [contact]);
+  useEffect(() => () => saveRef.current(), []);
+
+  const typed = { ...store, playerContact: contact };
+  const assigned = adminOf({ ...store, playerContact: undefined }, admins);
+  const issues = playerIssues(typed, admins);
+  const message = playerMessage(event, typed, admins, opts);
   return (
     <li className="mk-store">
       <header className="mk-store-head">
@@ -322,6 +420,10 @@ function PlayerCard({ event, store, admins, message, short }: { event: Tournamen
           ))}
         </p>
       )}
+      <div className="mk-grid mk-contact">
+        <Field label="Admin name — {adminName}" value={contact.name ?? ''} onChange={(v) => setContact((c) => ({ ...c, name: v }))} placeholder={assigned.name || 'Who players call'} />
+        <Field label="Admin number — {adminPhone}" type="tel" value={contact.phone ?? ''} onChange={(v) => setContact((c) => ({ ...c, phone: v }))} placeholder={contact.name?.trim() ? 'Their number' : assigned.phone || 'Their number'} />
+      </div>
       <pre className="mk-pre">{message}</pre>
       <div className="mk-actions">
         <button type="button" className="btn accent" onClick={() => void copyText(message, 'Players’ message')}>

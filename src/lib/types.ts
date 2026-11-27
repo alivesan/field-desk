@@ -248,6 +248,7 @@ export interface Store {
   geo?: GeoFix | null; // venue location read from the Maps link — the reference for photo distance checks
   adminId?: string | null; // assigned field admin (see Admin)
   admin: string; // that admin's display name, copied on assignment
+  playerContact?: PlayerContact; // HQ: the name and number in the players' message when not the assigned admin's (Marketing page)
   pin: GeoFix | null; // fallback location: the first geotagged proof photo
   recce: Recce;
   day: MatchDay;
@@ -296,6 +297,15 @@ export interface EventMarketing {
   discordInvite?: string; // https link; default is the ROG Showdown server
   playerIntro?: string; // the one line under the date in the night-before message to registered players
   rules?: string; // the tournament rules in that message, one "– …" line each
+  discordTemplate?: string; // HQ's own layout of the Discord post with {placeholders}; empty = the stock one (marketing.ts DEFAULT_TEMPLATES)
+  whatsappTemplate?: string; // the same for each store's WhatsApp promo
+  playerTemplate?: string; // the same for the night-before message to a store's players
+}
+
+/** Who the players' message tells players to call, typed by HQ on the store's card; overrides the assigned admin's name / phone. */
+export interface PlayerContact {
+  name?: string;
+  phone?: string;
 }
 
 /** The sheet link HQ imports this campaign's stores from — so next time it's one press on Refresh. */

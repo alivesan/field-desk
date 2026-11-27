@@ -30,7 +30,79 @@ export const MARKETING_MAX = {
   discordInvite: 300,
   playerIntro: 300,
   rules: 3000,
+  discordTemplate: 4000,
+  whatsappTemplate: 4000,
+  playerTemplate: 4000,
 } as const satisfies Record<keyof EventMarketing, number>;
+
+export type TemplateKind = 'discord' | 'whatsapp' | 'player';
+
+/**
+ * The stock layouts, as the owner sent them. HQ can rewrite each one per campaign on the Marketing page; a {name} in it is
+ * filled per campaign / store (PLACEHOLDERS), anything else is sent as typed.
+ */
+export const DEFAULT_TEMPLATES: Record<TemplateKind, string> = {
+  discord: [
+    '@everyone',
+    '# ROG SHOWDOWN | {game}',
+    '{intro}',
+    '**{game} | ₹{prizePool} Prize Pool | FREE ENTRY**',
+    'Reporting: **{reportingTime}**\nFirst Match: **{firstMatch}**',
+    '{days}',
+    '{closing}',
+    'Questions? Drop them in the thread.',
+  ].join('\n\n'),
+  whatsapp: [
+    '*ROG SHOWDOWN - {city}*\n*{game} | ₹{prizePool} Prize Pool | Free Entry*\n*Date:* {date}',
+    '{intro}',
+    '*Venue:* {store}, {city}\n*Game:* {game}\n*Prize Pool:* ₹{prizePool}\n*Reporting Time:* {reportingTime}\n*First Match:* {firstMatch}',
+    '*Register Now:* {register}\n*Location:* {map}\n*Discord:* {discordInvite}',
+  ].join('\n\n'),
+  player: [
+    'ROG SHOWDOWN - {city}\n{date}\n{intro}\nVenue: {store}, {city}\nReporting time: {reportingTime}\nFirst match: {firstMatch}',
+    'Location: {map}\nBracket: {bracket}\n', // two blank lines before the rules, as in the template
+    'TOURNAMENT RULES\nGame: {game}\n{rules}',
+    "Admin's decision is final.",
+    'Admin contact: {adminName} - {adminPhone}',
+    'See you there.',
+    'Team La-eGamers',
+  ].join('\n\n'),
+};
+
+const COMMON = [
+  { key: 'game', what: 'the game' },
+  { key: 'prizePool', what: 'prize pool, no ₹' },
+  { key: 'reportingTime', what: 'reporting time' },
+  { key: 'firstMatch', what: 'first match' },
+];
+const STORE = [
+  { key: 'city', what: 'store’s city' },
+  { key: 'store', what: 'store’s name' },
+  { key: 'date', what: 'its day, “Saturday, 14 November 2026”' },
+  { key: 'map', what: 'Maps link' },
+];
+
+/** The {placeholders} each template understands, with what they become — the page lists them for HQ. */
+export const PLACEHOLDERS: Record<TemplateKind, { key: string; what: string }[]> = {
+  discord: [...COMMON, { key: 'intro', what: 'the Discord intro' }, { key: 'days', what: 'each day’s stores with their links' }, { key: 'closing', what: 'the Discord closing' }, { key: 'discordInvite', what: 'Discord invite' }],
+  whatsapp: [...COMMON, ...STORE, { key: 'intro', what: 'the WhatsApp paragraph' }, { key: 'register', what: 'Toornament link' }, { key: 'discordInvite', what: 'Discord invite' }],
+  player: [...COMMON, ...STORE, { key: 'intro', what: 'the line under the date' }, { key: 'bracket', what: 'Toornament bracket page' }, { key: 'rules', what: 'the rules' }, { key: 'adminName', what: 'admin to call' }, { key: 'adminPhone', what: 'their number' }],
+};
+
+/** Where each template is kept on the campaign. */
+export const TEMPLATE_FIELD = { discord: 'discordTemplate', whatsapp: 'whatsappTemplate', player: 'playerTemplate' } as const satisfies Record<TemplateKind, keyof EventMarketing>;
+
+/** The campaign's template of that kind: HQ's own, else the stock one. */
+export const templateOf = (kind: TemplateKind, opts: EventMarketing = {}) => text(opts[TEMPLATE_FIELD[kind]]) || DEFAULT_TEMPLATES[kind];
+
+/** The {names} in a template that the kind doesn't know (a typo, most likely); they are sent as typed. */
+export function unknownPlaceholders(kind: TemplateKind, template: string) {
+  const known = new Set(PLACEHOLDERS[kind].map((p) => p.key));
+  return [...new Set([...template.matchAll(/\{(\w+)\}/g)].map((m) => m[1]))].filter((k) => !known.has(k));
+}
+
+/** Fills each {name} that `values` has; anything else stays as typed. */
+export const fillTemplate = (template: string, values: Record<string, string>) => template.replace(/\{(\w+)\}/g, (all, k: string) => (Object.hasOwn(values, k) ? values[k] : all));
 
 /** Discord refuses a message over this (without Nitro); the screen warns when a post is longer. */
 export const DISCORD_LIMIT = 2000;
@@ -112,9 +184,9 @@ export function marketingText(event: Pick<TournamentEvent, 'games' | 'name'>, op
   };
 }
 
-/** What is still missing about the campaign itself, in words for the screen: only the rules can be (a game without stock rules). */
+/** What is still missing about the campaign itself, in words for the screen: only the rules can be (a game without stock rules, when the players' template uses them). */
 export function campaignIssues(event: Pick<TournamentEvent, 'games' | 'name'>, opts: EventMarketing = {}) {
-  return [!text(opts.rules) && !defaultRules(gameName(event)) && 'No rules'].filter(Boolean) as string[];
+  return [!text(opts.rules) && !defaultRules(gameName(event)) && templateOf('player', opts).includes('{rules}') && 'No rules'].filter(Boolean) as string[];
 }
 
 /** What is still missing about one store, in words for the screen. */
@@ -131,7 +203,6 @@ const gmap = (s: Pick<Store, 'mapsUrl'>) => text(s.mapsUrl) || missing('Maps lin
  * name. Stores without a Toornament / Maps link keep a "[… missing]" marker where the link goes.
  */
 export function discordPost(event: TournamentEvent, stores: Store[], opts: EventMarketing = event.marketing ?? {}) {
-  const game = gameName(event);
   const m = marketingText(event, opts);
   const days = new Map<string, Store[]>();
   for (const s of [...stores].sort((a, b) => city(a).localeCompare(city(b)) || a.name.localeCompare(b.name))) {
@@ -142,59 +213,50 @@ export function discordPost(event: TournamentEvent, stores: Store[], opts: Event
     const blocks = days.get(d)!.map((s) => [`**${city(s)} — ${s.name}**`, `Register: <${register(s)}>`, `Gmap: <${gmap(s)}>`].join('\n'));
     return [`## ${longDay(d)}`, ...blocks].join('\n\n');
   });
-  return [
-    '@everyone',
-    `# ROG SHOWDOWN | ${game}`,
-    m.discordIntro,
-    `**${game} | ₹${m.prizePool} Prize Pool | FREE ENTRY**`,
-    `Reporting: **${m.reportingTime}**\nFirst Match: **${m.firstMatch}**`,
-    ...sections,
-    m.discordClosing,
-    'Questions? Drop them in the thread.',
-  ].join('\n\n');
+  return fillTemplate(templateOf('discord', opts), { ...common(event, m), intro: m.discordIntro, days: sections.join('\n\n'), closing: m.discordClosing, discordInvite: m.discordInvite });
 }
+
+const common = (event: Pick<TournamentEvent, 'games' | 'name'>, m: MarketingText) => ({ game: gameName(event), prizePool: m.prizePool, reportingTime: m.reportingTime, firstMatch: m.firstMatch });
+const storeValues = (event: TournamentEvent, s: Store) => ({ city: city(s), store: s.name, date: longDate(dayOf(s, event)), map: gmap(s) });
 
 /** The WhatsApp promo for one store (sent with its poster). */
 export function whatsappPromo(event: TournamentEvent, store: Store, opts: EventMarketing = event.marketing ?? {}) {
-  const game = gameName(event);
   const m = marketingText(event, opts);
-  return [
-    `*ROG SHOWDOWN - ${city(store)}*\n*${game} | ₹${m.prizePool} Prize Pool | Free Entry*\n*Date:* ${longDate(dayOf(store, event))}`,
-    m.whatsappIntro,
-    `*Venue:* ${store.name}, ${city(store)}\n*Game:* ${game}\n*Prize Pool:* ₹${m.prizePool}\n*Reporting Time:* ${m.reportingTime}\n*First Match:* ${m.firstMatch}`,
-    `*Register Now:* ${register(store)}\n*Location:* ${gmap(store)}\n*Discord:* ${m.discordInvite}`,
-  ].join('\n\n');
+  return fillTemplate(templateOf('whatsapp', opts), { ...common(event, m), ...storeValues(event, store), intro: m.whatsappIntro, register: register(store), discordInvite: m.discordInvite });
 }
 
 /** The store's bracket on Toornament (the /stages/ page, not the registration page), or a marker. */
 const bracket = (s: Pick<Store, 'toornament'>) => (text(s.toornament?.url) ? toornamentBracketPage(text(s.toornament!.url), s.toornament!.stageId) : missing('Bracket link'));
 
-/** The store's field admin: the admin record when HQ has it, else the name copied onto the store. */
-function adminOf(store: Pick<Store, 'adminId' | 'admin'>, admins: Record<string, Admin>) {
+/**
+ * Who the players' message says to call: what HQ typed on the store's card, else the assigned admin (the admin record when HQ
+ * has it, else the name copied onto the store). A typed name with no number never borrows the assigned admin's number.
+ */
+export function adminOf(store: Pick<Store, 'adminId' | 'admin' | 'playerContact'>, admins: Record<string, Admin>) {
   const a = store.adminId ? admins[store.adminId] : undefined;
-  return { name: text(a?.name) || text(store.admin), phone: text(a?.phone) };
+  const typed = { name: text(store.playerContact?.name), phone: text(store.playerContact?.phone) };
+  return { name: typed.name || text(a?.name) || text(store.admin), phone: typed.phone || (typed.name ? '' : text(a?.phone)) };
 }
 
 /** What the night-before message to one store's players is still missing, in words for the screen. */
-export function playerIssues(store: Pick<Store, 'city' | 'mapsUrl' | 'toornament' | 'adminId' | 'admin'>, admins: Record<string, Admin>) {
+export function playerIssues(store: Pick<Store, 'city' | 'mapsUrl' | 'toornament' | 'adminId' | 'admin' | 'playerContact'>, admins: Record<string, Admin>) {
   const a = adminOf(store, admins);
   return [!text(store.city) && 'No city', !text(store.toornament?.url) && 'No bracket link', !text(store.mapsUrl) && 'No Maps link', !a.name && 'No admin', !!a.name && !a.phone && 'No admin phone'].filter(Boolean) as string[];
 }
 
 /** The message sent the night before to a store's registered players: where, when, the bracket, the rules and the admin to call. */
 export function playerMessage(event: TournamentEvent, store: Store, admins: Record<string, Admin>, opts: EventMarketing = event.marketing ?? {}) {
-  const game = gameName(event);
   const m = marketingText(event, opts);
   const a = adminOf(store, admins);
-  return [
-    `ROG SHOWDOWN - ${city(store)}\n${longDate(dayOf(store, event))}\n${m.playerIntro}\nVenue: ${store.name}, ${city(store)}\nReporting time: ${m.reportingTime}\nFirst match: ${m.firstMatch}`,
-    `Location: ${gmap(store)}\nBracket: ${bracket(store)}\n`, // two blank lines before the rules, as in the template
-    `TOURNAMENT RULES\nGame: ${game}\n${m.rules}`,
-    "Admin's decision is final.",
-    `Admin contact: ${a.name || missing('Admin')} - ${a.phone || missing('Admin phone')}`,
-    'See you there.',
-    'Team La-eGamers',
-  ].join('\n\n');
+  return fillTemplate(templateOf('player', opts), {
+    ...common(event, m),
+    ...storeValues(event, store),
+    intro: m.playerIntro,
+    bracket: bracket(store),
+    rules: m.rules,
+    adminName: a.name || missing('Admin'),
+    adminPhone: a.phone || missing('Admin phone'),
+  });
 }
 
 /** The store's poster from its print kit, if the kit has one. */
