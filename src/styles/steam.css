@@ -6,6 +6,117 @@
 
 /* ---------- HQ: the page ---------- */
 
+/* at a glance: accounts × weekends */
+.sb {
+  margin: 4px 0 32px;
+}
+.sb-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  margin-bottom: 10px;
+}
+.sb-head h2 {
+  margin: 0;
+  font: 400 26px/1.1 var(--serif);
+}
+.sb-scroll {
+  overflow-x: auto;
+  border-top: 1px solid var(--ink);
+}
+.sb-grid {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.sb-grid th,
+.sb-grid td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+  vertical-align: top;
+}
+.sb-grid thead th {
+  font: 500 11px/1.3 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.sb-grid thead th b {
+  display: block;
+  font-weight: 500;
+  color: var(--ink);
+}
+.sb-grid tbody th,
+.sb-grid tfoot th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 120px;
+  background: var(--paper);
+  font-weight: 500;
+}
+.sb-grid tbody th span {
+  display: block;
+  font: 400 11px/1.3 var(--mono);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.sb-cell ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sb-cell > .chip {
+  margin-bottom: 6px;
+}
+.sb-cell.one {
+  background: var(--paper-2);
+}
+.sb-cell.shared {
+  background: var(--accent-soft);
+}
+.sb-cell.clash {
+  background: var(--warn-soft);
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+.sb-cell.missing {
+  background: var(--warn-soft);
+}
+.sb-free {
+  color: var(--muted);
+}
+.sb-use {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  text-decoration: none;
+}
+.sb-use:hover {
+  text-decoration: underline;
+}
+.sb-p {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  font: 600 10px/1 var(--mono);
+  font-style: normal;
+  border: 1px solid var(--ink-2);
+  color: var(--ink-2);
+}
+.sb-p.play {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--paper);
+}
+
 .sa-bar {
   display: flex;
   flex-wrap: wrap;

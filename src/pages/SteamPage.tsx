@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { update, updateStore, useApp } from '../lib/db.ts';
-import type { SteamAccount } from '../lib/types.ts';
-import { MAX_STEAM_TEXT, purposeLabel, sortedAccounts, steamAccountName, steamUses, weekFilterKey, weekendKeyLabel, type SteamUse, type WeekFilter } from '../lib/steam.ts';
+import type { SteamAccount, Store } from '../lib/types.ts';
+import { MAX_STEAM_TEXT, purposeLabel, sortedAccounts, steamAccountName, steamBoard, steamUses, weekFilterKey, weekendKeyLabel, type SteamBoard, type SteamUse, type WeekFilter } from '../lib/steam.ts';
 import { campaignStoreNames, storeShortName } from '../lib/names.ts';
 import { cx, fmtDate, todayLocal, uid } from '../lib/util.ts';
 import { askConfirm, Chip, Field, notify, PageHead, Shell, toast, useNow } from '../components/ui.tsx';
@@ -44,6 +44,7 @@ export function SteamPage() {
       return { account, all, here, playing: here.some((u) => u.purpose === 'play') };
     });
   }, [accounts, events, stores, week]);
+  const board = useMemo(() => steamBoard({ events, stores }, accounts, today), [accounts, events, stores, today]);
   const playing = rows.filter((r) => r.playing).length;
   const free = rows.length - playing;
 
@@ -74,6 +75,8 @@ export function SteamPage() {
     <Shell crumbs={[{ label: 'Campaigns', href: '#/' }, { label: 'Steam accounts' }]}>
       <i className="hq-wide" hidden />
       <PageHead kicker="HQ" title="Steam accounts." deck="Your Steam IDs. Each store gets one for its weekend — to play with (one store per weekend) or for downloads only (as many as you like). Stores see only the login you give them." />
+
+      {board.rows.length > 0 && <Board board={board} nameOf={nameOf} />}
 
       <div className="sa-bar">
         <div className="seg small" role="radiogroup" aria-label="Weekend">
@@ -177,6 +180,109 @@ export function SteamPage() {
         {draft && <AccountForm draft={draft} accounts={accounts} onClose={() => setDraft(null)} />}
       </Sheet>
     </Shell>
+  );
+}
+
+const BOARD_STATUS: Record<'shared' | 'clash', { tone: 'warn' | 'accent'; text: (n: number) => string }> = {
+  clash: { tone: 'warn', text: (n) => `${n} stores playing — only one can` },
+  shared: { tone: 'accent', text: (n) => `${n} stores` },
+};
+
+/**
+ * Every account against every coming weekend: which stores have it and for what (Play / Downloads), with a clash (two stores
+ * playing with one ID) in warning colours and an ID shared by several stores marked — and, per weekend, the stores with no ID yet.
+ */
+function Board({ board, nameOf }: { board: SteamBoard; nameOf: (storeId: string) => string }) {
+  const head = (i: number) => (i === 0 ? 'This weekend' : i === 1 ? 'Next weekend' : 'Later');
+  const clashes = board.rows.reduce((n, r) => n + board.weeks.filter((w) => r.cells[w].status === 'clash').length, 0);
+  const storeLink = (store: Store, children: React.ReactNode, className?: string) => (
+    <a className={className} href={`#/event/${store.eventId}`} title={store.name}>
+      {children}
+    </a>
+  );
+  return (
+    <section className="sb" aria-label="Steam IDs at a glance">
+      <header className="sb-head">
+        <h2>At a glance</h2>
+        <span className="label">Which store has which ID, weekend by weekend. P = play, D = downloads.</span>
+        {clashes > 0 && <Chip tone="warn">{clashes === 1 ? '1 clash' : `${clashes} clashes`}</Chip>}
+      </header>
+      <div className="sb-scroll">
+        <table className="sb-grid">
+          <thead>
+            <tr>
+              <th scope="col">Steam ID</th>
+              {board.weeks.map((w, i) => (
+                <th key={w} scope="col">
+                  <b>{head(i)}</b>
+                  <span>{weekendKeyLabel(w)}</span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {board.rows.map(({ account: a, cells }) => (
+              <tr key={a.id}>
+                <th scope="row" title={a.username}>
+                  {a.label?.trim() || a.username}
+                  {a.label?.trim() && <span>{a.username}</span>}
+                </th>
+                {board.weeks.map((w) => {
+                  const c = cells[w];
+                  const st = c.status === 'clash' || c.status === 'shared' ? BOARD_STATUS[c.status] : null;
+                  return (
+                    <td key={w} className={cx('sb-cell', c.status)}>
+                      {c.status === 'free' ? (
+                        <span className="sb-free">Free</span>
+                      ) : (
+                        <>
+                          {st && <Chip tone={st.tone}>{st.text(c.uses.length)}</Chip>}
+                          <ul>
+                            {c.uses.map((u) => (
+                              <li key={u.store.id}>
+                                {storeLink(
+                                  u.store,
+                                  <>
+                                    <i className={cx('sb-p', u.purpose)} title={purposeLabel(u.purpose)}>
+                                      {u.purpose === 'play' ? 'P' : 'D'}
+                                    </i>
+                                    {nameOf(u.store.id)}
+                                  </>,
+                                  'sb-use',
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <th scope="row">No ID yet</th>
+              {board.weeks.map((w) => (
+                <td key={w} className={cx('sb-cell', board.unassigned[w].length > 0 && 'missing')}>
+                  {board.unassigned[w].length === 0 ? (
+                    <span className="sb-free">—</span>
+                  ) : (
+                    <ul>
+                      {board.unassigned[w].map((s) => (
+                        <li key={s.id}>{storeLink(s, nameOf(s.id), 'sb-use')}</li>
+                      ))}
+                    </ul>
+                  )}
+                </td>
+              ))}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <p className="hint">Tap a store to open its campaign and change its ID. Only one PC can be online with an ID, so an ID used to play can be in just one store a weekend; downloads can share.</p>
+    </section>
   );
 }
 
