@@ -59,6 +59,40 @@ export function MatchSheet(p: Props) {
   );
 }
 
+/**
+ * The no-show way through: the player who is here wins by walkover, the other is never checked in by hand to make it work.
+ * `absent` = the one not checked in (a button for the other); `left` = both checked in but one has gone (a button for each).
+ */
+function NoShow({ m, names, onWalkover, absent, left }: { m: Match; names: Record<string, string>; onWalkover: (winner: string, absent: string, left?: boolean) => void; absent?: string; left?: boolean }) {
+  const full = (id: string) => names[id];
+  if (absent) {
+    const here = m.a === absent ? m.b! : m.a!;
+    return (
+      <div className="sheet-noshow">
+        <button className="btn ghost block" onClick={() => onWalkover(here, absent)}>
+          {full(absent)} didn’t come — {full(here)} wins (walkover)
+        </button>
+      </div>
+    );
+  }
+  if (!left || !m.a || !m.b) return null;
+  return (
+    <details className="sheet-noshow">
+      <summary>Someone left before playing?</summary>
+      <div className="row">
+        {([m.a, m.b] as const).map((gone) => {
+          const here = gone === m.a ? m.b! : m.a!;
+          return (
+            <button key={gone} className="btn ghost" onClick={() => onWalkover(here, gone, true)}>
+              {full(gone)} left — {full(here)} wins
+            </button>
+          );
+        })}
+      </div>
+    </details>
+  );
+}
+
 function MatchBody({ m, day, names, igns, hq, cmds, pendingText, onCheckIn, onClose }: Props & { m: Match }) {
   const all = day.matches;
   const st = matchState(m, day);
@@ -85,8 +119,9 @@ function MatchBody({ m, day, names, igns, hq, cmds, pendingText, onCheckIn, onCl
     const live = m.status === 'live';
     if (await askConfirm(live ? `Cancel ${no(m)} and send it back to the queue?` : `Undo the result of ${no(m)}? The score is cleared too.`, { ok: live ? 'Cancel match' : 'Undo result', danger: true })) act({ type: 'match.undo', base: cmds.base, matchId: m.id });
   };
-  const walkoverTo = async (winner: string, absent: string) => {
-    if (await askConfirm(`${names[absent]} is a no-show? ${names[winner]} advances by walkover.`, { ok: 'Walkover' })) finish(winner, { walkover: true });
+  const walkoverTo = async (winner: string, absent: string, left = false) => {
+    const q = left ? `${names[absent]} checked in but isn’t here to play? ${names[winner]} wins by walkover.` : `${names[absent]} didn’t come? ${names[winner]} wins by walkover — ${names[absent]} stays “not checked in”.`;
+    if (await askConfirm(q, { ok: 'Walkover' })) finish(winner, { walkover: true });
   };
 
   const total = roundCount(all);
@@ -194,6 +229,7 @@ function MatchBody({ m, day, names, igns, hq, cmds, pendingText, onCheckIn, onCl
               })}
             </div>
             {!anyFree && <p className="hint warn">Every station is busy. Finish or cancel a live match first, or raise the station count on the Queue tab.</p>}
+            <NoShow m={m} names={names} onWalkover={walkoverTo} left />
           </>
         )}
 
@@ -226,16 +262,9 @@ function MatchBody({ m, day, names, igns, hq, cmds, pendingText, onCheckIn, onCl
             })}
             {!hq && st.missing.some((id) => playerOf(id)?.phone || playerOf(id)?.phoneEnd) && <p className="hint">Check them in to see {st.missing.length === 2 ? 'their numbers' : 'their number'}.</p>}
             {st.kind === 'one-missing' ? (
-              (() => {
-                const here = m.a === st.missing[0] ? m.b! : m.a!;
-                return (
-                  <button className="link" onClick={() => walkoverTo(here, st.missing[0])}>
-                    No-show? Walkover → {names[here].split(' ')[0]}
-                  </button>
-                );
-              })()
+              <NoShow m={m} names={names} onWalkover={walkoverTo} absent={st.missing[0]} />
             ) : (
-              <p className="hint">Both missing has no agreed walkover rule — check one of them in, or wait.</p>
+              <p className="hint">If one of them is here, check that one in — then you can give them the win by walkover. Don’t check in someone who isn’t here.</p>
             )}
           </>
         )}
