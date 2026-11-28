@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react';
-import { canUndo, matchNo, matchTitle, roundCount, roundName } from '../lib/bracket.ts';
+import { canUndo, currentRound, matchNo, matchTitle, roundCount, roundName } from '../lib/bracket.ts';
 import type { Command } from '../lib/commands.ts';
 import { onSpotByPlayer } from '../lib/onspot.ts';
 import { feederOf, KIND_INFO, matchState, playedFor, stationSlots, telFor, undoBlockedBy, type MatchKind } from '../lib/day-ui.ts';
@@ -90,6 +90,8 @@ function MatchBody({ m, day, names, igns, hq, cmds, pendingText, onCheckIn, onCl
   };
 
   const total = roundCount(all);
+  const playing = currentRound(all);
+  const early = playing !== null && m.round > playing ? playing : null; // the round still being played, when this match is a later one
   const player = (id: string | null, side: 0 | 1) => {
     if (id) {
       const done = m.status === 'done';
@@ -180,6 +182,7 @@ function MatchBody({ m, day, names, igns, hq, cmds, pendingText, onCheckIn, onCl
       <fieldset className="sheet-actions" disabled={!!pend}>
         {st.kind === 'ready' && (
           <>
+            {early !== null && <p className="hint">{roundName(early, total)} isn’t finished yet, so Up next is holding this one. You can still call it now.</p>}
             <div className="label">Call to station</div>
             <div className="sheet-stations">
               {free.map(({ station, live }) => {

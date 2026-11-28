@@ -245,9 +245,32 @@ export interface QueueItem {
   since: string; // when both players became available
 }
 
+/** The round Up next calls from: the earliest with a match still to play (byes don't count); null once every match is played. */
+export function currentRound(matches: Match[]): number | null {
+  const open = matches.filter((m) => !m.bye && m.status !== 'done');
+  return open.length ? Math.min(...open.map((m) => m.round)) : null;
+}
+
+export interface RoundProgress {
+  round: number;
+  done: number; // played (byes left out)
+  live: number;
+  total: number; // real matches in the round
+}
+
+/** Each round with real matches in it: how many are played, being played, and in all — for the progress strip. */
+export function roundProgress(matches: Match[]): RoundProgress[] {
+  return Array.from({ length: roundCount(matches) }, (_, round) => {
+    const real = matches.filter((m) => m.round === round && !m.bye);
+    return { round, done: real.filter((m) => m.status === 'done').length, live: real.filter((m) => m.status === 'live').length, total: real.length };
+  }).filter((r) => r.total > 0);
+}
+
 export interface Queue {
   live: Match[];
-  ready: QueueItem[]; // both players checked in, not playing — call these next, in order
+  ready: QueueItem[]; // both players checked in, not playing, in the round being played — call these next, in order
+  held: QueueItem[]; // ready too, but in a later round: Up next waits until `round` is finished (HQ / the admin can still start one from the bracket)
+  round: number | null; // the round being played (currentRound)
   waiting: { match: Match; missing: string[] }[]; // opponent known but someone hasn't checked in
   upcoming: Match[]; // waiting on another match's result
   freeStations: number[];
@@ -256,8 +279,9 @@ export interface Queue {
 
 /**
  * Who should play next. A match is ready when both players are known and checked in.
- * Ready matches are called earliest round first (keeps the bracket moving evenly),
- * then by who has been waiting longest, then bracket order.
+ * Rounds are played one at a time: only the round being played (the earliest with a match left) is
+ * suggested; ready matches of later rounds wait in `held` until it is finished. Within the round, who
+ * has been waiting longest goes first, then bracket order.
  */
 export function computeQueue(day: MatchDay): Queue {
   const { matches, checkIn } = day;
@@ -270,10 +294,13 @@ export function computeQueue(day: MatchDay): Queue {
   const live = matches.filter((m) => m.status === 'live').sort((x, y) => (x.station ?? 0) - (y.station ?? 0));
   const busy = new Set(live.flatMap((m) => [m.a, m.b]));
   const open = matches.filter((m) => m.status === 'pending' && m.a && m.b);
-  const ready = open
+  const round = currentRound(matches);
+  const candidates = open
     .filter((m) => checkIn[m.a!] && checkIn[m.b!] && !busy.has(m.a) && !busy.has(m.b))
     .map((match) => ({ match, since: [availableSince(match.a!), availableSince(match.b!)].sort().pop()! }))
     .sort((x, y) => x.match.round - y.match.round || x.since.localeCompare(y.since) || x.match.index - y.match.index);
+  const ready = candidates.filter((x) => x.match.round === round);
+  const held = candidates.filter((x) => x.match.round !== round);
   const waiting = open
     .filter((m) => !checkIn[m.a!] || !checkIn[m.b!])
     .map((match) => ({ match, missing: [match.a!, match.b!].filter((p) => !checkIn[p]) }));
@@ -283,5 +310,5 @@ export function computeQueue(day: MatchDay): Queue {
   const freeStations = Array.from({ length: day.stations }, (_, i) => i + 1).filter((s) => !used.has(s));
   const final = matches.find((m) => m.round === roundCount(matches) - 1);
 
-  return { live, ready, waiting, upcoming, freeStations, champion: final?.winner ?? null };
+  return { live, ready, held, round, waiting, upcoming, freeStations, champion: final?.winner ?? null };
 }

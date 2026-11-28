@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { applyCommand, CommandError, dayVersion, validateCommand, type Command, type CommandContext } from '../src/lib/commands.ts';
 import { differentName, onSpotClash } from '../src/lib/tournament.ts';
 import { playerIdFor } from '../src/lib/phone.ts';
-import { computeQueue, nextOf, seedOrder, nextPow2 } from '../src/lib/bracket.ts';
+import { computeQueue, currentRound, nextOf, roundProgress, seedOrder, nextPow2 } from '../src/lib/bracket.ts';
 import type { Match, Player, Store, TournamentEvent } from '../src/lib/types.ts';
 
 const event: TournamentEvent = { id: 'e1', name: 'Test Cup', date: '2026-10-23', games: [], collateral: [], gameReadyTarget: 0, minDownMbps: 0, createdAt: '2026-10-01T00:00:00.000Z' };
@@ -883,4 +883,56 @@ test('validateCommand: bracket.label needs 1–512 well-formed Toornament matche
   for (const bad of [undefined, null, [], 'x', Array.from({ length: 513 }, () => ok), [{ ...ok, label: '1.1.2' }], [{ ...ok, round: -1 }], [{ ...ok, id: '' }]])
     assert.throws(() => validateCommand({ type: 'bracket.label', base: 3, toornament: bad }), CommandError, JSON.stringify(bad)?.slice(0, 60));
   assert.throws(() => validateCommand({ type: 'bracket.label', toornament: [ok] }), CommandError, 'base is required');
+});
+
+test('rounds go one at a time: Up next holds a ready later-round match until the round is finished', () => {
+  // 8 players, 4 stations: round 1 is M1–M4.
+  let s = loaded(8, 4);
+  const r0 = [0, 1, 2, 3].map((i) => m(s, 0, i).id);
+  const go = (id: string, station: number) => (s = run(s, { type: 'match.start', base: dayVersion(s), matchId: id, station }));
+  const win = (id: string) => {
+    const x = byId(s, id);
+    s = run(s, { type: 'match.finish', base: dayVersion(s), matchId: id, winner: seedOf(s, x.a) < seedOf(s, x.b) ? x.a! : x.b! });
+  };
+  go(r0[0], 1);
+  go(r0[1], 2);
+  go(r0[2], 3);
+  win(r0[0]);
+  win(r0[1]); // the winners of M1 and M2 meet in round 2: ready, but round 1 still has M3 live and M4 to play
+  let q = computeQueue(s.day);
+  assert.equal(q.round, 0);
+  assert.deepEqual(q.ready.map((x) => x.match.id), [r0[3]], 'only round 1 is suggested');
+  assert.deepEqual(q.held.map((x) => x.match.id), [m(s, 1, 0).id], 'round 2 waits');
+  // a no-show in round 1 holds round 2 too
+  s = { ...s, day: { ...s.day, checkIn: Object.fromEntries(Object.entries(s.day.checkIn).filter(([pid]) => pid !== byId(s, r0[3]).a)) } };
+  q = computeQueue(s.day);
+  assert.deepEqual(q.ready, []);
+  assert.equal(q.held.length, 1);
+  assert.equal(currentRound(s.day.matches), 0);
+  // HQ / the admin can still start the held match by hand
+  go(m(s, 1, 0).id, 4);
+  assert.equal(byId(s, m(s, 1, 0).id).status, 'live');
+  // once round 1 is done, round 2 is what Up next calls
+  s = checkAll(s);
+  go(r0[3], 1);
+  win(r0[2]);
+  win(r0[3]);
+  q = computeQueue(s.day);
+  assert.equal(q.round, 1);
+  assert.deepEqual(q.ready.map((x) => x.match.id), [m(s, 1, 1).id]);
+  assert.deepEqual(q.held, []);
+  assert.deepEqual(roundProgress(s.day.matches), [
+    { round: 0, done: 4, live: 0, total: 4 },
+    { round: 1, done: 0, live: 1, total: 2 },
+    { round: 2, done: 0, live: 0, total: 1 },
+  ]);
+});
+
+test('round progress leaves byes out; the current round skips a round of only byes and is null when all is played', () => {
+  const s = loaded(5, 4); // 8-slot bracket: 3 byes in round 1, one real match
+  const p = roundProgress(s.day.matches);
+  assert.deepEqual(p[0], { round: 0, done: 0, live: 0, total: 1 });
+  assert.equal(currentRound(s.day.matches), 0);
+  const allDone = s.day.matches.map((x) => ({ ...x, status: 'done' as const }));
+  assert.equal(currentRound(allDone), null);
 });
