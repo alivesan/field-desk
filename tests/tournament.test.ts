@@ -206,7 +206,7 @@ test('finish preconditions: winner must be a participant; done can’t be finish
   rejects(() => run(s, { type: 'match.undo', base: 0, matchId: m(s, 1, 0).id }), 'conflict', /no result to undo/);
 });
 
-test('walkover: pending match, winner checked in and opponent not; both absent → no walkover', () => {
+test('walkover: pending match, winner checked in (the opponent absent, or checked in and gone); both absent → no walkover; nobody is checked in by it', () => {
   const base = loaded(4, 2);
   const x = m(base, 0, 0);
   const only = (ids: string[]): Store => ({ ...base, day: { ...base.day, checkIn: Object.fromEntries(ids.map((p) => [p, 't'])) } });
@@ -215,7 +215,12 @@ test('walkover: pending match, winner checked in and opponent not; both absent �
   assert.equal(byId(s, x.id).status, 'done');
   assert.equal(m(s, 1, 0).a, x.a);
   rejects(() => run(only([]), { type: 'match.finish', base: 0, matchId: x.id, winner: x.a!, walkover: true }), 'conflict', /hasn’t checked in/);
-  rejects(() => run(only([x.a!, x.b!]), { type: 'match.finish', base: 0, matchId: x.id, winner: x.a!, walkover: true }), 'conflict', /play the match instead/);
+  assert.equal(s.day.checkIn[x.b!], undefined, 'the no-show stays not checked in');
+  // checked in, then left before playing: the one still here can take it by walkover too
+  const gone = run(only([x.a!, x.b!]), { type: 'match.finish', base: 0, matchId: x.id, winner: x.a!, walkover: true });
+  assert.deepEqual([byId(gone, x.id).winner, byId(gone, x.id).walkover], [x.a, true]);
+  // without the walkover flag a pending match still has to be called first
+  rejects(() => run(only([x.a!, x.b!]), { type: 'match.finish', base: 0, matchId: x.id, winner: x.a! }), 'conflict', /call it to a station first/);
   // undo a walkover clears the flag
   const u = run(s, { type: 'match.undo', base: 0, matchId: x.id });
   assert.equal(byId(u, x.id).walkover, undefined);

@@ -635,11 +635,11 @@ function finish(day: MatchDay, cmd: Extract<Command, { type: 'match.finish' }>, 
   if (cmd.winner !== m.a && cmd.winner !== m.b) throw conflict(`${who(day, cmd.winner)} isn’t playing in ${L} (${pairing(day, m)}).`);
   const score = typeof cmd.score === 'string' ? cmd.score.trim() : '';
   if (score.length > 40) throw invalid('Keep the score short (40 characters).');
-  const loser = cmd.winner === m.a ? m.b : m.a;
   if (m.status === 'pending') {
     if (!cmd.walkover) throw conflict(`${L} hasn’t started — call it to a station first.`);
+    // The winner must be here. The other may be checked in and gone (left before playing): the desk confirms that on screen,
+    // so nobody has to check in an absent player — or keep a gone one "here" — to get the result recorded.
     if (!day.checkIn[cmd.winner]) throw conflict(`${who(day, cmd.winner)} hasn’t checked in, so can’t advance by walkover.`);
-    if (day.checkIn[loser]) throw conflict(`${who(day, loser)} has checked in — play the match instead of a walkover.`);
   }
   const done: Match = { ...m, winner: cmd.winner, status: 'done', endedAt: ctx.now, score, walkover: !!cmd.walkover };
   if (!done.walkover) delete done.walkover;

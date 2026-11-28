@@ -1068,14 +1068,18 @@ function QueueView({
                     ))}
                     {present ? (
                       <button
-                        className="link"
-                        onClick={async () => (await askConfirm(`${names[missing[0]]} is a no-show? ${names[present]} advances by walkover.`, { ok: 'Walkover' })) && win(m, present, { walkover: true })}
+                        className="btn ghost"
+                        onClick={async () =>
+                          (await askConfirm(`${names[missing[0]]} didn’t come? ${names[present]} wins by walkover — ${names[missing[0]]} stays “not checked in”.`, { ok: 'Walkover' })) && win(m, present, { walkover: true })
+                        }
                       >
-                        Walkover → {names[present].split(' ')[0]}
+                        No-show: {names[present].split(' ')[0]} wins
                       </button>
                     ) : (
                       // Double no-show has no agreed policy yet (audit §6.4) — no fake walkover here.
-                      <span className="label warn">Both players missing</span>
+                      <span className="label warn" title="Check in whoever is here, then give them the walkover">
+                        Both players missing
+                      </span>
                     )}
                   </span>
                 </li>
