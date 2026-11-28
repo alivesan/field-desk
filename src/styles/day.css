@@ -1168,3 +1168,88 @@ fieldset.sheet-actions[disabled] {
     display: none;
   }
 }
+
+/* ---------- queue: round progress strip + matches held for the next round ---------- */
+
+.rstrip {
+  margin: 0 0 20px;
+}
+.rstrip-line {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.rstrip-line strong {
+  font-weight: 500;
+  color: var(--ink);
+}
+.rstrip-rounds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rstrip-round {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  min-width: 64px;
+  padding: 6px 10px 9px;
+  border: 1px solid var(--rule);
+  font: 500 12px/1.2 var(--mono);
+  overflow: hidden;
+}
+.rstrip-round span {
+  font-weight: 400;
+  color: var(--ink-2);
+}
+.rstrip-round i {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: calc(var(--p, 0) * 100%);
+  background: var(--ink-2);
+}
+.rstrip-round.now {
+  border-color: var(--accent);
+}
+.rstrip-round.now i {
+  background: var(--accent);
+}
+.rstrip-round.done {
+  background: var(--paper-2);
+  color: var(--ink-2);
+}
+.rstrip-round.done span {
+  color: var(--ok);
+}
+.rstrip-round.done i {
+  background: var(--ok);
+}
+.rstrip-round.later {
+  color: var(--muted);
+}
+.qheld {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px dashed var(--rule);
+}
+.qheld ul {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.qheld em {
+  font-style: normal;
+  color: var(--muted);
+}
+.qheld .hint {
+  margin: 0;
+}

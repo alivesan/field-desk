@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { SteamCard } from '../components/SteamCard.tsx';
 import { discardWork, retryWork, sendCommand, updateStore, useApp, usePendingWork, useSync, type PendingWork } from '../lib/db.ts';
 import { storeCrumbs } from '../lib/admins.ts';
-import { computeQueue, matchNo, matchTitle, roundCount, roundName } from '../lib/bracket.ts';
+import { computeQueue, matchNo, matchTitle, roundCount, roundName, roundProgress, type RoundProgress } from '../lib/bracket.ts';
 import {
   checkInUrl,
   closeSelfCheckIn,
@@ -963,9 +963,14 @@ function QueueView({
     );
   };
 
+  const progress = roundProgress(day.matches);
+  const now = q.round === null ? undefined : progress.find((r) => r.round === q.round);
+  const left = progress.reduce((n, r) => n + r.total - r.done, 0);
+
   return (
     <div className="queue">
       {banner()}
+      {progress.length > 0 && <RoundStrip progress={progress} current={q.round} total={total} left={left} />}
       <section>
         <div className="qhead">
           <h2>Stations</h2>
@@ -1039,7 +1044,22 @@ function QueueView({
             ))}
           </ol>
         ) : (
-          <p className="empty">No match has both players here yet.</p>
+          <p className="empty">{q.held.length && now ? `Nothing left to call in ${roundLabel(now.round, total)} — ${plural(now.total - now.done, 'match', 'matches')} still to finish.` : 'No match has both players here yet.'}</p>
+        )}
+        {q.held.length > 0 && now && (
+          <div className="qheld">
+            <span className="label">
+              Waiting for {roundLabel(now.round, total)} to finish · {plural(q.held.length, 'match', 'matches')} ready
+            </span>
+            <ul>
+              {q.held.map(({ match: m }) => (
+                <li key={m.id}>
+                  <span className="label">{label(m)}</span> {n(m.a)} <em>vs</em> {n(m.b)}
+                </li>
+              ))}
+            </ul>
+            <p className="hint">Rounds go one at a time. To start one of these early anyway, tap it on the Bracket tab.</p>
+          </div>
         )}
       </section>
 
@@ -1130,6 +1150,40 @@ const WireSample = ({ tone }: { tone: WireTone }) => (
 );
 
 /** The key above the chart: one entry per state a match card can be in, drawn exactly as on the cards. Collapsible, and remembers it on this device. */
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+/** "Round 1", "Round 2"… then "Quarterfinals", "Semifinals", "Final". */
+const roundLabel = (r: number, total: number) => (total - r <= 3 ? roundName(r, total) : `Round ${r + 1}`);
+
+/** At a glance on the queue: each round done / being played / to come, and how many matches are left in all. */
+function RoundStrip({ progress, current, total, left }: { progress: RoundProgress[]; current: number | null; total: number; left: number }) {
+  const now = progress.find((r) => r.round === current);
+  return (
+    <section className="rstrip" aria-label="Rounds">
+      <p className="rstrip-line">
+        {now ? (
+          <>
+            <strong>{roundLabel(now.round, total)}</strong> · {now.done} of {now.total} played{now.live > 0 && ` · ${now.live} on now`} · <strong>{plural(left, 'match', 'matches')} left</strong> in all
+          </>
+        ) : (
+          <strong>Every match is played</strong>
+        )}
+      </p>
+      <ol className="rstrip-rounds">
+        {progress.map((r) => {
+          const state = r.done === r.total ? 'done' : r.round === current ? 'now' : 'later';
+          return (
+            <li key={r.round} className={cx('rstrip-round', state)} title={`${roundLabel(r.round, total)}: ${r.done} of ${r.total} played`}>
+              <b>{roundShort(r.round, total)}</b>
+              <span>{state === 'done' ? '✓' : `${r.done}/${r.total}`}</span>
+              <i style={{ ['--p' as string]: r.done / r.total }} />
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
 function BracketLegend() {
   const [open, setOpen] = useState(() => {
     try {
